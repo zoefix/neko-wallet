@@ -609,12 +609,12 @@ fn draw_chains(f: &mut Frame, area: Rect, app: &App, name: &str, selected: usize
         } else {
             Style::default()
         };
-        // The native coin, so the two chains are told apart by what they hold
-        // rather than by name alone.
-        let suffix = format!("   {}", c.native_symbol());
+        // The chain's name alone. A ticker here was redundant - the assets
+        // screen one keypress away lists what is actually held - and a list
+        // this short reads better without it.
         lines.push(Line::from(vec![
             Span::raw(if sel { " > " } else { "   " }),
-            Span::styled(format!("{}{suffix}", c.label()), style),
+            Span::styled(c.label(), style),
         ]));
     }
     f.render_widget(Paragraph::new(lines), inner);
