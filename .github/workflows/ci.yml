@@ -50,21 +50,27 @@ jobs:
       - name: Build
         run: cargo build --workspace --locked
 
-      # Diagnostic, not a fix. macOS runs this same test binary in 128 KB of
-      # stack; Windows overflowed with 8 MB, which is 64x more and rules out
-      # "debug frames are fatter there". Single-threaded separates a genuine
-      # deep stack from pressure caused by many threads each reserving one,
-      # and a full backtrace names the frame if it really is depth. Allowed to
-      # fail so the rest of the matrix still reports.
-      - name: Diagnose the Windows stack overflow
+      # Bisect the Windows stack overflow. Stack size and parallelism are
+      # already ruled out: it still dies single-threaded with 16 MB, while the
+      # same binary needs 128 KB on macOS. The remaining difference between
+      # the platforms is the crypto provider - Windows is the only one that
+      # links a vendored OpenSSL into SQLCipher - so run each layer on its own
+      # and let the machine say which one it is. Each step is allowed to fail
+      # so one run answers all three questions.
+      - name: 'Bisect: Argon2 alone'
         if: runner.os == 'Windows'
         continue-on-error: true
-        run: |
-          echo "RUST_MIN_STACK=$env:RUST_MIN_STACK"
-          cargo test --locked -p neko-core --test assets_cache -- --test-threads=1 --nocapture
-        env:
-          RUST_MIN_STACK: 16777216
-          RUST_BACKTRACE: full
+        run: cargo test --locked -p neko-crypto -- --test-threads=1
+
+      - name: 'Bisect: SQLCipher alone'
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        run: cargo test --locked -p neko-store -- --test-threads=1
+
+      - name: 'Bisect: Argon2 + SQLCipher together (vault creation)'
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        run: cargo test --locked -p neko-vault -- --test-threads=1
 
       # Windows gives threads a far smaller default stack than Linux or macOS,
       # and a debug build's frames are several times fatter than a release
