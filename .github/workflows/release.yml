@@ -79,9 +79,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      # The runner image belongs in the cache key, not just the target. These
+      # builds compile C - OpenSSL and SQLCipher - and those objects are bound
+      # to the glibc of the image that produced them. A cache made on a newer
+      # image restored onto an older one links against symbols that do not
+      # exist there: the first attempt at this failed with an undefined
+      # `__isoc23_strtol`, which is glibc 2.38 leaking into a glibc 2.35 build.
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
+          key: ${{ matrix.os }}-${{ matrix.target }}
 
       # SQLCipher picks its crypto provider per platform: CommonCrypto on
       # macOS (nothing to install), system libcrypto on Linux, and vendored
