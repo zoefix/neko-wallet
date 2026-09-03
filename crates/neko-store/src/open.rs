@@ -45,10 +45,64 @@ fn apply_pragmas(conn: &Connection) -> Result<(), StoreError> {
         "PRAGMA journal_mode = DELETE;
          PRAGMA synchronous = FULL;
          PRAGMA foreign_keys = ON;
-         PRAGMA busy_timeout = 5000;
-         PRAGMA cipher_memory_security = ON;",
+         PRAGMA busy_timeout = 5000;",
     )?;
     Ok(())
+}
+
+/// Making SQLCipher's page locking survivable on Windows.
+///
+/// SQLCipher locks the memory holding key material so it cannot be written to
+/// the swap file. It does this inside `sqlcipher_malloc`, unconditionally -
+/// there is no runtime switch, only the `SQLCIPHER_OMIT_MEMLOCK` compile flag.
+/// (`PRAGMA cipher_memory_security` gates a *different* mechanism, a custom
+/// allocator that has to be installed via `sqlite3_config` before SQLite
+/// initializes; rusqlite does not do that, so the pragma reads back 0 and
+/// setting it achieves nothing. We used to set it, which was misleading.)
+///
+/// On Unix that locking is governed by `RLIMIT_MEMLOCK`: exceeding it makes
+/// `mlock` fail, SQLCipher logs it, and nothing else breaks.
+///
+/// On Windows `VirtualLock` is charged against the process **working set
+/// quota**, which starts around a megabyte. Exhausting that quota does not
+/// only fail the lock: every subsequent page commit fails too, including the
+/// one a thread makes when its stack grows - and Windows reports *that* as
+/// `STATUS_STACK_OVERFLOW`. The result is a crash that looks exactly like
+/// runaway recursion, in code that has none, and which a bigger stack does not
+/// help because the stack was never the problem.
+///
+/// Raising the quota once, before any connection is opened, is what makes the
+/// locking work rather than poison the process.
+mod memlock {
+    #[cfg(not(windows))]
+    pub fn prepare() {}
+
+    #[cfg(windows)]
+    pub fn prepare() {
+        use std::sync::Once;
+        static ONCE: Once = Once::new();
+        ONCE.call_once(|| {
+            // 64 MiB minimum: Argon2's arena alone is that big at the lowest
+            // profile, and the quota has to cover it as well as SQLCipher's
+            // locked pages.
+            const MIN_BYTES: usize = 64 * 1024 * 1024;
+            const MAX_BYTES: usize = 512 * 1024 * 1024;
+
+            // Declared by hand rather than adding a Windows bindings crate for
+            // two functions with no complicated types.
+            extern "system" {
+                fn GetCurrentProcess() -> isize;
+                fn SetProcessWorkingSetSize(process: isize, min: usize, max: usize) -> i32;
+            }
+            // SAFETY: both take plain integers, and the handle returned by
+            // `GetCurrentProcess` is a pseudo-handle that needs no closing.
+            // A failure is not fatal - it leaves the previous quota in place -
+            // so the return value is deliberately not acted on.
+            unsafe {
+                SetProcessWorkingSetSize(GetCurrentProcess(), MIN_BYTES, MAX_BYTES);
+            }
+        });
+    }
 }
 
 /// Force SQLCipher to derive the key and verify page 1's HMAC. Until a real
@@ -63,6 +117,7 @@ fn probe(conn: &Connection) -> Result<(), StoreError> {
 
 /// Open an existing vault. `header` must come from [`read_header`].
 pub fn open(path: &Path, key: &FileKey, header: &FileHeader) -> Result<Connection, StoreError> {
+    memlock::prepare();
     let conn = Connection::open(path)?;
     // 96-hex form: our independently-read salt is cross-checked by SQLCipher.
     conn.execute_batch(&keyspec_key_salt(key, header))?;
@@ -73,6 +128,7 @@ pub fn open(path: &Path, key: &FileKey, header: &FileHeader) -> Result<Connectio
 
 /// Create a new vault, writing `header` into bytes 0..16 of the file.
 pub fn create(path: &Path, key: &FileKey, header: &FileHeader) -> Result<Connection, StoreError> {
+    memlock::prepare();
     if path.exists() {
         return Err(StoreError::AlreadyExists(path.to_path_buf()));
     }

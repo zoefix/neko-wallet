@@ -281,3 +281,43 @@ fn keyspec_shapes_documented() {
     assert_eq!(KEY_HEX.len() + 32, 96, "key+salt keyspec is 96 hex chars");
     let _ = (HDR_HEX, HDR_FULL);
 }
+
+/// SQLCipher locks its key material with `mlock`/`VirtualLock` from inside
+/// `sqlcipher_malloc`, unconditionally. On Windows that is charged against the
+/// process working set quota, and exhausting the quota breaks page commits
+/// elsewhere - a thread stack growing then fails as `STATUS_STACK_OVERFLOW`,
+/// which is how this surfaced: a crash that looked like infinite recursion in
+/// code that has none.
+///
+/// So the vault must be openable repeatedly, with the key derivation that
+/// precedes it, without the process running out of quota. On Unix this is
+/// unremarkable; on Windows it is the regression test for that failure.
+#[test]
+fn repeated_opens_do_not_exhaust_the_page_lock_quota() {
+    let dir = tempfile::tempdir().unwrap();
+    let header = neko_vault::FileHeader::new(neko_vault::profile::TESTONLY).unwrap();
+    let stretched = neko_vault::keys::stretch(
+        "zoe@example.com",
+        "correct horse battery staple xyzzy",
+        &header,
+    )
+    .unwrap();
+    let key = neko_vault::keys::file_key(&stretched).unwrap();
+
+    // Several vaults, opened and reopened. One is not enough: the quota is
+    // consumed cumulatively, which is why the original failure hit whichever
+    // test happened to run after the others had used it up.
+    for i in 0..8 {
+        let path = dir.path().join(format!("v{i}.db"));
+        {
+            let conn = neko_store::open::create(&path, &key, &header).unwrap();
+            conn.execute_batch("CREATE TABLE t (x BLOB); INSERT INTO t VALUES (randomblob(4096));")
+                .unwrap();
+        }
+        let conn = neko_store::open::open(&path, &key, &header).unwrap();
+        let n: i64 = conn
+            .query_row("SELECT count(*) FROM t", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1, "vault {i} did not reopen cleanly");
+    }
+}
