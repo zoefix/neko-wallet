@@ -12,7 +12,7 @@
 
 use crate::error::CoreError;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ChainId {
     Tron,
     Bsc,

@@ -64,6 +64,7 @@ manual = "已锁定。"
 hint = "Enter 解锁   Ctrl-Q 退出"
 
 [wallets]
+col_value = "估值 (USDT)"
 col_num = "#"
 col_name = "名称"
 col_type = "类型"

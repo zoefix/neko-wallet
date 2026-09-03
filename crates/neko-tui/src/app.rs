@@ -105,6 +105,10 @@ pub struct App {
     pub bsc_api_key: Option<String>,
     pub balances: Option<Vec<(String, String)>>,
     pub balances_req: Option<ReqId>,
+    /// Native-coin prices, quoted on-chain. Empty until fetched, and never
+    /// guessed: an unknown price withholds a wallet's total rather than
+    /// silently leaving that holding out of it.
+    pub prices: neko_core::Prices,
     /// Shown on the unlock screen until dismissed. Used to tell the user
     /// that a previous update failed to start and can be rolled back.
     pub startup_warning: Option<String>,
@@ -154,6 +158,7 @@ impl App {
             bsc_api_key: std::env::var("NODEREAL_API_KEY").ok(),
             balances: None,
             balances_req: None,
+            prices: neko_core::Prices::default(),
             balances_error: None,
             inflight: None,
             viewport: (MIN_COLS, MIN_ROWS),
@@ -342,6 +347,11 @@ impl App {
                 res,
                 ..
             } => self.on_wallet_assets(wallet_id, chain, res),
+            AppEvent::Priced { chain, res, .. } => {
+                if let Ok(p) = res {
+                    self.prices.set_native(chain, p, now_secs());
+                }
+            }
             AppEvent::Balances { req, res } => {
                 if self.balances_req != Some(req) {
                     return; // a reply for an address we already navigated away from
@@ -979,6 +989,7 @@ impl App {
         if targets.is_empty() {
             return;
         }
+        self.fetch_prices(tx);
         self.assets_pending = targets.len();
         for (wallet_id, chain, address) in targets {
             let Ok(addr) = neko_core::ChainAddress::parse(chain, &address) else {
@@ -993,6 +1004,24 @@ impl App {
                 let _ = tx.send(crate::event::AppEvent::WalletAssets {
                     req: id,
                     wallet_id,
+                    chain,
+                    res,
+                });
+            });
+        }
+    }
+
+    /// One quote per chain, not per wallet: the price is a property of the
+    /// chain, and asking once is both faster and kinder to the node.
+    pub fn fetch_prices(&mut self, tx: &crate::keys::Sender) {
+        for chain in neko_core::CHAINS {
+            let id = self.next_req();
+            let client = self.chain_client(chain);
+            let tx = tx.clone();
+            tokio::spawn(async move {
+                let res = crate::chain::native_price(&client).await;
+                let _ = tx.send(crate::event::AppEvent::Priced {
+                    req: id,
                     chain,
                     res,
                 });
@@ -1056,4 +1085,11 @@ impl App {
             let _ = s.set_setting(neko_store::repo::settings::keys::LANGUAGE, l.tag());
         }
     }
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }

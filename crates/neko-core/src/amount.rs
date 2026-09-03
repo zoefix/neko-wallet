@@ -122,6 +122,34 @@ impl Amount {
         }
         format!("{sign}{grouped}.{frac}")
     }
+
+    /// Grouped, with at most `max_frac` decimal places.
+    ///
+    /// Eighteen decimals do not fit in a column and nobody reads them, but
+    /// simply cutting the string produces the one output a balance must never
+    /// have: `0.000000` for an account that is not empty. So a value that is
+    /// non-zero yet rounds away is shown as `<0.000001` - smaller than the
+    /// smallest figure this column can express, which is true and is not zero.
+    pub fn to_display_string_max(self, max_frac: u8) -> String {
+        if self.decimals <= max_frac {
+            return self.to_display_string();
+        }
+        let full = self.to_display_string();
+        let Some((int, frac)) = full.split_once('.') else {
+            return full;
+        };
+        let cut: String = frac.chars().take(max_frac as usize).collect();
+
+        let all_zero = int.trim_start_matches('-') == "0" && cut.chars().all(|c| c == '0');
+        if all_zero && self.raw != 0 {
+            let sign = if self.raw < 0 { "-" } else { "" };
+            return format!(
+                "{sign}<0.{}1",
+                "0".repeat(max_frac.saturating_sub(1) as usize)
+            );
+        }
+        format!("{int}.{cut}")
+    }
 }
 
 impl fmt::Display for Amount {
@@ -133,6 +161,70 @@ impl fmt::Display for Amount {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Eighteen decimals have to fit a column without ever reading as zero
+    /// when the account is not empty.
+    #[test]
+    fn capped_display_never_turns_a_balance_into_zero() {
+        // Fits: shown in full.
+        assert_eq!(
+            Amount::new(8_655_008, 6).to_display_string_max(6),
+            "8.655008"
+        );
+        assert_eq!(
+            Amount::new(50_000_000_000_000_000, 18).to_display_string_max(6),
+            "0.050000"
+        );
+        assert_eq!(
+            Amount::new(1_234_500_000_000_000_000_000, 18).to_display_string_max(6),
+            "1,234.500000"
+        );
+        // Zero really is zero.
+        assert_eq!(Amount::new(0, 18).to_display_string_max(6), "0.000000");
+
+        // Non-zero but below what the column can show: never "0.000000".
+        let dust = Amount::new(183_016_821, 18); // 0.000000000183016821
+        assert_ne!(dust.to_display_string_max(6), "0.000000");
+        assert_eq!(dust.to_display_string_max(6), "<0.000001");
+        assert_eq!(
+            Amount::new(-183_016_821, 18).to_display_string_max(6),
+            "-<0.000001"
+        );
+
+        // One unit below the threshold and one unit above it.
+        assert_eq!(
+            Amount::new(999_999_999_999, 18).to_display_string_max(6),
+            "<0.000001"
+        );
+        assert_eq!(
+            Amount::new(1_000_000_000_000, 18).to_display_string_max(6),
+            "0.000001"
+        );
+    }
+
+    /// The capped form must stay a prefix of the exact one, so a user
+    /// comparing the list against the send screen sees no contradiction.
+    #[test]
+    fn capped_display_agrees_with_the_exact_value() {
+        for raw in [
+            0i128,
+            1,
+            999,
+            50_000_000_000_000_000,
+            1_234_500_000_000_000_000_000,
+        ] {
+            let a = Amount::new(raw, 18);
+            let capped = a.to_display_string_max(6);
+            if capped.starts_with('<') {
+                continue;
+            }
+            let exact = a.to_display_string();
+            assert!(
+                exact.starts_with(&capped),
+                "{capped} is not a prefix of {exact}"
+            );
+        }
+    }
 
     #[test]
     fn parses_whole_and_fractional_values() {

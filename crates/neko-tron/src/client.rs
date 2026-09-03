@@ -259,6 +259,53 @@ impl TronGrid {
         Ok(be_u128(&hex_decode(raw)?))
     }
 
+    /// What one TRX is worth in USDT, quoted by SunSwap.
+    ///
+    /// From the chain itself rather than a price service. That keeps the one
+    /// property this wallet advertises - it talks to the node you point it at
+    /// and to nothing else - and a portfolio figure is not worth trading it
+    /// for. The cost is that the unit is USDT, not dollars: they track each
+    /// other closely but are not the same thing, and the interface says so.
+    pub async fn trx_price_in_usdt(&self) -> Result<u128, ChainError> {
+        let router = Address::parse(crate::SUNSWAP_ROUTER)
+            .map_err(|_| ChainError::Malformed("router address".into()))?;
+        let wtrx = Address::parse(crate::WTRX)
+            .map_err(|_| ChainError::Malformed("WTRX address".into()))?;
+        let usdt = crate::usdt_address();
+
+        // getAmountsOut(uint256, address[]): amount, then the offset, length
+        // and elements of a dynamic array.
+        let mut param = Vec::with_capacity(160);
+        param.extend_from_slice(&word_u128(10u128.pow(crate::TRX_DECIMALS as u32)));
+        param.extend_from_slice(&word_u128(0x40));
+        param.extend_from_slice(&word_u128(2));
+        param.extend_from_slice(&word_addr(wtrx));
+        param.extend_from_slice(&word_addr(usdt));
+
+        let v = self
+            .post(
+                "/wallet/triggerconstantcontract",
+                json!({
+                    "owner_address": router.to_hex(),
+                    "contract_address": router.to_hex(),
+                    "function_selector": "getAmountsOut(uint256,address[])",
+                    "parameter": hex_encode(&param),
+                }),
+            )
+            .await?;
+        let raw = v
+            .pointer("/constant_result/0")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ChainError::Malformed("no constant_result".into()))?;
+        let bytes = hex_decode(raw)?;
+        // offset, length, amounts[0], amounts[1] - the last is what one TRX
+        // buys.
+        if bytes.len() < 128 {
+            return Err(ChainError::Malformed("short getAmountsOut reply".into()));
+        }
+        Ok(be_u128(&bytes[96..128]))
+    }
+
     /// Ask the chain how much energy this exact transfer needs.
     ///
     /// Hardcoding is measurably wrong: a transfer to an address that already
@@ -475,6 +522,24 @@ fn hex_decode(s: &str) -> Result<Vec<u8>, ChainError> {
 /// Token balances never approach 2^128, so this cannot silently truncate in
 /// practice — and it never goes through f64, which would lose precision above
 /// ~9e15.
+/// An ABI word holding an unsigned integer, right-aligned.
+fn word_u128(v: u128) -> [u8; 32] {
+    let mut w = [0u8; 32];
+    w[16..].copy_from_slice(&v.to_be_bytes());
+    w
+}
+
+/// An ABI word holding an address.
+///
+/// The **twenty**-byte form: TRON's on-chain address carries a `0x41` prefix
+/// that must not appear in an ABI argument. Passing the 21-byte form produces
+/// a call against a different address entirely.
+fn word_addr(a: Address) -> [u8; 32] {
+    let mut w = [0u8; 32];
+    w[12..].copy_from_slice(&a.to_evm_bytes());
+    w
+}
+
 fn be_u128(b: &[u8]) -> u128 {
     let start = b.len().saturating_sub(16);
     let mut out = [0u8; 16];

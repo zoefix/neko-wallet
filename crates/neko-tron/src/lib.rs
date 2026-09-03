@@ -7,7 +7,9 @@ pub mod history;
 pub mod pb;
 pub mod tx;
 
-pub use chain_consts::{usdt_address, DEFAULT_URL, EXPLORER_TX, USDT_CONTRACT};
+pub use chain_consts::{
+    usdt_address, DEFAULT_URL, EXPLORER_TX, SUNSWAP_ROUTER, USDT_CONTRACT, WTRX,
+};
 pub use client::{EnergyEstimate, Prices, Resources, TronGrid};
 pub use error::TxError;
 pub use history::{Direction, HistoryEntry, TxStatus};

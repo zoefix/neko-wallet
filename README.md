@@ -24,8 +24,12 @@ Multi-chain by design; TRON works today.
 
 A crypto wallet that runs in your terminal. Keys live in a local, encrypted
 SQLite vault; there is no account to sign in to, no server that holds anything,
-and no sync. The only thing this program ever contacts is the chain node you
-point it at — no update check, no telemetry, no analytics.
+and no sync. The only things this program contacts are the chain nodes you
+point it at, and — only if you supply a key for it — one indexer for BNB Chain
+history. No update check, no telemetry, no analytics, and **no price service**:
+the portfolio figure in the wallet list is quoted from a swap pool on the chain
+itself, so showing it costs nothing in privacy. It is denominated in USDT
+rather than dollars, and says so, because that is what was actually quoted.
 
 It is built as **wallet → chain → assets** from the storage schema up. TRON is
 what works today; see [Chains](#chains).

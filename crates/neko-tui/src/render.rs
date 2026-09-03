@@ -425,12 +425,17 @@ fn draw_wallets(f: &mut Frame, area: Rect, app: &App, w: &WalletsState) {
                 width::pad(t(Key::Wallets_ColType), 10, Align::Left),
                 theme::hint(),
             ),
-            // Labelled per chain: "USDT" on its own no longer identifies a
-            // balance, since it exists on both with different precision.
-            Span::styled(width::pad("TRX", 14, Align::Right), theme::hint()),
-            Span::styled(width::pad("USDT/TRON", 14, Align::Right), theme::hint()),
-            Span::styled(width::pad("BNB", 14, Align::Right), theme::hint()),
-            Span::styled(width::pad("USDT/BSC", 14, Align::Right), theme::hint()),
+            // One figure, not four columns. Per-asset balances live one level
+            // down, where the chain is unambiguous; here the list is a chooser
+            // and a single total is what answers "which wallet".
+            //
+            // Headed USDT rather than USD on purpose: the price came from a
+            // swap pool on the chain itself, so the unit really is the
+            // stablecoin, and the two are not the same thing.
+            Span::styled(
+                width::pad(t(Key::Wallets_ColValue), VALUE_COL, Align::Right),
+                theme::hint(),
+            ),
             Span::styled(
                 width::pad(
                     &format!("  {}", t(Key::Wallets_ColUpdated)),
@@ -475,35 +480,7 @@ fn draw_wallets(f: &mut Frame, area: Rect, app: &App, w: &WalletsState) {
             ),
             Span::styled(width::pad(kind, 10, Align::Left), theme::hint()),
             Span::styled(
-                width::pad(
-                    &asset_cell(item, neko_core::ChainId::Tron, "TRX"),
-                    14,
-                    Align::Right,
-                ),
-                style,
-            ),
-            Span::styled(
-                width::pad(
-                    &asset_cell(item, neko_core::ChainId::Tron, "USDT"),
-                    14,
-                    Align::Right,
-                ),
-                style,
-            ),
-            Span::styled(
-                width::pad(
-                    &asset_cell(item, neko_core::ChainId::Bsc, "BNB"),
-                    14,
-                    Align::Right,
-                ),
-                style,
-            ),
-            Span::styled(
-                width::pad(
-                    &asset_cell(item, neko_core::ChainId::Bsc, "USDT"),
-                    14,
-                    Align::Right,
-                ),
+                width::pad(&value_cell(item, &app.prices), VALUE_COL, Align::Right),
                 style,
             ),
             Span::styled(
@@ -1652,16 +1629,38 @@ fn fmt_time(ms: i64) -> String {
     format!("{y:04}-{mth:02}-{d:02} {h:02}:{m:02}")
 }
 
-/// One asset's cached figure on one chain, or a placeholder when nothing has
-/// been fetched.
+/// Width of the estimated-value column.
+const VALUE_COL: usize = 18;
+
+/// A wallet's total, or a placeholder saying why there isn't one.
 ///
-/// The chain is a parameter because "USDT" alone is ambiguous now: it exists on
-/// both, with six decimals on TRON and eighteen on BNB Chain, and the two are
-/// not the same balance.
-fn asset_cell(item: &neko_core::WalletView, chain: neko_core::ChainId, symbol: &str) -> String {
-    match item.assets_on(chain).amount(symbol) {
-        Some((amount, decimals)) => neko_core::Amount::new(amount, decimals).to_display_string(),
-        None => "-".to_string(),
+/// Three states, and each says something different. A dash means no price has
+/// been fetched yet; `?` means a price is missing for something this wallet
+/// actually holds, so the total would understate it - and understating is the
+/// direction that makes somebody think they can afford a transfer they cannot.
+fn value_cell(item: &neko_core::WalletView, prices: &neko_core::Prices) -> String {
+    if prices.is_empty() {
+        return "-".to_string();
+    }
+    // Nothing has ever been fetched for this wallet. `total` of no holdings is
+    // zero, and zero would claim the wallet is empty - which is a different
+    // statement from "not looked yet", and the wrong one to make about
+    // somebody's funds.
+    if item.assets.iter().all(|(_, a)| a.rows.is_empty()) {
+        return "-".to_string();
+    }
+    let holdings: Vec<_> = item
+        .assets
+        .iter()
+        .flat_map(|(chain, a)| {
+            a.rows
+                .iter()
+                .map(move |r| (*chain, r.symbol.as_str(), r.amount, r.decimals))
+        })
+        .collect();
+    match neko_core::value::total(holdings, prices) {
+        Some(v) => v.to_display_string_max(2),
+        None => "?".to_string(),
     }
 }
 

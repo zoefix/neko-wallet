@@ -99,6 +99,13 @@ pub enum AppEvent {
         chain: neko_core::ChainId,
         res: Result<Vec<(String, u8, i128)>, String>,
     },
+    /// One chain's native-coin price, quoted on that chain.
+    Priced {
+        req: ReqId,
+        chain: neko_core::ChainId,
+        /// Already normalised to `neko_core::PRICE_SCALE`.
+        res: Result<i128, String>,
+    },
     /// Balances for the address currently on screen.
     Balances {
         req: ReqId,
@@ -115,6 +122,7 @@ impl std::fmt::Debug for AppEvent {
             AppEvent::Authorized { req, ok } => ("Authorized", req, *ok),
             AppEvent::Broadcast { req, res } => ("Broadcast", req, res.is_ok()),
             AppEvent::History { req, res } => ("History", req, res.is_ok()),
+            AppEvent::Priced { req, res, .. } => ("Priced", req, res.is_ok()),
             AppEvent::WalletAssets { req, res, .. } => ("WalletAssets", req, res.is_ok()),
             AppEvent::Balances { req, res } => ("Balances", req, res.is_ok()),
         };

@@ -64,6 +64,7 @@ manual = "ロックしました。"
 hint = "Enter ロック解除   Ctrl-Q 終了"
 
 [wallets]
+col_value = "評価額 (USDT)"
 col_num = "#"
 col_name = "名前"
 col_type = "種別"

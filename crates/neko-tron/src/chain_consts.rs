@@ -19,9 +19,25 @@ pub fn usdt_address() -> Address {
     Address::parse(USDT_CONTRACT).expect("built-in USDT address must parse")
 }
 
+/// SunSwap V2 router, used only to quote a price - never to trade.
+pub const SUNSWAP_ROUTER: &str = "TKzxdSv2FZKQrEqkKVgp5DcwEXBEKMg2Ax";
+/// Wrapped TRX, the pair's other side.
+pub const WTRX: &str = "TNUC9Qb1rRpS5CbWLmNMxXBjyFoydXjWFR";
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A wrong router quotes a wrong price, and a wrong WTRX quotes a pair
+    /// that does not exist. Both must at least be well-formed addresses.
+    #[test]
+    fn the_price_pair_addresses_parse() {
+        assert_eq!(
+            Address::parse(SUNSWAP_ROUTER).unwrap().to_string(),
+            SUNSWAP_ROUTER
+        );
+        assert_eq!(Address::parse(WTRX).unwrap().to_string(), WTRX);
+    }
 
     #[test]
     fn usdt_address_round_trips() {

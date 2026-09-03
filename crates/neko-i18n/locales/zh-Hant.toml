@@ -64,6 +64,7 @@ manual = "已鎖定。"
 hint = "Enter 解鎖   Ctrl-Q 離開"
 
 [wallets]
+col_value = "估值 (USDT)"
 col_num = "#"
 col_name = "名稱"
 col_type = "類型"

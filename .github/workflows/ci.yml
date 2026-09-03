@@ -150,18 +150,29 @@ jobs:
             fi
           done
           echo "no self-update crates"
-      - name: The only host reachable is the TRON node
+      - name: Every outbound destination is one we have justified
         run: |
           set -euo pipefail
-          # Anything that is not the configurable node URL, an example in a
-          # doc comment, or the explorer link the wallet copies rather than
-          # opens, is a new outbound destination and wants justifying.
+          # The allowlist is the promise the README makes, kept honest by
+          # having to be edited deliberately whenever it changes:
+          #
+          #   trongrid.io, bsc-dataseed  the chain nodes, both configurable
+          #   nodereal.io               BNB Chain history, only when the user
+          #                             supplies a key; never contacted without
+          #   tronscan / bscscan        explorer links, copied for the user to
+          #                             open - this wallet never fetches them
+          #   my-node / x.example       examples in documentation
+          #
+          # Notably absent: any price service. Portfolio values are quoted from
+          # a swap pool on the chain already being talked to, so showing them
+          # costs no new destination.
           found="$(grep -rhoE 'https?://[a-zA-Z0-9._/-]+' crates/*/src \
                    | sort -u \
-                   | grep -vE 'trongrid\.io|my-node\.example|tronscan\.org' || true)"
+                   | grep -vE 'trongrid\.io|bsc-dataseed|nodereal\.io|tronscan\.org|bscscan\.com|my-node\.example|x\.example' || true)"
           if [ -n "$found" ]; then
             echo "::error::unexpected network destinations in the program:"
             printf '%s\n' "$found"
+            echo "If this is deliberate, add it here and update the README's claim."
             exit 1
           fi
-          echo "only the TRON node and the explorer link"
+          echo "only the chain nodes, the optional history indexer, and explorer links"

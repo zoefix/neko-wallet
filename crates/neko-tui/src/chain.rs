@@ -206,6 +206,49 @@ async fn bsc_quote(rpc: &neko_evm::client::Rpc, req: &TransferRequest) -> Result
     })
 }
 
+/// What one unit of the chain's native coin is worth, in USDT.
+///
+/// Quoted from a swap pool on the chain we are already connected to, so the
+/// wallet still talks to the node you point it at and to nothing else. The
+/// unit is USDT rather than dollars, and the interface says so: they track
+/// each other closely but are not the same thing, and this is a pool's spot
+/// price rather than a market average.
+/// Returned at [`neko_core::PRICE_SCALE`], **not** in the units the pool
+/// quoted.
+///
+/// The pools answer in their own chain's USDT, and that is six decimals on
+/// TRON and eighteen on BNB Chain. Storing either figure directly would value
+/// BNB a million million times too high - the same trap as the balances, and
+/// the reason the scale is normalised here, once, rather than at each use.
+pub async fn native_price(c: &Client) -> Result<i128, String> {
+    let (raw, quoted_decimals) = match c {
+        Client::Tron(t) => (
+            t.trx_price_in_usdt().await.map_err(|e| e.to_string())?,
+            neko_tron::USDT_DECIMALS,
+        ),
+        Client::Bsc { rpc, .. } => (
+            rpc.bnb_price_in_usdt().await.map_err(|e| e.to_string())?,
+            neko_evm::USDT_DECIMALS,
+        ),
+    };
+    Ok(rescale(
+        raw as i128,
+        quoted_decimals,
+        neko_core::PRICE_SCALE,
+    ))
+}
+
+/// Move a fixed-point figure between decimal scales.
+fn rescale(v: i128, from: u8, to: u8) -> i128 {
+    match to.cmp(&from) {
+        std::cmp::Ordering::Equal => v,
+        std::cmp::Ordering::Greater => v
+            .checked_mul(10i128.pow((to - from) as u32))
+            .unwrap_or(i128::MAX),
+        std::cmp::Ordering::Less => v / 10i128.pow((from - to) as u32),
+    }
+}
+
 pub async fn broadcast(c: &Client, raw: Vec<u8>) -> Result<String, String> {
     match c {
         Client::Tron(t) => t.broadcast(&raw).await.map_err(|e| e.to_string()),
@@ -323,5 +366,28 @@ pub async fn history(
                 })
                 .collect())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The failure this guards against valued BNB at a million million times
+    /// its price, because PancakeSwap quotes in eighteen decimals and TRON's
+    /// USDT has six.
+    #[test]
+    fn prices_are_normalised_to_one_scale() {
+        // 1 BNB = 723.586483 USDT, as PancakeSwap states it.
+        let pancake = 723_586_483_000_000_000_000i128;
+        assert_eq!(rescale(pancake, 18, 6), 723_586_483);
+
+        // SunSwap already speaks in six.
+        assert_eq!(rescale(330_255, 6, 6), 330_255);
+
+        // And the other direction, for completeness.
+        assert_eq!(rescale(1_000_000, 6, 18), 10i128.pow(18));
+        // Absurd input saturates rather than wrapping into a plausible price.
+        assert_eq!(rescale(i128::MAX, 6, 18), i128::MAX);
     }
 }

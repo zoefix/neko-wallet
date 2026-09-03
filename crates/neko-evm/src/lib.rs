@@ -10,6 +10,7 @@ pub mod chain_consts;
 pub mod client;
 pub mod error;
 pub mod history;
+pub mod price;
 pub mod rlp;
 pub mod tx;
 

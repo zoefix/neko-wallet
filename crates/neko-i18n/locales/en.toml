@@ -69,6 +69,7 @@ manual = "Locked."
 hint = "Enter unlock   Ctrl-Q quit"
 
 [wallets]
+col_value = "Value (USDT)"
 col_num = "#"
 col_name = "Name"
 col_type = "Type"

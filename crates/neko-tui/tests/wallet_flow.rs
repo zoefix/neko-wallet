@@ -543,15 +543,21 @@ async fn the_wallet_list_renders_cached_balances_without_the_network() {
         )
         .unwrap();
     app.refresh_wallets();
+    // Prices as if already quoted on-chain. The point of the test is that the
+    // figure comes from the cache and the arithmetic, with no network at all.
+    app.prices.set_native(neko_core::ChainId::Tron, 330_325, 1);
+    app.prices
+        .set_native(neko_core::ChainId::Bsc, 722_902_400, 1);
 
     let out = render(&app, 140, 30);
+    // 55,101.572000 TRX x 0.330325 + 17,476.654444 USDT = 35,678.03...
     assert!(
-        out.contains("55,101.572000"),
-        "cached TRX not shown:\n{out}"
+        out.contains("35,678."),
+        "the cached balances did not become a total:\n{out}"
     );
     assert!(
-        out.contains("17,476.654444"),
-        "cached USDT not shown:\n{out}"
+        !out.contains('?'),
+        "a total was withheld even though every holding could be priced:\n{out}"
     );
     // A cached figure presented as current would be a lie: the age is required.
     assert!(
@@ -608,10 +614,74 @@ async fn cached_balances_survive_relocking() {
     let ev = app.begin_unlock(false).unwrap().run();
     app.on_app_event(ev);
 
+    app.prices.set_native(neko_core::ChainId::Tron, 330_325, 1);
+    app.prices
+        .set_native(neko_core::ChainId::Bsc, 722_902_400, 1);
+
+    let out = render(&app, 140, 30);
+    // 1,234.56 USDT, priced at one, survives the lock and unlock.
+    assert!(
+        out.contains("1,234.56"),
+        "cache did not survive a relock:\n{out}"
+    );
+}
+
+/// A wallet nothing has been fetched for reads as unknown, not as empty.
+/// Those are different claims, and only one of them is true.
+#[tokio::test]
+async fn a_never_fetched_wallet_is_not_reported_as_empty() {
+    neko_i18n::set_locale(neko_i18n::Locale::English);
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = unlocked(dir.path());
+    add_ledger_wallet(&mut app, "fresh");
+    app.prices.set_native(neko_core::ChainId::Tron, 330_255, 1);
+    app.prices
+        .set_native(neko_core::ChainId::Bsc, 723_659_574, 1);
+
     let out = render(&app, 140, 30);
     assert!(
-        out.contains("1,234.560000"),
-        "cache did not survive a relock:\n{out}"
+        !out.contains("0.00"),
+        "a wallet with nothing fetched was valued at zero:\n{out}"
+    );
+}
+
+/// Before any price is known the column must say so, not show a zero. A wallet
+/// with funds reading "0.00" is the one output this figure must never have.
+#[tokio::test]
+async fn no_price_reads_as_unknown_not_as_zero() {
+    neko_i18n::set_locale(neko_i18n::Locale::English);
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = unlocked(dir.path());
+    add_ledger_wallet(&mut app, "w");
+    let id = match &app.screen {
+        Screen::Wallets(w) => w.items[0].id,
+        _ => panic!(),
+    };
+    app.session
+        .as_ref()
+        .unwrap()
+        .cache_assets(
+            id,
+            neko_core::ChainId::Tron,
+            &[("TRX".into(), 6, 55_101_572_000)],
+        )
+        .unwrap();
+    app.refresh_wallets();
+
+    let out = render(&app, 140, 30);
+    assert!(
+        !out.contains("0.00 "),
+        "a funded wallet was valued at zero before any price was known:\n{out}"
+    );
+
+    // A price for the wrong chain does not cover a holding on this one: the
+    // total is withheld rather than quietly leaving the TRX out.
+    app.prices
+        .set_native(neko_core::ChainId::Bsc, 722_902_400, 1);
+    let out = render(&app, 140, 30);
+    assert!(
+        out.contains('?'),
+        "an unpriceable holding was silently dropped from the total:\n{out}"
     );
 }
 
