@@ -1,0 +1,25 @@
+[package]
+name = "neko-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+tempfile = "3"
+neko-crypto = { path = "../neko-crypto" }
+neko-vault  = { path = "../neko-vault" }
+neko-store  = { path = "../neko-store" }
+neko-hd     = { path = "../neko-hd" }
+neko-tron   = { path = "../neko-tron" }
+rusqlite.workspace = true
+zeroize.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+neko-hd = { path = "../neko-hd" }
+neko-tron = { path = "../neko-tron" }
+hex.workspace = true
+tempfile = "3"
+rusqlite.workspace = true
+neko-vault = { path = "../neko-vault", features = ["dangerous-fast-kdf"] }

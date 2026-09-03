@@ -1,0 +1,22 @@
+[package]
+name = "neko-vault"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+# Enables a deliberately weak Argon2 profile so tests do not spend a second per
+# case. NEVER enable in a release build.
+dangerous-fast-kdf = []
+
+[dependencies]
+neko-crypto = { path = "../neko-crypto" }
+unicode-normalization.workspace = true
+zeroize.workspace = true
+thiserror.workspace = true
+sha2.workspace = true
+hex.workspace = true
+
+[dev-dependencies]
+neko-vault = { path = ".", features = ["dangerous-fast-kdf"] }

@@ -1,0 +1,66 @@
+{
+  "aadVariants": [
+    {
+      "column": "wrapped_mk",
+      "encoded": "000000057661756c740000000a777261707065645f6d6b00000000000000010000000100000000",
+      "extra": "",
+      "keyVer": 1,
+      "rowID": 1,
+      "table": "vault"
+    },
+    {
+      "column": "c",
+      "encoded": "000000026162000000016300000000000000010000000100000000",
+      "extra": "",
+      "keyVer": 1,
+      "rowID": 1,
+      "table": "ab"
+    },
+    {
+      "column": "bc",
+      "encoded": "000000016100000002626300000000000000010000000100000000",
+      "extra": "",
+      "keyVer": 1,
+      "rowID": 1,
+      "table": "a"
+    },
+    {
+      "column": "label_ct",
+      "encoded": "0000000777616c6c657473000000086c6162656c5f637400000b3a73ce2ff2000000070000000a65787472612d64617461",
+      "extra": "65787472612d64617461",
+      "keyVer": 7,
+      "rowID": 12345678901234,
+      "table": "wallets"
+    }
+  ],
+  "hardenedHMAC": "6a6a806753a5619fd0d7f42793aa474f1862f21c81ba1816b811399f044e3a95",
+  "kdf": {
+    "iters": 2,
+    "keyLen": 32,
+    "memKiB": 65536,
+    "par": 4
+  },
+  "kdfEncoded": "00010000000000020400000020",
+  "kek": "176dc0d6085c62d0eed57fe38f1d51c6ad6465acbd859f465816a4b766dd0c97",
+  "kekV2": "9f14e99d81818cde66368d6bf3b78f42c190388ebaf93896232dcc311ce1c104",
+  "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "mk": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+  "note": "由 Go 端生成，供浏览器端交叉验证。任何一项不符都意味着浏览器解不开服务器的密文。",
+  "password": "correct horse battery staple",
+  "pepper": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf",
+  "policyPubkey": "c5fa886b79acb066de74a72750e4820dc3ecf0ce806a22af91079395099642e1",
+  "policySeed": "3cdbf5b6d4fcf974c282068df5d624c962b518d87e4071cde94b0494ea4f5e5e",
+  "salt": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
+  "samplePolicy": "{\"version\":3,\"cold_address\":\"TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH\",\"gas_station\":\"TNYxHL2s6Wjpx86NRwhekYzc27p3oDYrk6\",\"max_tx_usdt\":\"100000000\",\"max_daily_usdt\":\"500000000\",\"max_tx_trx\":\"10000000\",\"max_daily_trx\":\"50000000\",\"max_gas_topup_trx\":\"20000000\",\"min_sweep_usdt\":\"5000000\"}",
+  "samplePolicySig": "fa04bb6a44e5edee1a891fa04cf2b6ed8a39b23f4407de5b89079d04dff9c364e268353157c9ac35d93d2647b4219cc8aaf85448fd7fe346338cd3aaa0e9a60e",
+  "sealed": "4f479a8cab1a60da46cbc49d27d6f4d08892b50bbdccf87726edbb138b747679d795d28f884546eeaa9c532f343aa229950fc02cb74f19d601f5eef7a8a59e0c85d8b4f56f1194be",
+  "sealedAADColumn": "wrapped_mk",
+  "sealedAADTable": "vault",
+  "subkeys": {
+    "tronvault/blind-index-v1": "156fec1493c8d4bff9dba2513fd4a4a6cb3372ba0f1c4a7b05ebcc8ce462216a",
+    "tronvault/data-key-v1": "078dc9b14a9c40cbf6bd9dcf8b669ccfbb29c3182569fbe02d88d7cd1ed6cc3b",
+    "tronvault/policy-key-v1": "3cdbf5b6d4fcf974c282068df5d624c962b518d87e4071cde94b0494ea4f5e5e",
+    "tronvault/seed-cold-v1": "bbc289b6033c4576c334095e33b0f89715090518b6434b4018d91950416e8e2e",
+    "tronvault/seed-hot-v1": "bcc10e557f3d7e15f5a0d1e8c16ba21c39b3f9a104901e947ea8fa103ac7f279"
+  }
+}

@@ -1,0 +1,31 @@
+[package]
+name = "neko-tui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+neko-core   = { path = "../neko-core" }
+neko-vault  = { path = "../neko-vault" }
+neko-store  = { path = "../neko-store" }
+neko-hd     = { path = "../neko-hd" }
+neko-tron   = { path = "../neko-tron" }
+neko-i18n   = { path = "../neko-i18n" }
+ratatui.workspace = true
+crossterm.workspace = true
+tokio.workspace = true
+futures-util.workspace = true
+unicode-width.workspace = true
+unicode-segmentation.workspace = true
+zeroize.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+neko-i18n = { path = "../neko-i18n" }
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "time"] }
+tempfile = "3"
+unicode-width.workspace = true
+
+[[example]]
+name = "balance_check"

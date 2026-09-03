@@ -1,0 +1,13 @@
+[package]
+name = "neko-i18n"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+sys-locale = "0.3"
+unicode-width.workspace = true
+
+[build-dependencies]
+toml = "0.9"

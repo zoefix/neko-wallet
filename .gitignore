@@ -1,0 +1,9 @@
+/target
+**/*.rs.bk
+*.db
+*.db-wal
+*.db-shm
+.DS_Store
+
+# Local Claude Code settings, not part of the project.
+.claude/

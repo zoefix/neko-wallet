@@ -1,0 +1,161 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # The day-0 risk in the plan: SQLCipher must build on all three platforms.
+  # Windows/MSVC is the hard one -- vendored OpenSSL is mandatory there and
+  # needs Perl + NASM. If this job cannot be made green, the packaging story
+  # has to change, so it runs before anything else is built on top.
+  test:
+    name: test (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macos-arm64,   os: macos-14 }
+          - { name: linux-x86_64,  os: ubuntu-22.04 }
+          - { name: windows-x86_64, os: windows-2022 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Linux links the system libcrypto. macOS needs nothing at all: SQLCipher
+      # selects CommonCrypto there and never touches OpenSSL.
+      - name: Install OpenSSL headers (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+
+      # Windows vendors OpenSSL from source. Strawberry Perl is preinstalled on
+      # the runner; NASM is not.
+      - name: Install NASM (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/setup-nasm@v1
+
+      - name: Build
+        run: cargo build --workspace --locked
+
+      - name: Test
+        run: cargo test --workspace --locked
+
+      # Proves SQLCipher is genuinely linked. Without this a silent fallback to
+      # plain SQLite would leave every "encrypted" vault in plaintext.
+      - name: Assert SQLCipher is linked
+        run: cargo test -p neko-store --test sqlcipher_contract -- --nocapture
+
+  # A vault created on one platform must open on the others. The crypto
+  # providers differ (CommonCrypto vs OpenSSL) even though the on-disk format
+  # is supposed to be identical -- so prove it rather than assume it.
+  cross-platform-file-format:
+    name: cross-platform .db compatibility
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-22.04, windows-2022]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install OpenSSL headers (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+      - name: Install NASM (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/setup-nasm@v1
+      - name: Portability acceptance test
+        run: cargo test -p neko-core --test vault_lifecycle -- db_file_is_portable --nocapture
+
+  lint:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y libssl-dev
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  # The install scripts are the first thing a new user runs, and they are the
+  # one part of this repository that never gets compiled. Each is at least
+  # parsed on the platform it targets.
+  installers:
+    name: install scripts (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check install.sh
+        if: runner.os == 'Linux'
+        run: |
+          sh -n install.sh
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck --shell=sh install.sh
+      - name: Check install.ps1
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path install.ps1), [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { $errors | ForEach-Object { $_.ToString() }; exit 1 }
+          Write-Host "install.ps1 parses"
+
+  # The program must never grow a way to update itself. This is the check that
+  # keeps that true: a wallet able to replace its own executable is a wallet
+  # with a remote code path into the machine holding the keys, and that is a
+  # property worth enforcing rather than remembering.
+  offline:
+    name: no self-update code
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: No self-replacement crates in the dependency tree
+        run: |
+          set -euo pipefail
+          tree="$(cargo tree -p neko-wallet -e normal)"
+          for crate in self-replace self_update minisign-verify; do
+            if printf '%s' "$tree" | grep -q "$crate "; then
+              echo "::error::$crate is back in the dependency tree"
+              exit 1
+            fi
+          done
+          echo "no self-update crates"
+      - name: The only host reachable is the TRON node
+        run: |
+          set -euo pipefail
+          # Anything that is not the configurable node URL, an example in a
+          # doc comment, or the explorer link the wallet copies rather than
+          # opens, is a new outbound destination and wants justifying.
+          found="$(grep -rhoE 'https?://[a-zA-Z0-9._/-]+' crates/*/src \
+                   | sort -u \
+                   | grep -vE 'trongrid\.io|my-node\.example|tronscan\.org' || true)"
+          if [ -n "$found" ]; then
+            echo "::error::unexpected network destinations in the program:"
+            printf '%s\n' "$found"
+            exit 1
+          fi
+          echo "only the TRON node and the explorer link"

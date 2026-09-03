@@ -1,0 +1,33 @@
+[package]
+name = "neko-store"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+neko-crypto = { path = "../neko-crypto" }
+neko-vault  = { path = "../neko-vault" }
+thiserror.workspace = true
+zeroize.workspace = true
+hex.workspace = true
+
+# SQLCipher crypto provider differs per platform (see plan):
+#   macOS   -> CommonCrypto, no OpenSSL, no external build deps
+#   Linux   -> system libcrypto
+#   Windows -> vendored OpenSSL is MANDATORY (needs Perl + NASM)
+[target.'cfg(all(not(windows), not(target_env = "musl")))'.dependencies]
+rusqlite = { workspace = true, features = ["bundled-sqlcipher"] }
+
+# A static musl build has no system libcrypto to link against, so OpenSSL has
+# to be vendored there too. Unverified until CI runs it, which is why the musl
+# leg of the release matrix is allowed to fail without blocking a release.
+[target.'cfg(target_env = "musl")'.dependencies]
+rusqlite = { workspace = true, features = ["bundled-sqlcipher-vendored-openssl"] }
+
+[target.'cfg(windows)'.dependencies]
+rusqlite = { workspace = true, features = ["bundled-sqlcipher-vendored-openssl"] }
+
+[dev-dependencies]
+tempfile = "3"
+neko-vault = { path = "../neko-vault", features = ["dangerous-fast-kdf"] }

@@ -1,0 +1,220 @@
+# Builds every supported target, then publishes the archives together with a
+# SHA256SUMS file and an Ed25519 signature over it.
+#
+# The install scripts are the only way to upgrade - neko-wallet has no
+# self-update, deliberately, because a wallet that can replace its own
+# executable is a wallet with a remote code path into the machine holding the
+# keys. These assets are therefore the entire distribution channel, and the
+# signature is what protects it. A checksum alone would only prove the bytes
+# arrived intact from whoever served them; the signature is what still holds if
+# this repository's account is compromised.
+#
+# Optional repository secret:
+#   RELEASE_SIGNING_KEY  - Ed25519 private key, 64 hex characters
+#
+# The matching public key belongs in `install.sh` (SIGNING_KEY_HEX), which
+# reaches the user over TLS from this repository rather than as a release
+# asset: a key served from the same place as the signature proves nothing.
+#
+# Without the secret the release still builds and publishes, with checksums but
+# no signature, and `install.sh` says as much before continuing.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The version the binary reports is what a user sees after installing, and
+  # the tag is what the install script downloads. If they disagree, every
+  # install silently delivers something other than what was asked for.
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Tag must match Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          crate="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
+          if [ "$tag" != "$crate" ]; then
+            echo "::error::tag says $tag but Cargo.toml says $crate"
+            exit 1
+          fi
+          echo "v$tag matches Cargo.toml"
+
+  build:
+    name: ${{ matrix.target }}
+    needs: version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,    target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+          - { os: macos-latest,     target: aarch64-apple-darwin }
+          # Cross-compiled from Apple silicon rather than built on a macos-13
+          # runner: the Apple SDK is universal, so this needs no extra setup,
+          # and the Intel runner pool queues for a long time.
+          - { os: macos-latest,     target: x86_64-apple-darwin }
+          - { os: windows-latest,   target: x86_64-pc-windows-msvc }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # SQLCipher picks its crypto provider per platform: CommonCrypto on
+      # macOS (nothing to install), system libcrypto on Linux, and vendored
+      # OpenSSL on Windows, which is built from source and needs NASM.
+      - name: OpenSSL headers (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libssl-dev
+      - name: NASM (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/setup-nasm@v1
+
+      - name: Build
+        shell: bash
+        run: cargo build --release --locked -p neko-wallet --target ${{ matrix.target }}
+
+      # tar.gz on every platform, Windows included: the install scripts unpack
+      # the archive themselves, so there is no reason to carry a second format.
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="neko-wallet-${{ matrix.target }}"
+          staging="$(mktemp -d)/$name"
+          mkdir -p "$staging"
+          if [ "${{ matrix.target }}" = "x86_64-pc-windows-msvc" ]; then
+            cp "target/${{ matrix.target }}/release/neko-wallet.exe" "$staging/"
+          else
+            cp "target/${{ matrix.target }}/release/neko-wallet" "$staging/"
+          fi
+          cp README.md LICENSE "$staging/"
+          tar -czf "$name.tar.gz" -C "$(dirname "$staging")" "$name"
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: neko-wallet-${{ matrix.target }}
+          path: neko-wallet-${{ matrix.target }}.tar.gz
+          retention-days: 1
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    # Mapped to env at the job level because the `secrets` context is not
+    # dependable inside a step-level `if`, while `env` is.
+    env:
+      SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      # A release missing a platform is worse than no release: those users are
+      # told there is no build for them, with no sign that anything broke.
+      - name: Require every target
+        run: |
+          set -euo pipefail
+          missing=0
+          for t in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
+                   aarch64-apple-darwin x86_64-apple-darwin x86_64-pc-windows-msvc; do
+            if [ ! -f "artifacts/neko-wallet-$t.tar.gz" ]; then
+              echo "::error::$t did not build"
+              missing=1
+            fi
+          done
+          [ "$missing" = 0 ]
+
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          cd artifacts
+          # Bare filenames, matching what the install scripts look up.
+          sha256sum *.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Install the signing library
+        if: env.SIGNING_KEY != ''
+        run: pip install --disable-pip-version-check "cryptography>=42"
+
+      - name: Sign the checksums
+        if: env.SIGNING_KEY != ''
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+          key = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(os.environ["SIGNING_KEY"]))
+          message = open("artifacts/SHA256SUMS", "rb").read()
+          open("artifacts/SHA256SUMS.sig", "w").write(key.sign(message).hex())
+          PY
+
+      # Verified against the key inside install.sh, because that is the only
+      # key any user will check the signature with. Signing with a key the
+      # installer does not trust would produce a release that looks signed and
+      # fails for everyone who installs it.
+      - name: Verify against the key the installer trusts
+        if: env.SIGNING_KEY != ''
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re, sys
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+          script = open("install.sh").read()
+          match = re.search(r'^SIGNING_KEY_HEX="([0-9a-fA-F]*)"', script, re.M)
+          if match is None:
+              sys.exit("install.sh has no SIGNING_KEY_HEX assignment to check against")
+          public = match.group(1)
+          if not public:
+              print("::warning::A signature is being published, but install.sh has an "
+                    "empty SIGNING_KEY_HEX, so no user will verify it. Put the public "
+                    "key in install.sh.")
+              sys.exit(0)
+
+          Ed25519PublicKey.from_public_bytes(bytes.fromhex(public)).verify(
+              bytes.fromhex(open("artifacts/SHA256SUMS.sig").read().strip()),
+              open("artifacts/SHA256SUMS", "rb").read(),
+          )
+          print("signature verifies against the key built into install.sh")
+          PY
+
+      - name: Check the checksums against the files
+        run: cd artifacts && sha256sum -c SHA256SUMS
+
+      - name: Note an unsigned release
+        if: env.SIGNING_KEY == ''
+        run: |
+          echo "::warning::RELEASE_SIGNING_KEY is not set; publishing with checksums but no signature."
+          # Single-quoted: backticks inside a double-quoted string would be
+          # run as a command substitution.
+          echo 'RELEASE_SIGNING_KEY is not set, so this release is unsigned.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'install.sh will verify the checksum, report the missing signature, and continue.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Set the secret and re-tag to publish a signed build.' >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/*.tar.gz
+            artifacts/SHA256SUMS
+            artifacts/SHA256SUMS.sig
+          fail_on_unmatched_files: false
+          generate_release_notes: true
