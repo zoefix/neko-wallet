@@ -120,8 +120,14 @@ jobs:
             exit 1
           }
 
+      # No `shell: bash` here, deliberately. On Windows that is Git Bash, and
+      # it puts its own /usr/bin at the front of PATH - which contains an MSYS
+      # perl that shadows Strawberry Perl. OpenSSL's Configure then runs under
+      # the wrong interpreter and dies on a missing module, while a check in
+      # any other step still reports Strawberry Perl, because that check is not
+      # running under Git Bash. The command needs no shell features, so the
+      # default (pwsh on Windows, bash elsewhere) is both simpler and correct.
       - name: Build
-        shell: bash
         run: cargo build --release --locked -p neko-wallet --target ${{ matrix.target }}
 
       # tar.gz on every platform, Windows included: the install scripts unpack
