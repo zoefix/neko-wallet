@@ -50,8 +50,24 @@ jobs:
       - name: Build
         run: cargo build --workspace --locked
 
+      # Windows gives threads a far smaller default stack than Linux or macOS,
+      # and a debug build's frames are several times fatter than a release
+      # build's. Together that overflowed the test thread inside Argon2. This
+      # raises the stack for the *test harness* only; it is a mitigation, not a
+      # diagnosis, which is why the release-mode job below exists to check what
+      # users actually run.
       - name: Test
         run: cargo test --workspace --locked
+        env:
+          RUST_MIN_STACK: 8388608
+
+      # The debug profile is not what anybody installs. Running the suite once
+      # in release on Windows is what turns "probably fine" into a fact - and
+      # it does it without RUST_MIN_STACK, so a genuine stack problem in the
+      # shipped configuration still fails here.
+      - name: Test in release (Windows)
+        if: runner.os == 'Windows'
+        run: cargo test --workspace --locked --release
 
       # Proves SQLCipher is genuinely linked. Without this a silent fallback to
       # plain SQLite would leave every "encrypted" vault in plaintext.

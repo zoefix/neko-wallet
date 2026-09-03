@@ -63,7 +63,19 @@ pub struct Calibration {
 /// Falls back to the weakest profile rather than failing: a slow machine should
 /// still be able to open a wallet.
 pub fn choose(budget: Duration, mem_cap_kib: Option<u32>) -> Result<Calibration, VaultError> {
-    let unit = measure_unit_cost()?;
+    Ok(select(measure_unit_cost()?, budget, mem_cap_kib))
+}
+
+/// The selection itself, given a measured cost. Pure, and therefore the part
+/// that can be tested without asking how fast the machine running the tests
+/// happens to be.
+///
+/// Keeping this separate is not tidiness. The obvious test - "a generous budget
+/// picks the strongest profile" - is only true on hardware fast enough for that
+/// to be so, and on a slow machine the *correct* answer is a weaker profile.
+/// Asserting it against a live measurement tests the CPU, not the code.
+pub fn select(unit_cost: f64, budget: Duration, mem_cap_kib: Option<u32>) -> Calibration {
+    let unit = unit_cost;
     let cap = mem_cap_kib.unwrap_or(u32::MAX);
 
     let mut best: Option<Calibration> = None;
@@ -84,10 +96,10 @@ pub fn choose(budget: Duration, mem_cap_kib: Option<u32>) -> Result<Calibration,
             }
         }
     }
-    Ok(best.unwrap_or(Calibration {
+    best.unwrap_or(Calibration {
         profile: profile::LIGHT,
         estimated: estimate(unit, &profile::LIGHT),
-    }))
+    })
 }
 
 /// Calibrate with the default budget and a cap of 25% of the machine's RAM.
@@ -100,22 +112,55 @@ pub fn recommend(total_ram_kib: Option<u64>) -> Result<Calibration, VaultError> 
 mod tests {
     use super::*;
 
+    /// Cost per (MiB x pass) on a machine fast enough for any profile.
+    const FAST: f64 = 0.00002;
+    /// ...and on one where even LIGHT blows a normal budget.
+    const GLACIAL: f64 = 1.0;
+
     #[test]
     fn a_generous_budget_selects_the_strongest_profile() {
-        let c = choose(Duration::from_secs(60), None).unwrap();
+        let c = select(FAST, Duration::from_secs(60), None);
         assert_eq!(c.profile.id, profile::PARANOID.id);
     }
 
     #[test]
     fn an_impossible_budget_still_yields_a_usable_profile() {
-        let c = choose(Duration::from_nanos(1), None).unwrap();
+        let c = select(FAST, Duration::from_nanos(1), None);
         assert_eq!(c.profile.id, profile::LIGHT.id, "must degrade, never fail");
+    }
+
+    /// The case the CI runners actually hit: hardware slow enough that the
+    /// strongest profile does not fit. Picking a weaker one is correct, and
+    /// must not be mistaken for a bug.
+    #[test]
+    fn slow_hardware_gets_a_weaker_profile_not_a_failure() {
+        let c = select(GLACIAL, DEFAULT_BUDGET, None);
+        assert_eq!(c.profile.id, profile::LIGHT.id);
+        assert!(profile::by_id(c.profile.id).is_some());
+    }
+
+    /// Between the extremes the choice must actually track the budget, or the
+    /// whole exercise is decoration.
+    #[test]
+    fn a_bigger_budget_never_picks_a_weaker_profile() {
+        let mut last = 0u32;
+        for ms in [1u64, 50, 100, 200, 400, 900, 2_000, 10_000, 60_000] {
+            let mem = select(0.0002, Duration::from_millis(ms), None)
+                .profile
+                .params
+                .mem_kib;
+            assert!(
+                mem >= last,
+                "raising the budget to {ms}ms weakened the choice"
+            );
+            last = mem;
+        }
     }
 
     /// A low-memory machine must never be handed a profile it cannot allocate.
     #[test]
     fn memory_cap_is_respected() {
-        let c = choose(Duration::from_secs(60), Some(200_000)).unwrap();
+        let c = select(FAST, Duration::from_secs(60), Some(200_000));
         assert!(
             c.profile.params.mem_kib <= 200_000,
             "picked {}",
@@ -127,7 +172,20 @@ mod tests {
     /// only the id, so an ad-hoc parameter set would be unopenable later.
     #[test]
     fn chosen_profile_is_always_from_the_frozen_table() {
-        let c = choose(Duration::from_millis(300), None).unwrap();
+        for unit in [FAST, 0.0002, 0.02, GLACIAL] {
+            for ms in [1u64, 900, 60_000] {
+                let c = select(unit, Duration::from_millis(ms), None);
+                assert!(profile::by_id(c.profile.id).is_some());
+                assert!(c.profile.params.validate().is_ok());
+            }
+        }
+    }
+
+    /// The measurement path still has to work end to end. It asserts only what
+    /// is true on every machine: something valid comes back.
+    #[test]
+    fn measuring_this_machine_yields_a_valid_profile() {
+        let c = choose(DEFAULT_BUDGET, None).unwrap();
         assert!(profile::by_id(c.profile.id).is_some());
         assert!(c.profile.params.validate().is_ok());
     }
