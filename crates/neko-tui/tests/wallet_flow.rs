@@ -1,6 +1,9 @@
 //! Wallet navigation and the recovery-phrase reveal, driven through the real
 //! state machine with a real vault.
 
+#[path = "sink.rs"]
+mod sink;
+
 use crossterm::event::{KeyCode, KeyEvent};
 use neko_tui::app::{App, Screen};
 use neko_tui::keys;
@@ -355,10 +358,7 @@ async fn copying_an_address_reports_honestly() {
     // through a file is what lets us assert the address actually arrived
     // rather than merely that some message appeared.
     let sink = dir.path().join("clip.txt");
-    app.clipboard = neko_tui::clipboard::Clipboard::Native {
-        program: "/usr/bin/tee".into(),
-        args: vec![sink.to_string_lossy().to_string()],
-    };
+    app.clipboard = sink::recorder(&sink);
     let Screen::Assets { address, .. } = &app.screen else {
         panic!("not on the assets screen")
     };
@@ -370,7 +370,7 @@ async fn copying_an_address_reports_honestly() {
     // the request had been "sent", and the assertion accepted that. Anything
     // that only checks for a message passes while the clipboard stays empty.
     assert_eq!(
-        std::fs::read_to_string(&sink).unwrap_or_default(),
+        sink::captured(&sink),
         address,
         "the address never reached the clipboard backend"
     );
@@ -393,10 +393,7 @@ async fn a_failed_copy_is_never_reported_as_success() {
     keys::on_key_wallets(&mut app, code(KeyCode::Enter), &channel());
     keys::on_key_chains(&mut app, code(KeyCode::Enter), &channel());
 
-    app.clipboard = neko_tui::clipboard::Clipboard::Native {
-        program: "/nonexistent/clipboard-helper".into(),
-        args: vec![],
-    };
+    app.clipboard = sink::broken();
     keys::on_key_assets(&mut app, key('y'), &channel());
 
     let t = &app

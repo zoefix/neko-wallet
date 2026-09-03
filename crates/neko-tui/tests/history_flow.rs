@@ -1,5 +1,8 @@
 //! The transaction history screen.
 
+#[path = "sink.rs"]
+mod sink;
+
 use crossterm::event::{KeyCode, KeyEvent};
 use neko_tron::{Direction, HistoryEntry, TxStatus};
 use neko_tui::app::{App, Screen};
@@ -131,10 +134,7 @@ async fn copying_yanks_the_selected_txid() {
     // Tests must not overwrite the developer's clipboard.
     let dir = tempfile::tempdir().unwrap();
     let sink = dir.path().join("clip.txt");
-    app.clipboard = neko_tui::clipboard::Clipboard::Native {
-        program: "/usr/bin/tee".into(),
-        args: vec![sink.to_string_lossy().to_string()],
-    };
+    app.clipboard = sink::recorder(&sink);
     keys::on_key_history(&mut app, key('y'), &channel());
     assert!(app.toast.is_some(), "no feedback after copying a txid");
     assert!(
@@ -153,10 +153,7 @@ async fn explorer_link_is_copied_not_opened() {
     let mut app = app_with_history(vec![entry(1, Direction::In, TxStatus::Success)]);
     let dir = tempfile::tempdir().unwrap();
     let sink = dir.path().join("clip.txt");
-    app.clipboard = neko_tui::clipboard::Clipboard::Native {
-        program: "/usr/bin/tee".into(),
-        args: vec![sink.to_string_lossy().to_string()],
-    };
+    app.clipboard = sink::recorder(&sink);
     keys::on_key_history(&mut app, code(KeyCode::Enter), &channel());
     let t = &app.toast.as_ref().expect("no feedback").text;
     assert!(
