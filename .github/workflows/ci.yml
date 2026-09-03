@@ -50,6 +50,22 @@ jobs:
       - name: Build
         run: cargo build --workspace --locked
 
+      # Diagnostic, not a fix. macOS runs this same test binary in 128 KB of
+      # stack; Windows overflowed with 8 MB, which is 64x more and rules out
+      # "debug frames are fatter there". Single-threaded separates a genuine
+      # deep stack from pressure caused by many threads each reserving one,
+      # and a full backtrace names the frame if it really is depth. Allowed to
+      # fail so the rest of the matrix still reports.
+      - name: Diagnose the Windows stack overflow
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        run: |
+          echo "RUST_MIN_STACK=$env:RUST_MIN_STACK"
+          cargo test --locked -p neko-core --test assets_cache -- --test-threads=1 --nocapture
+        env:
+          RUST_MIN_STACK: 16777216
+          RUST_BACKTRACE: full
+
       # Windows gives threads a far smaller default stack than Linux or macOS,
       # and a debug build's frames are several times fatter than a release
       # build's. Together that overflowed the test thread inside Argon2. This
