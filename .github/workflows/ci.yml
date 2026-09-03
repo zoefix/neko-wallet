@@ -72,6 +72,30 @@ jobs:
         continue-on-error: true
         run: cargo test --locked -p neko-vault -- --test-threads=1
 
+      # The remaining suspect. neko-core is the first package cargo runs, so
+      # when it dies neko-hd's own tests never execute - and neko-hd (BIP39
+      # PBKDF2, BIP32, k256) is exactly what neko-core's failing tests reach
+      # that the three layers above do not.
+      - name: 'Bisect: HD derivation'
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        run: cargo test --locked -p neko-hd -- --test-threads=1
+
+      # Hand the actual failing executable to a human with a Windows machine.
+      # A stack overflow aborts before Rust can print a backtrace, so the only
+      # way to see the frame is to run it under a debugger - which needs the
+      # binary, not the source.
+      - name: Upload the Windows test binaries
+        if: runner.os == 'Windows' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-test-binaries
+          path: |
+            target/debug/deps/assets_cache-*.exe
+            target/debug/deps/*.pdb
+          if-no-files-found: warn
+          retention-days: 7
+
       # Windows gives threads a far smaller default stack than Linux or macOS,
       # and a debug build's frames are several times fatter than a release
       # build's. Together that overflowed the test thread inside Argon2. This
