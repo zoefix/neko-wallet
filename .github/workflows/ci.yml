@@ -50,67 +50,11 @@ jobs:
       - name: Build
         run: cargo build --workspace --locked
 
-      # Bisect the Windows stack overflow. Stack size and parallelism are
-      # already ruled out: it still dies single-threaded with 16 MB, while the
-      # same binary needs 128 KB on macOS. The remaining difference between
-      # the platforms is the crypto provider - Windows is the only one that
-      # links a vendored OpenSSL into SQLCipher - so run each layer on its own
-      # and let the machine say which one it is. Each step is allowed to fail
-      # so one run answers all three questions.
-      - name: 'Bisect: Argon2 alone'
-        if: runner.os == 'Windows'
-        continue-on-error: true
-        run: cargo test --locked -p neko-crypto -- --test-threads=1
-
-      - name: 'Bisect: SQLCipher alone'
-        if: runner.os == 'Windows'
-        continue-on-error: true
-        run: cargo test --locked -p neko-store -- --test-threads=1
-
-      - name: 'Bisect: Argon2 + SQLCipher together (vault creation)'
-        if: runner.os == 'Windows'
-        continue-on-error: true
-        run: cargo test --locked -p neko-vault -- --test-threads=1
-
-      # The remaining suspect. neko-core is the first package cargo runs, so
-      # when it dies neko-hd's own tests never execute - and neko-hd (BIP39
-      # PBKDF2, BIP32, k256) is exactly what neko-core's failing tests reach
-      # that the three layers above do not.
-      - name: 'Bisect: HD derivation'
-        if: runner.os == 'Windows'
-        continue-on-error: true
-        run: cargo test --locked -p neko-hd -- --test-threads=1
-
-      # Hand the actual failing executable to a human with a Windows machine.
-      # A stack overflow aborts before Rust can print a backtrace, so the only
-      # way to see the frame is to run it under a debugger - which needs the
-      # binary, not the source.
-      - name: Upload the Windows test binaries
-        if: runner.os == 'Windows' && always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-test-binaries
-          path: |
-            target/debug/deps/assets_cache-*.exe
-            target/debug/deps/*.pdb
-          if-no-files-found: warn
-          retention-days: 7
-
-      # Windows gives threads a far smaller default stack than Linux or macOS,
-      # and a debug build's frames are several times fatter than a release
-      # build's. Together that overflowed the test thread inside Argon2. This
-      # raises the stack for the *test harness* only; it is a mitigation, not a
-      # diagnosis, which is why the release-mode job below exists to check what
-      # users actually run.
       - name: Test
         run: cargo test --workspace --locked
-        env:
-          RUST_MIN_STACK: 8388608
 
       # The debug profile is not what anybody installs. Running the suite once
-      # in release on Windows is what turns "probably fine" into a fact - and
-      # it does it without RUST_MIN_STACK, so a genuine stack problem in the
-      # shipped configuration still fails here.
+      # in release on Windows is what turns "probably fine" into a fact.
       - name: Test in release (Windows)
         if: runner.os == 'Windows'
         run: cargo test --workspace --locked --release
