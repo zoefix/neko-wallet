@@ -29,4 +29,12 @@ pub enum StoreError {
     Crypto(#[from] neko_crypto::CryptoError),
     #[error(transparent)]
     Vault(#[from] neko_vault::VaultError),
+
+    /// The file was written by a newer build. Opening it anyway would mean
+    /// guessing at a schema we do not know, on the user's only copy of their
+    /// keys.
+    #[error("this vault was created by a newer version of neko-wallet (schema {found}, this build understands {supported}) - upgrade to open it")]
+    SchemaTooNew { found: i32, supported: i32 },
+    #[error("the upgrade to schema {0} did not complete; the vault was left untouched")]
+    MigrationFailed(i32),
 }

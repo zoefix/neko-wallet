@@ -51,7 +51,9 @@ pub enum Screen {
         selected: usize,
     },
     /// Outgoing transfer.
-    Send(crate::send::SendState),
+    /// Boxed: this is much the largest screen state, and an unboxed
+    /// variant would make every other screen carry its size.
+    Send(Box<crate::send::SendState>),
     /// Recovery phrase, behind a re-authentication gate.
     Reveal {
         wallet_id: i64,
@@ -98,6 +100,9 @@ pub struct App {
     /// Which server speaks for mainnet. There is no chain to choose.
     pub node_url: Option<String>,
     pub api_key: Option<String>,
+    /// NodeReal key for BNB Chain history. Balances and transfers work without
+    /// it; only history needs an indexer.
+    pub bsc_api_key: Option<String>,
     pub balances: Option<Vec<(String, String)>>,
     pub balances_req: Option<ReqId>,
     /// Shown on the unlock screen until dismissed. Used to tell the user
@@ -146,6 +151,7 @@ impl App {
             should_quit: false,
             node_url: None,
             api_key: std::env::var("TRONGRID_API_KEY").ok(),
+            bsc_api_key: std::env::var("NODEREAL_API_KEY").ok(),
             balances: None,
             balances_req: None,
             balances_error: None,
@@ -330,7 +336,12 @@ impl App {
                     }
                 }
             }
-            AppEvent::WalletAssets { wallet_id, res, .. } => self.on_wallet_assets(wallet_id, res),
+            AppEvent::WalletAssets {
+                wallet_id,
+                chain,
+                res,
+                ..
+            } => self.on_wallet_assets(wallet_id, chain, res),
             AppEvent::Balances { req, res } => {
                 if self.balances_req != Some(req) {
                     return; // a reply for an address we already navigated away from
@@ -526,15 +537,12 @@ impl App {
             return;
         };
         let chain = crate::nav::CHAINS[*selected];
-        if !chain.enabled() {
-            self.toast(neko_i18n::tf(
-                neko_i18n::Key::Chains_NotBuilt,
-                &[("chain", chain.label())],
-            ));
-            return;
-        }
         let (wallet_id, name) = (*wallet_id, name.clone());
-        let address = match self.session.as_ref().map(|s| s.address_of(wallet_id, 0)) {
+        let address = match self
+            .session
+            .as_ref()
+            .map(|s| s.address_of(wallet_id, chain, 0))
+        {
             Some(Ok(a)) => a.to_string(),
             Some(Err(e)) => {
                 self.toast(e.to_string());
@@ -558,21 +566,21 @@ impl App {
     /// matched by ReqId, so a late response for a wallet the user already
     /// navigated away from is dropped rather than painted over the new one.
     pub fn fetch_balances(&mut self, tx: &crate::keys::Sender) {
-        let Screen::Assets { address, .. } = &self.screen else {
+        let Screen::Assets { address, chain, .. } = &self.screen else {
             return;
         };
-        let Ok(addr) = neko_hd::Address::parse(address) else {
+        let chain = *chain;
+        let Ok(addr) = neko_core::ChainAddress::parse(chain, address) else {
             return;
         };
-        let usdt = neko_tron::usdt_address();
         let id = self.next_req();
         self.balances_req = Some(id);
         self.balances = None;
         self.balances_error = None;
-        let client = self.chain();
+        let client = self.chain_client(chain);
         let tx = tx.clone();
         tokio::spawn(async move {
-            let res = crate::chain::balances(&client, addr, usdt).await;
+            let res = crate::chain::balances(&client, addr).await;
             let _ = tx.send(crate::event::AppEvent::Balances { req: id, res });
         });
     }
@@ -616,8 +624,19 @@ impl App {
 // ── Transfers ──────────────────────────────────────────────────────────────
 
 impl App {
-    pub fn chain(&self) -> neko_tron::TronGrid {
-        crate::chain::client(self.node_url.as_deref(), self.api_key.clone())
+    /// A client for one chain. The configured node URL applies to TRON only -
+    /// pointing a BNB Chain RPC at a TronGrid endpoint would fail in a way
+    /// that looks like the network being down.
+    pub fn chain_client(&self, chain: neko_core::ChainId) -> crate::chain::Client {
+        let url = match chain {
+            neko_core::ChainId::Tron => self.node_url.as_deref(),
+            neko_core::ChainId::Bsc => None,
+        };
+        let key = match chain {
+            neko_core::ChainId::Tron => self.api_key.clone(),
+            neko_core::ChainId::Bsc => self.bsc_api_key.clone(),
+        };
+        crate::chain::Client::for_chain(chain, url, key)
     }
 
     /// Open the transfer flow for the asset highlighted on the assets screen.
@@ -626,32 +645,28 @@ impl App {
             wallet_id,
             name,
             address,
+            chain,
             selected,
             ..
         } = &self.screen
         else {
             return;
         };
-        let from = match neko_hd::Address::parse(address) {
+        let chain = *chain;
+        let from = match neko_core::ChainAddress::parse(chain, address) {
             Ok(a) => a,
             Err(_) => return,
         };
         let (asset, label) = if *selected == 0 {
-            (neko_core::Asset::Trx, "TRX".to_string())
+            (chain.native(), chain.native_symbol().to_string())
         } else {
-            (
-                neko_core::Asset::Trc20 {
-                    contract: neko_tron::usdt_address(),
-                    decimals: neko_tron::USDT_DECIMALS,
-                },
-                "USDT".to_string(),
-            )
+            (chain.usdt(), "USDT".to_string())
         };
         let mut state = crate::send::SendState::new(*wallet_id, name.clone(), from, asset, label);
         // Carry the counterparties we have seen so the destination can be
         // checked against them for a crafted lookalike.
         state.known = self.known_counterparties();
-        self.push(Screen::Send(state));
+        self.push(Screen::Send(Box::new(state)));
     }
 
     fn on_quoted(&mut self, req: ReqId, res: Result<Box<crate::event::Quote>, String>) {
@@ -671,22 +686,45 @@ impl App {
                         return;
                     }
                 };
-                s.step = crate::send::SendStep::Review {
-                    req: Box::new(request),
-                    params: Box::new(q.params),
-                    quote: Some(crate::send::FeeQuote {
-                        energy_base: q.energy.base,
-                        energy_penalty: q.energy.penalty,
-                        bandwidth_needed: q.bandwidth_needed,
-                        available: q.resources.map(|r| {
+                let params = q.tx_params();
+                let fee = match *q {
+                    crate::event::Quote::Tron {
+                        energy,
+                        bandwidth_needed,
+                        resources,
+                        prices,
+                        recipient_is_new,
+                        ..
+                    } => crate::send::FeeQuote::Tron(crate::send::TronFee {
+                        energy_base: energy.base,
+                        energy_penalty: energy.penalty,
+                        bandwidth_needed,
+                        available: resources.map(|r| {
                             (
                                 (r.energy_available, r.energy_limit),
                                 (r.bandwidth_available, r.bandwidth_limit),
                             )
                         }),
-                        prices: q.prices.map(|p| (p.sun_per_energy, p.sun_per_bandwidth)),
-                        recipient_is_new: q.recipient_is_new,
+                        prices: prices.map(|p| (p.sun_per_energy, p.sun_per_bandwidth)),
+                        recipient_is_new,
                     }),
+                    crate::event::Quote::Bsc {
+                        params: p,
+                        bnb_balance,
+                        sending_native,
+                        amount,
+                    } => crate::send::FeeQuote::Bsc(crate::send::BscFee {
+                        gas_limit: p.gas_limit,
+                        gas_price: p.gas_price,
+                        bnb_balance,
+                        sending_native,
+                        amount,
+                    }),
+                };
+                s.step = crate::send::SendStep::Review {
+                    req: Box::new(request),
+                    params: Box::new(params),
+                    quote: Some(fee),
                     typed: Field::new(false),
                 };
             }
@@ -732,6 +770,11 @@ impl App {
                 self.api_key = Some(k.to_string());
             }
         }
+        if self.bsc_api_key.is_none() {
+            if let Ok(Some(k)) = s.secret_setting(keys::BSC_API_KEY) {
+                self.bsc_api_key = Some(k.to_string());
+            }
+        }
         // A stored choice outranks OS detection: the user said what they
         // want, and it must survive every restart.
         if let Ok(Some(v)) = s.setting(keys::LANGUAGE) {
@@ -747,6 +790,13 @@ impl App {
                 }
             }
         }
+    }
+
+    pub fn set_bsc_api_key(&mut self, key: &str) {
+        if let Some(s) = self.session.as_ref() {
+            let _ = s.set_secret_setting(neko_store::repo::settings::keys::BSC_API_KEY, key);
+        }
+        self.bsc_api_key = Some(key.to_string()).filter(|k| !k.is_empty());
     }
 
     pub fn set_api_key(&mut self, key: &str) {
@@ -769,6 +819,14 @@ impl App {
             // Shown in its own script so somebody who cannot read the current
             // language can still find their way back.
             SettingRow::Language => self.locale.endonym().to_string(),
+            SettingRow::BscApiKey => match &self.bsc_api_key {
+                Some(k) if k.len() > 4 => neko_i18n::tf(
+                    neko_i18n::Key::Settings_ApiKeySet,
+                    &[("tail", &k[k.len() - 4..])],
+                ),
+                Some(_) => neko_i18n::tf(neko_i18n::Key::Settings_ApiKeySet, &[("tail", "")]),
+                None => neko_i18n::t(neko_i18n::Key::Settings_BscApiKeyUnset).to_string(),
+            },
             SettingRow::ApiKey => match &self.api_key {
                 // Never render a credential, even one the user typed.
                 Some(k) if k.len() > 4 => neko_i18n::tf(
@@ -816,11 +874,11 @@ impl App {
 
 impl App {
     pub fn open_history(&mut self, tx: &crate::keys::Sender) {
-        let Screen::Assets { address, .. } = &self.screen else {
+        let Screen::Assets { address, chain, .. } = &self.screen else {
             return;
         };
-        let address = address.clone();
-        let mut state = crate::nav::HistoryState::new(address);
+        let (chain, address) = (*chain, address.clone());
+        let mut state = crate::nav::HistoryState::new(chain, address);
         state.page = crate::nav::history_page_for(self.viewport.1);
         self.push(Screen::History(state));
         self.fetch_history(tx);
@@ -830,17 +888,18 @@ impl App {
         let Screen::History(h) = &mut self.screen else {
             return;
         };
-        let Ok(addr) = neko_hd::Address::parse(&h.address) else {
+        let chain = h.chain;
+        let Ok(addr) = neko_core::ChainAddress::parse(chain, &h.address) else {
             return;
         };
         h.error = None;
         h.entries = None;
         let id = self.next_req();
         self.inflight = Some(id);
-        let client = self.chain();
+        let client = self.chain_client(chain);
         let tx = tx.clone();
         tokio::spawn(async move {
-            let res = crate::chain::history(&client, addr, neko_tron::usdt_address(), 50).await;
+            let res = crate::chain::history(&client, addr, 50).await;
             let _ = tx.send(crate::event::AppEvent::History { req: id, res });
         });
     }
@@ -902,46 +961,65 @@ impl App {
     /// numbers that are visibly labelled as stale. Requests are per-wallet so a
     /// single slow or failing address does not hold up the rest.
     pub fn refresh_wallet_assets(&mut self, tx: &crate::keys::Sender) {
-        let targets: Vec<(i64, String)> = match &self.screen {
-            Screen::Wallets(w) => w.items.iter().map(|i| (i.id, i.address.clone())).collect(),
+        // One request per wallet *per chain*: a wallet is an account on each,
+        // and a slow or failing one must not hold up the others.
+        let targets: Vec<(i64, neko_core::ChainId, String)> = match &self.screen {
+            Screen::Wallets(w) => w
+                .items
+                .iter()
+                .flat_map(|i| {
+                    i.addresses
+                        .iter()
+                        .map(|(c, a)| (i.id, *c, a.clone()))
+                        .collect::<Vec<_>>()
+                })
+                .collect(),
             _ => return,
         };
         if targets.is_empty() {
             return;
         }
-        let usdt = neko_tron::usdt_address();
         self.assets_pending = targets.len();
-        for (wallet_id, address) in targets {
-            let Ok(addr) = neko_hd::Address::parse(&address) else {
+        for (wallet_id, chain, address) in targets {
+            let Ok(addr) = neko_core::ChainAddress::parse(chain, &address) else {
                 self.assets_pending = self.assets_pending.saturating_sub(1);
                 continue;
             };
             let id = self.next_req();
-            let client = self.chain();
+            let client = self.chain_client(chain);
             let tx = tx.clone();
             tokio::spawn(async move {
-                let res = crate::chain::wallet_assets(&client, addr, usdt).await;
+                let res = crate::chain::wallet_assets(&client, addr).await;
                 let _ = tx.send(crate::event::AppEvent::WalletAssets {
                     req: id,
                     wallet_id,
+                    chain,
                     res,
                 });
             });
         }
     }
 
-    fn on_wallet_assets(&mut self, wallet_id: i64, res: Result<Vec<(String, u8, i128)>, String>) {
+    fn on_wallet_assets(
+        &mut self,
+        wallet_id: i64,
+        chain: neko_core::ChainId,
+        res: Result<Vec<(String, u8, i128)>, String>,
+    ) {
         self.assets_pending = self.assets_pending.saturating_sub(1);
         let Ok(assets) = res else { return };
 
         // Persist first, then re-read, so what is displayed is exactly what a
         // restart would show.
         if let Some(s) = self.session.as_ref() {
-            let _ = s.cache_assets(wallet_id, &assets);
-            if let Ok(fresh) = s.cached_assets(wallet_id) {
+            let _ = s.cache_assets(wallet_id, chain, &assets);
+            if let Ok(fresh) = s.cached_assets(wallet_id, chain) {
                 if let Screen::Wallets(w) = &mut self.screen {
                     if let Some(item) = w.items.iter_mut().find(|i| i.id == wallet_id) {
-                        item.assets = fresh;
+                        match item.assets.iter_mut().find(|(c, _)| *c == chain) {
+                            Some(slot) => slot.1 = fresh,
+                            None => item.assets.push((chain, fresh)),
+                        }
                     }
                 }
             }

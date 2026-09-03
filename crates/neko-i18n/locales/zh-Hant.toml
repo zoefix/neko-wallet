@@ -110,6 +110,9 @@ retry = "按 R 重試"
 hint = "jk 切換  s 轉帳  t 交易紀錄  y 複製地址  R 重新整理  Esc 返回"
 
 [send]
+gas = "Gas"
+bnb_balance = "BNB 餘額"
+need_more_bnb = "BNB 不夠付手續費 - 還差 %{amount}。手續費只能用 BNB 付。"
 title = "轉出 %{asset} . %{wallet}"
 verify = "逐行核對。確認後將被簽章並廣播。"
 from = "轉出"
@@ -196,6 +199,7 @@ ssh = "這是一個 SSH 連線，這些詞會經過網路傳輸。"
 recording = "asciinema 正在錄製這個工作階段。"
 
 [history]
+needs_indexer = "BNB Chain 的歷史需要索引服務。請去 nodereal.io 免費註冊一個 Key，填進設定裡。"
 col_when = "時間"
 col_asset = "資產"
 col_amount = "金額"
@@ -218,6 +222,8 @@ from_to = "對方"
 hint = "jk 移動  Enter 複製連結  y 複製雜湊  D 顯示灰塵  R 重新整理  Esc 返回"
 
 [settings]
+bsc_api_key = "BNB Chain 歷史 Key"
+bsc_api_key_unset = "未設定 (無法查詢歷史)"
 language = "語言"
 api_key = "TronGrid API Key"
 node_url = "自訂節點位址"

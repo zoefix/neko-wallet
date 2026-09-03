@@ -16,6 +16,9 @@ pub mod keys {
     pub const NETWORK: &str = "network";
     pub const NODE_URL: &str = "node_url";
     pub const API_KEY: &str = "trongrid_api_key";
+    /// NodeReal / BSCTrace key, for BNB Chain history. A credential, so it is
+    /// stored with the same field-level encryption as the TronGrid one.
+    pub const BSC_API_KEY: &str = "bsc_api_key";
     pub const AUTOLOCK_SECS: &str = "autolock_secs";
     pub const LANGUAGE: &str = "language";
 }

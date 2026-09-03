@@ -36,7 +36,7 @@ fn entry(counterparty: &str, amount: i128, dir: Direction) -> HistoryEntry {
 
 fn history_app(entries: Vec<HistoryEntry>) -> App {
     let mut app = App::new(std::path::PathBuf::from("/tmp/neko-poison.db"));
-    let mut h = HistoryState::new(MINE.into());
+    let mut h = HistoryState::new(neko_core::ChainId::Tron, MINE.into());
     h.entries = Some(entries);
     app.screen = Screen::History(h);
     app
@@ -143,7 +143,7 @@ async fn a_lookalike_destination_is_flagged() {
     let mut st = neko_tui::send::SendState::new(
         1,
         "w".into(),
-        neko_hd::Address::parse(MINE).unwrap(),
+        neko_core::ChainAddress::parse(neko_core::ChainId::Tron, MINE).unwrap(),
         neko_core::Asset::Trx,
         "TRX".into(),
     );
@@ -172,7 +172,7 @@ async fn unrelated_destinations_are_not_flagged() {
     let mut st = neko_tui::send::SendState::new(
         1,
         "w".into(),
-        neko_hd::Address::parse(MINE).unwrap(),
+        neko_core::ChainAddress::parse(neko_core::ChainId::Tron, MINE).unwrap(),
         neko_core::Asset::Trx,
         "TRX".into(),
     );

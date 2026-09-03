@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/neko-crypto", "crates/neko-vault", "crates/neko-hd", "crates/neko-tron", "crates/neko-store", "crates/neko-core", "crates/neko-i18n", "crates/neko-tui", "crates/neko-wallet"]
+members = ["crates/neko-crypto", "crates/neko-vault", "crates/neko-hd", "crates/neko-tron", "crates/neko-evm", "crates/neko-store", "crates/neko-core", "crates/neko-i18n", "crates/neko-tui", "crates/neko-wallet"]
 
 [workspace.package]
 version      = "0.1.0"

@@ -6,10 +6,22 @@ pub enum HdError {
     BadPublicKeyLen(usize),
     #[error("public key is not in uncompressed SEC1 form")]
     PublicKeyNotUncompressed,
-    #[error("address must be 21 bytes, got {0}")]
+    #[error("a TRON address must be 21 bytes, got {0}")]
     BadAddressLen(usize),
-    #[error("address prefix must be 0x41, got 0x{0:02x}")]
+    #[error("a TRON address must start with 0x41, got 0x{0:02x}")]
     BadAddressPrefix(u8),
+
+    // --- EVM chains. Separate variants because the shapes differ and a
+    // message about 21 bytes and a 0x41 prefix would be actively misleading
+    // to somebody who pasted an EVM address.
+    #[error("an EVM address must be 20 bytes of hex, got {0} hex characters")]
+    BadEvmAddressLen(usize),
+    #[error("an EVM address must start with 0x")]
+    MissingHexPrefix,
+    #[error("not valid hexadecimal")]
+    NotHex,
+    #[error("the EIP-55 capitalisation does not match this address - check for a typo")]
+    BadEip55Checksum,
     #[error("address checksum does not match")]
     BadChecksum,
     #[error("not valid base58")]

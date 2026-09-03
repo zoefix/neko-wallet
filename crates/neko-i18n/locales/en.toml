@@ -115,6 +115,9 @@ retry = "press R to retry"
 hint = "jk asset  s send  t history  y copy addr  R refresh  Esc back"
 
 [send]
+gas = "Gas"
+bnb_balance = "BNB balance"
+need_more_bnb = "not enough BNB for the fee - %{amount} short. Gas is always paid in BNB."
 title = "send %{asset} . %{wallet}"
 verify = "Verify every line. This will be signed and broadcast."
 from = "From"
@@ -201,6 +204,7 @@ ssh = "This is an SSH session; the words will cross the network."
 recording = "asciinema is recording this session."
 
 [history]
+needs_indexer = "BNB Chain history needs an indexer. Add a free key from nodereal.io in settings."
 col_when = "When"
 col_asset = "Asset"
 col_amount = "Amount"
@@ -223,6 +227,8 @@ from_to = "from/to"
 hint = "jk move  Enter copy link  y copy txid  D show dust  R refresh  Esc back"
 
 [settings]
+bsc_api_key = "BNB Chain history key"
+bsc_api_key_unset = "not set (history unavailable)"
 language = "Language"
 api_key = "TronGrid API key"
 node_url = "Custom node URL"

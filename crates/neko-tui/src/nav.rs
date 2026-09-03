@@ -9,25 +9,11 @@ use zeroize::Zeroizing;
 
 use crate::input::Field;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Chain {
-    Tron,
-    Bitcoin,
-}
-
-impl Chain {
-    pub fn label(self) -> &'static str {
-        match self {
-            Chain::Tron => "TRON",
-            Chain::Bitcoin => "Bitcoin",
-        }
-    }
-    pub fn enabled(self) -> bool {
-        matches!(self, Chain::Tron)
-    }
-}
-
-pub const CHAINS: [Chain; 2] = [Chain::Tron, Chain::Bitcoin];
+/// The chains the wallet knows, taken from `neko-core` rather than declared
+/// again here. Two lists would drift, and the one that mattered would be
+/// whichever the send screen happened to read.
+pub use neko_core::ChainId as Chain;
+pub use neko_core::CHAINS;
 
 /// Which form the wallet list has open, if any.
 pub enum WalletForm {
@@ -122,14 +108,16 @@ pub type Phrase = Zeroizing<String>;
 pub enum SettingRow {
     Language,
     ApiKey,
+    BscApiKey,
     NodeUrl,
     AutoLock,
     BorderStyle,
 }
 
-pub const SETTING_ROWS: [SettingRow; 5] = [
+pub const SETTING_ROWS: [SettingRow; 6] = [
     SettingRow::Language,
     SettingRow::ApiKey,
+    SettingRow::BscApiKey,
     SettingRow::NodeUrl,
     SettingRow::AutoLock,
     SettingRow::BorderStyle,
@@ -140,6 +128,7 @@ impl SettingRow {
         match self {
             SettingRow::Language => neko_i18n::t(neko_i18n::Key::Settings_Language),
             SettingRow::ApiKey => neko_i18n::t(neko_i18n::Key::Settings_ApiKey),
+            SettingRow::BscApiKey => neko_i18n::t(neko_i18n::Key::Settings_BscApiKey),
             SettingRow::NodeUrl => neko_i18n::t(neko_i18n::Key::Settings_NodeUrl),
             SettingRow::AutoLock => neko_i18n::t(neko_i18n::Key::Settings_Autolock),
             SettingRow::BorderStyle => neko_i18n::t(neko_i18n::Key::Settings_Border),
@@ -192,6 +181,7 @@ pub fn history_page_for(height: u16) -> usize {
 }
 
 pub struct HistoryState {
+    pub chain: Chain,
     pub address: String,
     /// Everything the chain returned, dust included.
     pub entries: Option<Vec<neko_tron::HistoryEntry>>,
@@ -207,8 +197,9 @@ pub struct HistoryState {
 }
 
 impl HistoryState {
-    pub fn new(address: String) -> Self {
+    pub fn new(chain: Chain, address: String) -> Self {
         Self {
+            chain,
             address,
             entries: None,
             show_dust: false,

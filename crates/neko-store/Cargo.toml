@@ -29,5 +29,6 @@ rusqlite = { workspace = true, features = ["bundled-sqlcipher-vendored-openssl"]
 rusqlite = { workspace = true, features = ["bundled-sqlcipher-vendored-openssl"] }
 
 [dev-dependencies]
+neko-hd = { path = "../neko-hd" }
 tempfile = "3"
 neko-vault = { path = "../neko-vault", features = ["dangerous-fast-kdf"] }

@@ -6,7 +6,7 @@ use rusqlite::{Connection, OptionalExtension};
 
 use crate::error::StoreError;
 
-pub const CURRENT_SCHEMA: i32 = 1;
+pub const CURRENT_SCHEMA: i32 = 2;
 pub const BLOB_VERSION: u32 = 1;
 
 #[derive(Debug, Clone)]
@@ -24,8 +24,15 @@ pub struct VaultRow {
     pub wallet_seq: i64,
 }
 
+/// Create the schema, then bring it to the current version.
+///
+/// `0001` is the original schema and stays as it was; everything since is a
+/// migration. Running them here as well means a new database and an upgraded
+/// one end up byte-identical in structure, rather than the new one skipping
+/// steps and diverging in ways only an upgraded install would ever hit.
 pub fn init_schema(conn: &Connection) -> Result<(), StoreError> {
     conn.execute_batch(include_str!("../migrations/0001_init.sql"))?;
+    crate::migrate::run(conn)?;
     Ok(())
 }
 

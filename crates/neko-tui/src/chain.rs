@@ -2,9 +2,13 @@
 //!
 //! These functions run on the tokio runtime and return plain data. The session
 //! and the private keys stay on the main thread; only bytes cross over.
+//!
+//! Two chains, two clients, and deliberately no shared abstraction over the
+//! parts that genuinely differ. TRON charges bandwidth and energy and burns TRX
+//! only for the shortfall; BNB Chain charges gas at a price the node quotes.
+//! Flattening those into one "fee" would produce a number that is wrong on both.
 
-use neko_core::{Asset, TransferRequest};
-use neko_hd::Address;
+use neko_core::{Asset, ChainAddress, ChainId, TransferRequest};
 use neko_tron::TronGrid;
 
 use crate::event::Quote;
@@ -17,37 +21,75 @@ const SIGNATURE_FIELD_SIZE: usize = 67;
 /// (`Constant.MAX_RESULT_SIZE_IN_TX`). Leaving it out understates the fee.
 const MAX_RESULT_SIZE_IN_TX: usize = 64;
 
+/// A connection to one chain.
+pub enum Client {
+    Tron(Box<TronGrid>),
+    Bsc {
+        rpc: Box<neko_evm::client::Rpc>,
+        /// Only history needs this. Balances, fees and transfers all work
+        /// from the plain RPC, so a missing key costs one screen rather than
+        /// the chain.
+        history_key: Option<String>,
+    },
+}
+
+impl Client {
+    pub fn for_chain(chain: ChainId, url: Option<&str>, api_key: Option<String>) -> Self {
+        match chain {
+            ChainId::Tron => Client::Tron(Box::new(TronGrid::new(url, api_key))),
+            // The TronGrid key is not a BscScan key; passing it here would only
+            // be misleading. BNB Chain's public RPC needs no key at all.
+            ChainId::Bsc => Client::Bsc {
+                rpc: Box::new(neko_evm::client::Rpc::new(url)),
+                history_key: api_key.filter(|k| !k.is_empty()),
+            },
+        }
+    }
+
+    pub fn chain(&self) -> ChainId {
+        match self {
+            Client::Tron(_) => ChainId::Tron,
+            Client::Bsc { .. } => ChainId::Bsc,
+        }
+    }
+}
+
 pub fn client(url: Option<&str>, api_key: Option<String>) -> TronGrid {
     TronGrid::new(url, api_key)
 }
 
-/// Fetch a block reference and work out what the transfer will actually cost.
-///
+/// Work out what a transfer will actually cost, and gather the parameters
+/// needed to build it.
+pub async fn quote(c: &Client, req: &TransferRequest) -> Result<Quote, String> {
+    match c {
+        Client::Tron(t) => tron_quote(t, req).await,
+        Client::Bsc { rpc, .. } => bsc_quote(rpc, req).await,
+    }
+}
+
 /// TRON has no flat fee. A transaction spends bandwidth, a contract call spends
 /// energy, and only the part the account *cannot* cover gets paid for by
 /// burning TRX. Both the requirement and the account's holdings come from the
-/// chain: energy is simulated against this exact transfer (the same USDT
-/// transfer costs wildly different amounts depending on whether the recipient
-/// already holds the token), and the burn prices are governance parameters that
-/// change.
-pub async fn quote(c: &TronGrid, req: &TransferRequest) -> Result<Quote, String> {
-    let params = c
-        .tx_params(req.asset.fee_limit())
-        .await
-        .map_err(|e| e.to_string())?;
+/// chain: energy is simulated against this exact transfer, and the burn prices
+/// are governance parameters that change.
+async fn tron_quote(c: &TronGrid, req: &TransferRequest) -> Result<Quote, String> {
+    let from = req.from.as_tron().map_err(|e| e.to_string())?;
+    let to = req.to.as_tron().map_err(|e| e.to_string())?;
+    let fee_limit = req
+        .asset
+        .tron_fee_limit()
+        .ok_or_else(|| "that asset is not on TRON".to_string())?;
+    let params = c.tx_params(fee_limit).await.map_err(|e| e.to_string())?;
 
     let (energy, recipient_is_new, raw_len) = match req.asset {
         Asset::Trx => {
-            let raw =
-                neko_tron::tx::build_trx_transfer(req.from, req.to, req.amount.raw as i64, &params)
-                    .map_err(|e| e.to_string())?;
+            let raw = neko_tron::tx::build_trx_transfer(from, to, req.amount.raw as i64, &params)
+                .map_err(|e| e.to_string())?;
             (neko_tron::EnergyEstimate::default(), false, raw.len())
         }
         Asset::Trc20 { contract, decimals } => {
             // Prove on-chain that this really is the token we think it is,
-            // before signing anything. A custom node could otherwise point the
-            // built-in contract address at something else, and funds sent to
-            // the wrong contract cannot be recovered.
+            // before signing anything.
             let (symbol, chain_decimals) = c
                 .verify_usdt(contract)
                 .await
@@ -68,44 +110,40 @@ pub async fn quote(c: &TronGrid, req: &TransferRequest) -> Result<Quote, String>
                 .map_err(|e| e.to_string())?
                 .unwrap_or_default();
             let energy = c
-                .estimate_trc20_energy(contract, req.from, &calldata)
+                .estimate_trc20_energy(contract, from, &calldata)
                 .await
                 .map_err(|e| e.to_string())?;
-            // A zero balance means the transfer has to create a storage slot.
             let new = c
-                .trc20_balance(contract, req.to)
+                .trc20_balance(contract, to)
                 .await
                 .map(|b| b == 0)
                 .unwrap_or(false);
             let raw = neko_tron::tx::build_trc20_transfer(
-                req.from,
+                from,
                 contract,
-                req.to,
+                to,
                 req.amount.raw as u128,
                 &params,
             )
             .map_err(|e| e.to_string())?;
             (energy, new, raw.len())
         }
+        _ => return Err("that asset is not on TRON".into()),
     };
 
     // Bandwidth is charged per byte of the signed transaction, plus a flat
-    // allowance the chain reserves for the result. Measured against a real
-    // mainnet transfer: the estimate without that allowance came out at 282
-    // while the chain actually charged 345 — the missing 64 is
-    // `MAX_RESULT_SIZE_IN_TX`, which java-tron adds to every transaction.
+    // allowance the chain reserves for the result.
     let signed_len = raw_len + RAW_DATA_FIELD_OVERHEAD + SIGNATURE_FIELD_SIZE;
     let bandwidth_needed = (signed_len + MAX_RESULT_SIZE_IN_TX) as i64;
 
     // A failure here must not block the transfer, but it must not be laundered
     // into a number either: `None` travels to the UI as "unknown", which is
-    // rendered differently from "zero". Without an API key these calls hit the
-    // public rate limit intermittently, so this path is taken in practice.
-    let resources = c.account_resources(req.from).await.ok();
+    // rendered differently from "zero".
+    let resources = c.account_resources(from).await.ok();
     let prices = c.prices().await.ok();
 
-    Ok(Quote {
-        params,
+    Ok(Quote::Tron {
+        params: Box::new(params),
         energy,
         bandwidth_needed,
         resources,
@@ -114,73 +152,176 @@ pub async fn quote(c: &TronGrid, req: &TransferRequest) -> Result<Quote, String>
     })
 }
 
-pub async fn broadcast(c: &TronGrid, raw_tx: Vec<u8>) -> Result<String, String> {
-    c.broadcast(&raw_tx).await.map_err(|e| e.to_string())
+/// BNB Chain charges gas: a quantity the node estimates against this exact
+/// call, times a price it quotes. Unlike TRON there is no allowance to cover
+/// part of it - the fee is always paid in BNB, so a wallet holding only USDT
+/// cannot send that USDT. Saying so before the attempt is the useful part.
+async fn bsc_quote(rpc: &neko_evm::client::Rpc, req: &TransferRequest) -> Result<Quote, String> {
+    let from = req.from.as_evm().map_err(|e| e.to_string())?;
+
+    let (to, value, data) = match req.asset {
+        Asset::Bnb => (
+            req.to.as_evm().map_err(|e| e.to_string())?,
+            req.amount.raw as u128,
+            Vec::new(),
+        ),
+        Asset::Bep20 { contract, decimals } => {
+            // Same reasoning as TRON's: ask the contract what it is before
+            // trusting a built-in address.
+            let (symbol, chain_decimals) = rpc
+                .verify_token(contract)
+                .await
+                .map_err(|e| format!("could not verify the token contract {contract}: {e}"))?;
+            if chain_decimals != decimals {
+                return Err(format!(
+                    "token contract {contract} reports {chain_decimals} decimals, expected {decimals} - refusing to send"
+                ));
+            }
+            if symbol != "USDT" {
+                return Err(format!(
+                    "token contract {contract} reports symbol {symbol:?}, not USDT - refusing to send"
+                ));
+            }
+            let data = req
+                .calldata()
+                .map_err(|e| e.to_string())?
+                .unwrap_or_default();
+            (contract, 0u128, data)
+        }
+        _ => return Err("that asset is not on BNB Chain".into()),
+    };
+
+    let params = rpc
+        .tx_params(from, to, value, &data)
+        .await
+        .map_err(|e| e.to_string())?;
+    // What pays the fee, which is BNB regardless of what is being sent.
+    let bnb_balance = rpc.balance(from).await.ok();
+
+    Ok(Quote::Bsc {
+        params,
+        bnb_balance,
+        sending_native: matches!(req.asset, Asset::Bnb),
+        amount: req.amount.raw as u128,
+    })
 }
 
-/// TRX and USDT balances, formatted for display.
-pub async fn balances(
-    c: &TronGrid,
-    addr: Address,
-    usdt: Address,
-) -> Result<Vec<(String, String)>, String> {
-    let trx = c.trx_balance(addr).await.map_err(|e| e.to_string())?;
-    let usdt_bal = c.trc20_balance(usdt, addr).await.unwrap_or(0);
-    Ok(vec![
-        (
-            "TRX".into(),
-            neko_core::Amount::new(trx as i128, 6).to_display_string(),
-        ),
-        (
-            "USDT".into(),
-            neko_core::Amount::new(usdt_bal as i128, 6).to_display_string(),
-        ),
-    ])
+pub async fn broadcast(c: &Client, raw: Vec<u8>) -> Result<String, String> {
+    match c {
+        Client::Tron(t) => t.broadcast(&raw).await.map_err(|e| e.to_string()),
+        Client::Bsc { rpc, .. } => rpc.send_raw(&raw).await.map_err(|e| e.to_string()),
+    }
+}
+
+/// Native and USDT balances, formatted for display.
+pub async fn balances(c: &Client, addr: ChainAddress) -> Result<Vec<(String, String)>, String> {
+    let rows = wallet_assets(c, addr).await?;
+    Ok(rows
+        .into_iter()
+        .map(|(sym, dec, amt)| (sym, neko_core::Amount::new(amt, dec).to_display_string()))
+        .collect())
+}
+
+/// Balances in the shape the cache stores: (symbol, decimals, amount).
+pub async fn wallet_assets(
+    c: &Client,
+    addr: ChainAddress,
+) -> Result<Vec<(String, u8, i128)>, String> {
+    match c {
+        Client::Tron(t) => {
+            let a = addr.as_tron().map_err(|e| e.to_string())?;
+            let usdt = neko_tron::usdt_address();
+            let trx = t.trx_balance(a).await.map_err(|e| e.to_string())?;
+            // A token lookup failing must not discard the native figure we
+            // already have.
+            let usdt_bal = t.trc20_balance(usdt, a).await.unwrap_or(0);
+            Ok(vec![
+                ("TRX".to_string(), 6, trx as i128),
+                ("USDT".to_string(), 6, usdt_bal as i128),
+            ])
+        }
+        Client::Bsc { rpc: r, .. } => {
+            let a = addr.as_evm().map_err(|e| e.to_string())?;
+            let usdt = neko_evm::usdt_address();
+            let bnb = r.balance(a).await.map_err(|e| e.to_string())?;
+            let usdt_bal = r.token_balance(usdt, a).await.unwrap_or(0);
+            Ok(vec![
+                ("BNB".to_string(), 18, bnb as i128),
+                // Eighteen decimals here, six on TRON. The number travels with
+                // the balance for exactly this reason.
+                ("USDT".to_string(), 18, usdt_bal as i128),
+            ])
+        }
+    }
 }
 
 /// Fetch both history feeds and merge them, newest first.
-///
-/// The v1 endpoints are an indexer, not part of the node protocol: a
-/// self-hosted full node will not serve them, and the error says so plainly
-/// rather than looking like an empty history.
 pub async fn history(
-    c: &TronGrid,
-    addr: Address,
-    usdt: Address,
+    c: &Client,
+    addr: ChainAddress,
     limit: u32,
 ) -> Result<Vec<neko_tron::HistoryEntry>, String> {
-    let owned = [addr];
-    let mut all = Vec::new();
+    match c {
+        Client::Tron(t) => {
+            let a = addr.as_tron().map_err(|e| e.to_string())?;
+            let usdt = neko_tron::usdt_address();
+            let owned = [a];
+            let mut all = Vec::new();
 
-    let trx = c
-        .history_trx(addr, limit)
-        .await
-        .map_err(|e| e.to_string())?;
-    all.extend(neko_tron::history::parse_trx(&trx, &owned));
+            let trx = t.history_trx(a, limit).await.map_err(|e| e.to_string())?;
+            all.extend(neko_tron::history::parse_trx(&trx, &owned));
 
-    // A TRC20 failure must not discard the TRX half we already have.
-    match c.history_trc20(addr, usdt, limit).await {
-        Ok(v) => all.extend(neko_tron::history::parse_trc20(&v, &owned)),
-        Err(e) => {
-            if all.is_empty() {
-                return Err(e.to_string());
+            // A TRC20 failure must not discard the TRX half we already have.
+            match t.history_trc20(a, usdt, limit).await {
+                Ok(v) => all.extend(neko_tron::history::parse_trc20(&v, &owned)),
+                Err(e) => {
+                    if all.is_empty() {
+                        return Err(e.to_string());
+                    }
+                }
             }
+            Ok(neko_tron::history::merge(all))
+        }
+        Client::Bsc { history_key, .. } => {
+            // A node's RPC cannot answer "what has this address done"; that
+            // needs an index. Without a key, say so - an empty list would
+            // read as "you have never used this address".
+            let Some(key) = history_key else {
+                return Err(neko_i18n::t(neko_i18n::Key::History_NeedsIndexer).to_string());
+            };
+            let a = addr.as_evm().map_err(|e| e.to_string())?;
+            let rows = neko_evm::history::Bsctrace::new(key)
+                .transfers(a, neko_evm::usdt_address(), limit as usize)
+                .await
+                .map_err(|e| e.to_string())?;
+
+            let mine = a.to_string().to_ascii_lowercase();
+            Ok(rows
+                .into_iter()
+                .map(|t| {
+                    // Direction is decided here, from the address we asked
+                    // about, rather than trusting a field in the reply.
+                    let incoming = t.to.eq_ignore_ascii_case(&mine);
+                    neko_tron::HistoryEntry {
+                        txid: t.hash,
+                        block_ts: t.block_ts,
+                        symbol: t.symbol,
+                        decimals: t.decimals,
+                        amount: t.amount,
+                        direction: if incoming {
+                            neko_tron::Direction::In
+                        } else {
+                            neko_tron::Direction::Out
+                        },
+                        counterparty: if incoming { t.from } else { t.to },
+                        status: if t.success {
+                            neko_tron::TxStatus::Success
+                        } else {
+                            neko_tron::TxStatus::Failed
+                        },
+                    }
+                })
+                .collect())
         }
     }
-    Ok(neko_tron::history::merge(all))
-}
-
-/// Balances for one wallet, in the shape the cache stores.
-pub async fn wallet_assets(
-    c: &TronGrid,
-    addr: Address,
-    usdt: Address,
-) -> Result<Vec<(String, u8, i128)>, String> {
-    let trx = c.trx_balance(addr).await.map_err(|e| e.to_string())?;
-    // A USDT lookup failing must not discard the TRX figure we already have.
-    let usdt_bal = c.trc20_balance(usdt, addr).await.unwrap_or(0);
-    Ok(vec![
-        ("TRX".to_string(), 6, trx as i128),
-        ("USDT".to_string(), 6, usdt_bal as i128),
-    ])
 }

@@ -45,6 +45,11 @@ struct Vectors {
     vectors: Vec<Vector>,
 }
 
+/// The Ledger test mnemonic. Public, and the basis of the standard BIP44
+/// vectors - which is exactly why it must never hold funds.
+const LEDGER: &str =
+    "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
 const HOT: u32 = 0;
 const COLD: u32 = 1;
 
@@ -262,4 +267,62 @@ fn bip39_passphrase_changes_the_wallet() {
     let a = derive::address_at(&plain, HOT, 0).unwrap();
     let b = derive::address_at(&with_pass, HOT, 0).unwrap();
     assert_ne!(a, b, "passphrase did not change the derived address");
+}
+
+// ── EVM chains (BNB Chain) ─────────────────────────────────────────────────
+
+/// The canonical BIP44 vector for EVM chains: the Ledger test mnemonic at
+/// `m/44'/60'/0'/0/0` is `0x9858EfFD232B4033E47d90003D41EC34EcaEda94` in every
+/// wallet that implements the standard. Pinning it here means an address this
+/// program shows can be checked against MetaMask, a Ledger, or any other
+/// wallet - and a change that silently moved the derivation path would be
+/// caught before it sent somebody's funds to an address they do not control.
+///
+/// (That mnemonic is public, so the addresses below are public too. The one
+/// above has over ten thousand transactions on BNB Chain. Never fund it.)
+#[test]
+fn evm_addresses_match_the_standard_vector() {
+    let seed = derive::seed_from_mnemonic(LEDGER, "").unwrap();
+    let want = [
+        "0x9858EfFD232B4033E47d90003D41EC34EcaEda94",
+        "0x6Fac4D18c912343BF86fa7049364Dd4E424Ab9C0",
+        "0xb6716976A3ebe8D39aCEB04372f22Ff8e6802D7A",
+    ];
+    for (i, w) in want.iter().enumerate() {
+        let got = derive::evm_address_at(&seed, 0, i as u32).unwrap();
+        assert_eq!(&got.to_string(), w, "EVM address at index {i}");
+    }
+}
+
+/// One phrase, two chains, two different addresses - and the private keys
+/// differ too. Users find this surprising, so it is worth a test that says it
+/// out loud: a TRON address and an EVM address from the same wallet are not
+/// the same account, and funds sent to one do not appear at the other.
+#[test]
+fn the_same_phrase_gives_different_keys_per_chain() {
+    let seed = derive::seed_from_mnemonic(LEDGER, "").unwrap();
+    let tron_key = derive::private_key_at(&seed, 0, 0).unwrap();
+    let evm_key = derive::evm_private_key_at(&seed, 0, 0).unwrap();
+    assert_ne!(*tron_key, *evm_key, "the two chains derived the same key");
+
+    assert_eq!(
+        derive::path_for_coin(derive::COIN_TYPE, 0, 0),
+        "m/44'/195'/0'/0/0"
+    );
+    assert_eq!(
+        derive::path_for_coin(derive::COIN_TYPE_EVM, 0, 0),
+        "m/44'/60'/0'/0/0"
+    );
+}
+
+/// The EVM address must be exactly the TRON address without its 0x41 prefix,
+/// for the *same* key. The two encoders share a construction; this keeps them
+/// from drifting.
+#[test]
+fn both_encodings_describe_the_same_twenty_bytes() {
+    let seed = derive::seed_from_mnemonic(LEDGER, "").unwrap();
+    let sk = derive::private_key_at(&seed, 0, 0).unwrap();
+    let tron = derive::address_from_private_key(&sk).unwrap();
+    let evm = derive::evm_address_from_private_key(&sk).unwrap();
+    assert_eq!(evm.as_bytes(), &tron.to_evm_bytes());
 }

@@ -19,8 +19,16 @@ pub enum CoreError {
     BadPrivateKey,
     #[error("{0}")]
     BadAmount(#[from] crate::amount::AmountError),
-    #[error("that is not a valid TRON address")]
+    #[error("that is not a valid address for this chain")]
     BadAddress,
+    /// An address, key or asset from one chain reached code meant for another.
+    /// The types keep these apart, so this is unreachable through the
+    /// interface; it exists so the impossible case is loud rather than
+    /// silently wrong.
+    #[error("that address belongs to a different chain")]
+    WrongChain,
+    #[error("{0}")]
+    Evm(#[from] neko_evm::EvmError),
     #[error("insufficient {asset}: you have {have}, this needs {need}")]
     Insufficient {
         asset: String,

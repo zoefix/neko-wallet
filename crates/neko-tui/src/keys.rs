@@ -69,9 +69,19 @@ pub fn on_key_wallets(app: &mut App, k: KeyEvent, tx: &Sender) {
         KeyCode::Char(',') => app.open_settings(),
         KeyCode::Char('R') => app.refresh_wallet_assets(tx),
         KeyCode::Char('y') => {
+            // A wallet has an address per chain, so copying "the" address is
+            // ambiguous here. The chain screen is where one is unambiguous;
+            // this copies the list's own chain-labelled pair rather than
+            // silently picking one.
             if let Screen::Wallets(w) = &app.screen {
-                if let Some(addr) = w.current().map(|c| c.address.clone()) {
-                    app.copy_to_clipboard(&addr);
+                if let Some(c) = w.current() {
+                    let text = c
+                        .addresses
+                        .iter()
+                        .map(|(chain, a)| format!("{}: {a}", chain.label()))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    app.copy_to_clipboard(&text);
                 }
             }
         }
@@ -404,7 +414,7 @@ pub fn on_key_send(app: &mut App, k: KeyEvent, tx: &Sender) {
                         st.step = SendStep::Quoting;
                         let id = app.next_req();
                         app.inflight = Some(id);
-                        let client = app.chain();
+                        let client = app.chain_client(req.chain());
                         let tx = tx.clone();
                         tokio::spawn(async move {
                             let res = crate::chain::quote(&client, &req).await.map(Box::new);
@@ -527,9 +537,9 @@ fn sign_and_broadcast(app: &mut App, tx: &Sender) {
 
     let id = app.next_req();
     app.inflight = Some(id);
-    let client = app.chain();
+    let client = app.chain_client(req.chain());
     let tx = tx.clone();
-    let raw = signed.raw_tx;
+    let raw = signed.raw;
     tokio::spawn(async move {
         let res = crate::chain::broadcast(&client, raw).await;
         let _ = tx.send(crate::event::AppEvent::Broadcast { req: id, res });
@@ -538,7 +548,7 @@ fn sign_and_broadcast(app: &mut App, tx: &Sender) {
 
 struct SendStepRef {
     req: neko_core::TransferRequest,
-    params: neko_tron::tx::TxParams,
+    params: neko_core::ChainTxParams,
 }
 
 pub fn on_key_settings(app: &mut App, k: KeyEvent, tx: &Sender) {
@@ -611,7 +621,7 @@ fn cycle_setting(app: &mut App, forward: bool, tx: &Sender) {
                 crate::theme::BorderStyle::Ascii => crate::theme::BorderStyle::Unicode,
             };
         }
-        SettingRow::ApiKey | SettingRow::NodeUrl => begin_edit(app, tx),
+        SettingRow::ApiKey | SettingRow::BscApiKey | SettingRow::NodeUrl => begin_edit(app, tx),
     }
 }
 
@@ -622,7 +632,7 @@ fn begin_edit(app: &mut App, _tx: &Sender) {
     };
     match st.row() {
         // The API key is a credential: masked while typing, never rendered back.
-        SettingRow::ApiKey => st.editing = Some(Field::new(true)),
+        SettingRow::ApiKey | SettingRow::BscApiKey => st.editing = Some(Field::new(true)),
         SettingRow::NodeUrl => st.editing = Some(Field::new(false)),
         _ => {}
     }
@@ -631,6 +641,14 @@ fn begin_edit(app: &mut App, _tx: &Sender) {
 fn apply_text_setting(app: &mut App, row: crate::nav::SettingRow, value: &str) {
     use crate::nav::SettingRow;
     match row {
+        SettingRow::BscApiKey => {
+            app.set_bsc_api_key(value.trim());
+            app.toast(if value.trim().is_empty() {
+                "BNB Chain history key cleared"
+            } else {
+                "BNB Chain history key saved"
+            });
+        }
         SettingRow::ApiKey => {
             app.set_api_key(value.trim());
             app.toast(if value.trim().is_empty() {

@@ -425,8 +425,12 @@ fn draw_wallets(f: &mut Frame, area: Rect, app: &App, w: &WalletsState) {
                 width::pad(t(Key::Wallets_ColType), 10, Align::Left),
                 theme::hint(),
             ),
-            Span::styled(width::pad("TRX", 20, Align::Right), theme::hint()),
-            Span::styled(width::pad("USDT", 20, Align::Right), theme::hint()),
+            // Labelled per chain: "USDT" on its own no longer identifies a
+            // balance, since it exists on both with different precision.
+            Span::styled(width::pad("TRX", 14, Align::Right), theme::hint()),
+            Span::styled(width::pad("USDT/TRON", 14, Align::Right), theme::hint()),
+            Span::styled(width::pad("BNB", 14, Align::Right), theme::hint()),
+            Span::styled(width::pad("USDT/BSC", 14, Align::Right), theme::hint()),
             Span::styled(
                 width::pad(
                     &format!("  {}", t(Key::Wallets_ColUpdated)),
@@ -471,11 +475,35 @@ fn draw_wallets(f: &mut Frame, area: Rect, app: &App, w: &WalletsState) {
             ),
             Span::styled(width::pad(kind, 10, Align::Left), theme::hint()),
             Span::styled(
-                width::pad(&asset_cell(item, "TRX"), 20, Align::Right),
+                width::pad(
+                    &asset_cell(item, neko_core::ChainId::Tron, "TRX"),
+                    14,
+                    Align::Right,
+                ),
                 style,
             ),
             Span::styled(
-                width::pad(&asset_cell(item, "USDT"), 20, Align::Right),
+                width::pad(
+                    &asset_cell(item, neko_core::ChainId::Tron, "USDT"),
+                    14,
+                    Align::Right,
+                ),
+                style,
+            ),
+            Span::styled(
+                width::pad(
+                    &asset_cell(item, neko_core::ChainId::Bsc, "BNB"),
+                    14,
+                    Align::Right,
+                ),
+                style,
+            ),
+            Span::styled(
+                width::pad(
+                    &asset_cell(item, neko_core::ChainId::Bsc, "USDT"),
+                    14,
+                    Align::Right,
+                ),
                 style,
             ),
             Span::styled(
@@ -597,20 +625,16 @@ fn draw_chains(f: &mut Frame, area: Rect, app: &App, name: &str, selected: usize
     let mut lines = vec![Line::from("")];
     for (i, c) in CHAINS.iter().enumerate() {
         let sel = i == selected;
-        let style = if !c.enabled() {
-            theme::hint()
-        } else if sel {
+        let style = if sel {
             Style::default()
                 .fg(theme::ACCENT)
                 .add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         };
-        let suffix = if c.enabled() {
-            String::new()
-        } else {
-            format!("   {}", t(Key::Chains_ComingSoon))
-        };
+        // The native coin, so the two chains are told apart by what they hold
+        // rather than by name alone.
+        let suffix = format!("   {}", c.native_symbol());
         lines.push(Line::from(vec![
             Span::raw(if sel { " > " } else { "   " }),
             Span::styled(format!("{}{suffix}", c.label()), style),
@@ -656,13 +680,17 @@ fn draw_assets(
 
     // Three states, and each one says something different: still loading, the
     // real number, or why there is no number.
+    // The native coin is named by the chain, not assumed. Showing "TRX" while
+    // standing on BNB Chain would be a placeholder that misidentifies the
+    // asset a user is about to send.
+    let native = chain.native_symbol();
     let rows: Vec<(String, String)> = match &app.balances {
         Some(b) => b.clone(),
         None if app.balances_error.is_some() => {
-            vec![("TRX".into(), "?".into()), ("USDT".into(), "?".into())]
+            vec![(native.into(), "?".into()), ("USDT".into(), "?".into())]
         }
         None => vec![
-            ("TRX".into(), format!("{} loading", app.spinner())),
+            (native.into(), format!("{} loading", app.spinner())),
             ("USDT".into(), format!("{} loading", app.spinner())),
         ],
     };
@@ -1028,32 +1056,89 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                     theme::hint(),
                 )));
 
-                lines.push(resource_line(
-                    t(Key::Send_Energy),
-                    q.energy_needed(),
-                    q.energy_available().zip(q.energy_limit()),
-                    q.energy_shortfall(),
-                    q.energy_burn(),
-                ));
-                if q.energy_penalty > 0 {
-                    lines.push(Line::from(Span::styled(
-                        format!(
-                            "                {} base + {} dynamic-energy surcharge",
-                            group(q.energy_base),
-                            group(q.energy_penalty)
-                        ),
-                        theme::hint(),
-                    )));
+                match q {
+                    crate::send::FeeQuote::Tron(q) => {
+                        lines.push(resource_line(
+                            t(Key::Send_Energy),
+                            q.energy_needed(),
+                            q.energy_available().zip(q.energy_limit()),
+                            q.energy_shortfall(),
+                            q.energy_burn(),
+                        ));
+                        if q.energy_penalty > 0 {
+                            lines.push(Line::from(Span::styled(
+                                format!(
+                                    "                {} base + {} dynamic-energy surcharge",
+                                    group(q.energy_base),
+                                    group(q.energy_penalty)
+                                ),
+                                theme::hint(),
+                            )));
+                        }
+                        lines.push(resource_line(
+                            t(Key::Send_Bandwidth),
+                            q.bandwidth_needed,
+                            q.bandwidth_available().zip(q.bandwidth_limit()),
+                            q.bandwidth_shortfall(),
+                            q.bandwidth_burn(),
+                        ));
+                    }
+                    crate::send::FeeQuote::Bsc(b) => {
+                        // No allowance to draw down here, so there is nothing
+                        // to show as "needed against held": gas is simply
+                        // bought. What matters instead is whether the BNB
+                        // balance covers it, because a wallet holding only
+                        // USDT cannot move that USDT.
+                        lines.push(Line::from(vec![
+                            Span::styled(format!("     {}      ", t(Key::Send_Gas)), theme::hint()),
+                            Span::raw(format!(
+                                "{} units x {} gwei",
+                                group(b.gas_limit as i64),
+                                neko_core::Amount::new(b.gas_price as i128, 9).to_display_string()
+                            )),
+                        ]));
+                        lines.push(Line::from(vec![
+                            Span::styled(
+                                format!("     {}   ", t(Key::Send_BnbBalance)),
+                                theme::hint(),
+                            ),
+                            match b.bnb_balance {
+                                Some(v) => Span::raw(format!(
+                                    "{} BNB",
+                                    neko_core::Amount::new(v as i128, 18).to_display_string()
+                                )),
+                                // A failed lookup is not zero, and must not be
+                                // rendered as though it were.
+                                None => {
+                                    Span::styled(t(Key::Common_Unknown).to_string(), theme::hint())
+                                }
+                            },
+                        ]));
+                        if b.affordable() == Some(false) {
+                            let short = b.shortfall().unwrap_or(neko_core::Amount::new(0, 18));
+                            lines.push(Line::from(Span::styled(
+                                format!(
+                                    "     {}",
+                                    tf(
+                                        Key::Send_NeedMoreBnb,
+                                        &[("amount", &short.to_exact_string())]
+                                    )
+                                ),
+                                Style::default().fg(theme::DANGER),
+                            )));
+                        }
+                    }
                 }
-                lines.push(resource_line(
-                    t(Key::Send_Bandwidth),
-                    q.bandwidth_needed,
-                    q.bandwidth_available().zip(q.bandwidth_limit()),
-                    q.bandwidth_shortfall(),
-                    q.bandwidth_burn(),
-                ));
 
-                let total = q.total_burn();
+                let total = q.total();
+                let unit = st.asset.chain().native_symbol();
+                // TRON literally destroys the TRX that covers a shortfall;
+                // BNB Chain pays gas to a validator. Same column, different
+                // fact, so the word differs.
+                let verb = match q {
+                    crate::send::FeeQuote::Tron(_) => " burned",
+                    crate::send::FeeQuote::Bsc(_) => "",
+                };
                 lines.push(Line::from(vec![
                     Span::styled(format!("     {}      ", t(Key::Send_Total)), theme::hint()),
                     if q.is_free() {
@@ -1063,14 +1148,14 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                         )
                     } else if q.is_upper_bound() {
                         Span::styled(
-                            format!("at most {} TRX", total.to_exact_string()),
+                            format!("at most {} {unit}{verb}", total.to_exact_string()),
                             Style::default()
                                 .fg(theme::WARN)
                                 .add_modifier(Modifier::BOLD),
                         )
                     } else {
                         Span::styled(
-                            format!("~{} TRX burned", total.to_exact_string()),
+                            format!("~{} {unit}{verb}", total.to_exact_string()),
                             Style::default()
                                 .fg(theme::WARN)
                                 .add_modifier(Modifier::BOLD),
@@ -1097,36 +1182,38 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                     )));
                 }
 
-                lines.push(Line::from(Span::styled(
-                    format!(
-                        "                {}",
-                        tf(
-                            if q.prices_known() {
-                                Key::Send_PricesChain
-                            } else {
-                                Key::Send_PricesFallback
-                            },
-                            &[
-                                ("energy", &q.sun_per_energy().to_string()),
-                                ("bandwidth", &q.sun_per_bandwidth().to_string()),
-                            ]
-                        )
-                    ),
-                    theme::hint(),
-                )));
-
-                if q.recipient_is_new {
+                if let crate::send::FeeQuote::Tron(q) = q {
                     lines.push(Line::from(Span::styled(
                         format!(
-                            "     !  This address has never held {}. Creating its balance",
-                            st.asset_label
+                            "                {}",
+                            tf(
+                                if q.prices_known() {
+                                    Key::Send_PricesChain
+                                } else {
+                                    Key::Send_PricesFallback
+                                },
+                                &[
+                                    ("energy", &q.sun_per_energy().to_string()),
+                                    ("bandwidth", &q.sun_per_bandwidth().to_string()),
+                                ]
+                            )
                         ),
-                        theme::warn(),
+                        theme::hint(),
                     )));
-                    lines.push(Line::from(Span::styled(
-                        format!("        {}", t(Key::Send_FirstTime2)),
-                        theme::warn(),
-                    )));
+
+                    if q.recipient_is_new {
+                        lines.push(Line::from(Span::styled(
+                            format!(
+                                "     !  This address has never held {}. Creating its balance",
+                                st.asset_label
+                            ),
+                            theme::warn(),
+                        )));
+                        lines.push(Line::from(Span::styled(
+                            format!("        {}", t(Key::Send_FirstTime2)),
+                            theme::warn(),
+                        )));
+                    }
                 }
             }
 
@@ -1565,9 +1652,14 @@ fn fmt_time(ms: i64) -> String {
     format!("{y:04}-{mth:02}-{d:02} {h:02}:{m:02}")
 }
 
-/// One asset's cached figure, or a placeholder when nothing has been fetched.
-fn asset_cell(item: &neko_core::WalletView, symbol: &str) -> String {
-    match item.assets.amount(symbol) {
+/// One asset's cached figure on one chain, or a placeholder when nothing has
+/// been fetched.
+///
+/// The chain is a parameter because "USDT" alone is ambiguous now: it exists on
+/// both, with six decimals on TRON and eighteen on BNB Chain, and the two are
+/// not the same balance.
+fn asset_cell(item: &neko_core::WalletView, chain: neko_core::ChainId, symbol: &str) -> String {
+    match item.assets_on(chain).amount(symbol) {
         Some((amount, decimals)) => neko_core::Amount::new(amount, decimals).to_display_string(),
         None => "-".to_string(),
     }
@@ -1578,7 +1670,13 @@ fn asset_cell(item: &neko_core::WalletView, symbol: &str) -> String {
 /// A stale balance presented as current is a lie; a stale balance labelled as
 /// stale is useful. So the age is always shown, never hidden.
 fn freshness(item: &neko_core::WalletView) -> String {
-    let Some(ts) = item.assets.updated_at else {
+    // The *oldest* of the chains that actually have a figure, not the newest:
+    // the row shows several, so it is only as current as its stalest number.
+    //
+    // A chain with nothing cached is skipped rather than making the whole row
+    // read "never" - its own cell already shows "-", and the numbers that are
+    // on screen do have an age worth stating.
+    let Some(ts) = item.assets.iter().filter_map(|(_, a)| a.updated_at).min() else {
         return "never".into();
     };
     let now = std::time::SystemTime::now()

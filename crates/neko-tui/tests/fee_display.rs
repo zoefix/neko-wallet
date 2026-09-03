@@ -5,13 +5,13 @@
 //! that the user can see where the number came from.
 
 use neko_tui::app::{App, Screen};
-use neko_tui::send::{FeeQuote, SendState, SendStep};
+use neko_tui::send::{FeeQuote, SendState, SendStep, TronFee};
 
 const MINE: &str = "TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH";
 const TO: &str = "TNYxHL2s6Wjpx86NRwhekYzc27p3oDYrk6";
 
-fn quote(energy_needed: i64, energy_available: i64, bw_needed: i64, bw_available: i64) -> FeeQuote {
-    FeeQuote {
+fn quote(energy_needed: i64, energy_available: i64, bw_needed: i64, bw_available: i64) -> TronFee {
+    TronFee {
         // Split in the measured mainnet proportion (64,285 of 113,920 is base).
         energy_base: energy_needed * 64_285 / 113_920,
         energy_penalty: energy_needed - energy_needed * 64_285 / 113_920,
@@ -25,8 +25,8 @@ fn quote(energy_needed: i64, energy_available: i64, bw_needed: i64, bw_available
 
 /// A quote where the resource lookup failed — the intermittent case that
 /// previously rendered as a confident zero.
-fn quote_unknown(energy_needed: i64, bw_needed: i64) -> FeeQuote {
-    FeeQuote {
+fn quote_unknown(energy_needed: i64, bw_needed: i64) -> TronFee {
+    TronFee {
         energy_base: energy_needed,
         energy_penalty: 0,
         bandwidth_needed: bw_needed,
@@ -79,12 +79,12 @@ fn the_price_is_a_parameter_not_a_constant() {
     assert_eq!(q.energy_burn().to_exact_string(), "21.000000");
 }
 
-fn review_screen(q: FeeQuote) -> App {
+fn review_screen(q: TronFee) -> App {
     let mut app = App::new(std::path::PathBuf::from("/tmp/neko-fee.db"));
     let mut st = SendState::new(
         1,
         "w".into(),
-        neko_hd::Address::parse(MINE).unwrap(),
+        neko_core::ChainAddress::parse(neko_core::ChainId::Tron, MINE).unwrap(),
         neko_core::Asset::Trc20 {
             contract: neko_tron::usdt_address(),
             decimals: 6,
@@ -96,17 +96,19 @@ fn review_screen(q: FeeQuote) -> App {
     let req = st.build_request().unwrap();
     st.step = SendStep::Review {
         req: Box::new(req),
-        params: Box::new(neko_tron::tx::TxParams {
-            ref_block_num: 1,
-            ref_block_hash: [0xab; 32],
-            timestamp: 1_756_000_000_000,
-            expiration: 1_756_000_060_000,
-            fee_limit: 100_000_000,
-        }),
-        quote: Some(q),
+        params: Box::new(neko_core::ChainTxParams::Tron(Box::new(
+            neko_tron::tx::TxParams {
+                ref_block_num: 1,
+                ref_block_hash: [0xab; 32],
+                timestamp: 1_756_000_000_000,
+                expiration: 1_756_000_060_000,
+                fee_limit: 100_000_000,
+            },
+        ))),
+        quote: Some(FeeQuote::Tron(q)),
         typed: neko_tui::input::Field::new(false),
     };
-    app.screen = Screen::Send(st);
+    app.screen = Screen::Send(Box::new(st));
     app
 }
 
@@ -286,7 +288,7 @@ fn the_unknown_case_errs_high_not_low() {
 /// quoted in older TRON documentation.
 #[test]
 fn the_dynamic_energy_surcharge_is_broken_out() {
-    let q = FeeQuote {
+    let q = TronFee {
         energy_base: 64_285,
         energy_penalty: 49_635,
         bandwidth_needed: 282,
@@ -310,7 +312,7 @@ fn the_dynamic_energy_surcharge_is_broken_out() {
 /// A transfer with no surcharge must not print an empty breakdown line.
 #[test]
 fn no_surcharge_means_no_extra_line() {
-    let q = FeeQuote {
+    let q = TronFee {
         energy_base: 30_000,
         energy_penalty: 0,
         bandwidth_needed: 282,
@@ -353,7 +355,7 @@ fn the_first_time_recipient_note_is_not_overstated() {
 #[test]
 fn bandwidth_includes_the_result_allowance() {
     // A real USDT transfer: 345 bytes charged, burned at 1000 sun/byte.
-    let q = FeeQuote {
+    let q = TronFee {
         energy_base: 64_285,
         energy_penalty: 0,
         bandwidth_needed: 345,
@@ -411,7 +413,7 @@ fn the_bandwidth_estimate_matches_a_real_transfer() {
 /// available amount and the cap are shown.
 #[test]
 fn resources_are_shown_against_their_limit() {
-    let q = FeeQuote {
+    let q = TronFee {
         energy_base: 64_285,
         energy_penalty: 49_635,
         bandwidth_needed: 346,

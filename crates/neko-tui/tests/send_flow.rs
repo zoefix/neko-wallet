@@ -75,7 +75,7 @@ async fn send_opens_with_the_selected_asset() {
     };
     assert_eq!(st.asset_label, "USDT");
     assert_eq!(
-        st.asset.fee_limit(),
+        st.asset.tron_fee_limit().unwrap(),
         100_000_000,
         "a contract call needs a fee limit"
     );
@@ -175,13 +175,15 @@ async fn review_requires_retyping_the_destination_tail() {
     let req = st.build_request().unwrap();
     st.step = SendStep::Review {
         req: Box::new(req),
-        params: Box::new(neko_tron::tx::TxParams {
-            ref_block_num: 68_000_123,
-            ref_block_hash: [0xab; 32],
-            timestamp: 1_756_000_000_000,
-            expiration: 1_756_000_060_000,
-            fee_limit: 0,
-        }),
+        params: Box::new(neko_core::ChainTxParams::Tron(Box::new(
+            neko_tron::tx::TxParams {
+                ref_block_num: 68_000_123,
+                ref_block_hash: [0xab; 32],
+                timestamp: 1_756_000_000_000,
+                expiration: 1_756_000_060_000,
+                fee_limit: 0,
+            },
+        ))),
         quote: None,
         typed: neko_tui::input::Field::new(false),
     };
@@ -385,13 +387,15 @@ fn inject_review(app: &mut App) {
     let req = st.build_request().unwrap();
     st.step = SendStep::Review {
         req: Box::new(req),
-        params: Box::new(neko_tron::tx::TxParams {
-            ref_block_num: 68_000_123,
-            ref_block_hash: [0xab; 32],
-            timestamp: 1_756_000_000_000,
-            expiration: 1_756_000_060_000,
-            fee_limit: 0,
-        }),
+        params: Box::new(neko_core::ChainTxParams::Tron(Box::new(
+            neko_tron::tx::TxParams {
+                ref_block_num: 68_000_123,
+                ref_block_hash: [0xab; 32],
+                timestamp: 1_756_000_000_000,
+                expiration: 1_756_000_060_000,
+                fee_limit: 0,
+            },
+        ))),
         quote: None,
         typed: neko_tui::input::Field::new(false),
     };

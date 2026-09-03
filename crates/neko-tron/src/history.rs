@@ -21,9 +21,26 @@ pub enum TxStatus {
     Pending,
 }
 
-/// Incoming transfers below this (in minimal units, 6 decimals => 0.001 token)
-/// are not payments. Nobody sends a fraction of a cent by accident.
-pub const DUST_THRESHOLD: i128 = 1_000;
+/// Incoming transfers below a thousandth of a token are not payments. Nobody
+/// sends a fraction of a cent by accident.
+///
+/// Expressed as a fraction rather than a fixed number of minimal units,
+/// because the number of units in "0.001 tokens" depends on the token: USDT
+/// has six decimals on TRON and eighteen on BNB Chain. A constant tuned for
+/// six would be a million million times too small on eighteen - no incoming
+/// transfer would ever fall below it, and the address-poisoning filter would
+/// silently stop filtering.
+pub const DUST_FRACTION_DENOMINATOR: i128 = 1_000;
+
+/// The dust threshold for a given precision, in minimal units.
+pub fn dust_threshold(decimals: u8) -> i128 {
+    10i128
+        .checked_pow(decimals as u32)
+        .map(|unit| unit / DUST_FRACTION_DENOMINATOR)
+        // Below three decimals there is no sub-thousandth amount to speak of;
+        // treat nothing as dust rather than everything.
+        .unwrap_or(0)
+}
 
 #[derive(Debug, Clone)]
 pub struct HistoryEntry {
@@ -48,7 +65,7 @@ impl HistoryEntry {
     /// next send funds. The dust itself is harmless; the entry in your history
     /// is the payload.
     pub fn is_dust(&self) -> bool {
-        self.direction == Direction::In && self.amount < DUST_THRESHOLD
+        self.direction == Direction::In && self.amount < dust_threshold(self.decimals)
     }
 }
 
@@ -396,11 +413,43 @@ mod tests {
 
     #[test]
     fn dust_threshold_sits_below_any_real_payment() {
-        assert_eq!(DUST_THRESHOLD, 1_000, "0.001 token at 6 decimals");
+        assert_eq!(dust_threshold(6), 1_000, "0.001 token at 6 decimals");
         let mut e = parse_trx(&trx_body(THEIRS, MINE, 999, "SUCCESS"), &owned())[0].clone();
         assert!(e.is_dust());
         e.amount = 1_000;
         assert!(!e.is_dust(), "the threshold must be exclusive");
+    }
+
+    /// The threshold has to follow the token's precision. USDT has six
+    /// decimals on TRON and eighteen on BNB Chain; a fixed number of minimal
+    /// units would be a million million times too small on the latter, so no
+    /// incoming transfer would ever be below it and the address-poisoning
+    /// filter would quietly stop filtering.
+    #[test]
+    fn dust_is_the_same_value_at_every_precision() {
+        assert_eq!(dust_threshold(6), 1_000);
+        assert_eq!(dust_threshold(18), 1_000_000_000_000_000);
+
+        // The same real amount - a tenth of a thousandth of a token - is dust
+        // at both precisions.
+        let mut e = parse_trx(&trx_body(THEIRS, MINE, 1, "SUCCESS"), &owned())[0].clone();
+        e.decimals = 18;
+        e.amount = 100_000_000_000_000; // 0.0001 tokens
+        assert!(e.is_dust(), "dust at eighteen decimals was not detected");
+
+        e.amount = 1_000_000_000_000_000_000; // 1 whole token
+        assert!(!e.is_dust(), "a real payment was flagged as dust");
+    }
+
+    /// Absurd precisions must not panic or overflow.
+    #[test]
+    fn extreme_precisions_are_handled() {
+        assert_eq!(dust_threshold(0), 0);
+        assert_eq!(dust_threshold(2), 0);
+        assert_eq!(dust_threshold(3), 1);
+        // 10^39 overflows i128; degrade to "nothing is dust" rather than panic.
+        assert_eq!(dust_threshold(39), 0);
+        assert_eq!(dust_threshold(255), 0);
     }
 
     /// The exact confusion the attack manufactures.

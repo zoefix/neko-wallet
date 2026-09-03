@@ -1,5 +1,6 @@
 //! Wallet lifecycle: create, import, derive, reveal, rename, delete.
 
+use neko_core::ChainId;
 use neko_core::{CoreError, NewWalletSpec, VaultFile};
 use neko_store::repo::wallets::Origin;
 use neko_vault::profile;
@@ -41,8 +42,12 @@ fn generated_wallet_derives_a_valid_tron_address() {
         "CJK label must survive the round trip"
     );
     assert_eq!(list[0].origin, Origin::Generated);
-    assert!(list[0].address.starts_with('T'), "got {}", list[0].address);
-    assert_eq!(list[0].address.len(), 34);
+    assert!(
+        list[0].address(ChainId::Tron).starts_with('T'),
+        "got {}",
+        list[0].address(ChainId::Tron)
+    );
+    assert_eq!(list[0].address(ChainId::Tron).len(), 34);
 }
 
 /// Importing the Ledger vector must land on the exact published address.
@@ -60,7 +65,10 @@ fn imported_mnemonic_matches_the_ledger_vector() {
             },
         )
         .unwrap();
-    assert_eq!(s.address_of(id, 0).unwrap().to_string(), LEDGER_ADDR);
+    assert_eq!(
+        s.address_of(id, ChainId::Tron, 0).unwrap().to_string(),
+        LEDGER_ADDR
+    );
 }
 
 #[test]
@@ -74,7 +82,10 @@ fn imported_private_key_matches_the_reference() {
             NewWalletSpec::ImportPrivateKey { hex: LEDGER_KEY },
         )
         .unwrap();
-    assert_eq!(s.address_of(id, 0).unwrap().to_string(), LEDGER_ADDR);
+    assert_eq!(
+        s.address_of(id, ChainId::Tron, 0).unwrap().to_string(),
+        LEDGER_ADDR
+    );
     assert_eq!(s.list_wallets().unwrap()[0].origin, Origin::ImportedPrivkey);
 
     // A 0x prefix is accepted too.
@@ -86,7 +97,10 @@ fn imported_private_key_matches_the_reference() {
             },
         )
         .unwrap();
-    assert_eq!(s.address_of(id2, 0).unwrap().to_string(), LEDGER_ADDR);
+    assert_eq!(
+        s.address_of(id2, ChainId::Tron, 0).unwrap().to_string(),
+        LEDGER_ADDR
+    );
 }
 
 #[test]
@@ -146,8 +160,11 @@ fn bip39_passphrase_is_persisted_and_applied() {
         )
         .unwrap();
 
-    let a = s.address_of(plain, 0).unwrap().to_string();
-    let b = s.address_of(with_pass, 0).unwrap().to_string();
+    let a = s.address_of(plain, ChainId::Tron, 0).unwrap().to_string();
+    let b = s
+        .address_of(with_pass, ChainId::Tron, 0)
+        .unwrap()
+        .to_string();
     assert_eq!(a, LEDGER_ADDR);
     assert_ne!(a, b, "passphrase was not applied");
 }
@@ -170,14 +187,14 @@ fn wallets_survive_reopening_the_vault() {
                 },
             )
             .unwrap();
-        address = s.address_of(id, 0).unwrap().to_string();
+        address = s.address_of(id, ChainId::Tron, 0).unwrap().to_string();
     }
 
     let s = VaultFile::at(&path).unlock(EMAIL, PW).unwrap();
     let list = s.list_wallets().unwrap();
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].label, "cold");
-    assert_eq!(list[0].address, address);
+    assert_eq!(list[0].address(ChainId::Tron), address);
 }
 
 /// Creating a wallet must not hand back the phrase; revealing it later requires
@@ -281,7 +298,8 @@ fn many_wallets_each_get_a_distinct_address() {
     }
     let list = s.list_wallets().unwrap();
     assert_eq!(list.len(), 12);
-    let uniq: std::collections::HashSet<_> = list.iter().map(|w| &w.address).collect();
+    let uniq: std::collections::HashSet<_> =
+        list.iter().map(|w| w.address(ChainId::Tron)).collect();
     assert_eq!(uniq.len(), 12, "address collision across wallets");
 }
 
@@ -314,7 +332,10 @@ fn sealed_columns_cannot_be_swapped_between_rows() {
         )
         .unwrap();
 
-    assert!(s.address_of(b, 0).is_err(), "row swap was accepted");
+    assert!(
+        s.address_of(b, ChainId::Tron, 0).is_err(),
+        "row swap was accepted"
+    );
 }
 
 /// Nothing secret may appear in the file, even after wallets exist.

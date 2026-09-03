@@ -12,24 +12,60 @@ use neko_core::{CoreError, Session};
 pub struct ReqId(pub u64);
 
 /// What the chain contributed, before anything is signed.
-pub struct Quote {
-    pub params: neko_tron::tx::TxParams,
-    /// Energy this transfer needs, simulated against the chain and split into
-    /// its base cost and the dynamic-energy surcharge.
-    pub energy: neko_tron::EnergyEstimate,
-    /// Bytes on the wire; bandwidth is charged per byte.
-    pub bandwidth_needed: i64,
-    /// What the account can cover without burning anything.
-    ///
-    /// `None` means the lookup failed, which is NOT the same as zero. Treating
-    /// a rate-limited request as "you have nothing" quietly overstates the fee
-    /// and tells the user something false about their own account.
-    pub resources: Option<neko_tron::Resources>,
-    /// `None` means the chain parameters could not be read.
-    pub prices: Option<neko_tron::Prices>,
-    /// A first-time recipient of this token pays to create a storage slot,
-    /// which costs considerably more energy.
-    pub recipient_is_new: bool,
+///
+/// One variant per chain rather than a common shape, because the two fee
+/// models have nothing in common. TRON grants an allowance of bandwidth and
+/// energy and burns TRX only for the shortfall, so the interesting numbers are
+/// "needed" against "held". BNB Chain has no allowance: gas is always paid, in
+/// BNB, at a price the node quotes. A single flattened "fee" would be wrong on
+/// both, and wrong in the direction that loses money.
+pub enum Quote {
+    Tron {
+        params: Box<neko_tron::tx::TxParams>,
+        /// Energy this transfer needs, simulated against the chain and split
+        /// into its base cost and the dynamic-energy surcharge.
+        energy: neko_tron::EnergyEstimate,
+        /// Bytes on the wire; bandwidth is charged per byte.
+        bandwidth_needed: i64,
+        /// What the account can cover without burning anything.
+        ///
+        /// `None` means the lookup failed, which is NOT the same as zero.
+        /// Treating a rate-limited request as "you have nothing" quietly
+        /// overstates the fee and tells the user something false about their
+        /// own account.
+        resources: Option<neko_tron::Resources>,
+        /// `None` means the chain parameters could not be read.
+        prices: Option<neko_tron::Prices>,
+        /// A first-time recipient of this token pays to create a storage slot,
+        /// which costs considerably more energy.
+        recipient_is_new: bool,
+    },
+    Bsc {
+        params: neko_evm::tx::TxParams,
+        /// BNB pays the fee whatever is being sent, so a wallet holding only
+        /// USDT cannot move it. `None` means the balance could not be read -
+        /// not that it is zero.
+        bnb_balance: Option<u128>,
+        /// Whether the amount and the fee come out of the same balance.
+        sending_native: bool,
+        amount: u128,
+    },
+}
+
+impl Quote {
+    pub fn chain(&self) -> neko_core::ChainId {
+        match self {
+            Quote::Tron { .. } => neko_core::ChainId::Tron,
+            Quote::Bsc { .. } => neko_core::ChainId::Bsc,
+        }
+    }
+
+    pub fn tx_params(&self) -> neko_core::ChainTxParams {
+        match self {
+            Quote::Tron { params, .. } => neko_core::ChainTxParams::Tron(params.clone()),
+            Quote::Bsc { params, .. } => neko_core::ChainTxParams::Evm(*params),
+        }
+    }
 }
 
 pub enum AppEvent {
@@ -60,6 +96,7 @@ pub enum AppEvent {
     WalletAssets {
         req: ReqId,
         wallet_id: i64,
+        chain: neko_core::ChainId,
         res: Result<Vec<(String, u8, i128)>, String>,
     },
     /// Balances for the address currently on screen.

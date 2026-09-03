@@ -1,5 +1,6 @@
 //! Address registration and the balance cache.
 
+use neko_core::ChainId;
 use neko_core::{NewWalletSpec, VaultFile};
 use neko_vault::profile;
 
@@ -30,9 +31,29 @@ fn creating_a_wallet_registers_its_address() {
         .unwrap();
 
     let rows = neko_store::repo::addresses::for_wallet(s.conn().unwrap(), id).unwrap();
-    assert_eq!(rows.len(), 1, "no address row was created");
+    // One per chain: a wallet is an account on every chain the program knows,
+    // derived from the one phrase.
+    assert_eq!(
+        rows.len(),
+        neko_core::CHAINS.len(),
+        "an address row is missing"
+    );
+    let tron = rows
+        .iter()
+        .find(|r| r.chain_id == neko_store::repo::addresses::TRON_CHAIN_ID)
+        .expect("no TRON address row");
+    let bsc = rows
+        .iter()
+        .find(|r| r.chain_id == neko_store::repo::addresses::BSC_CHAIN_ID)
+        .expect("no BNB Chain address row");
+    assert_eq!(tron.address_raw.len(), 21, "TRON addresses are 21 bytes");
+    assert_eq!(bsc.address_raw.len(), 20, "EVM addresses are 20 bytes");
+    assert!(bsc.address.starts_with("0x"));
+    assert_ne!(
+        tron.address, bsc.address,
+        "the two chains must not share an address string"
+    );
     assert_eq!(rows[0].address, LEDGER_ADDR);
-    assert_eq!(rows[0].address_raw.len(), 21);
 }
 
 /// Base58 and the raw bytes must always describe the same address. A corrupted
@@ -50,18 +71,27 @@ fn address_drift_is_detected() {
             },
         )
         .unwrap();
-    assert_eq!(s.verify_address_consistency().unwrap(), 1);
+    // Every chain's address is re-encoded and compared, so the count is
+    // one per chain rather than one per wallet.
+    assert_eq!(
+        s.verify_address_consistency().unwrap(),
+        neko_core::CHAINS.len()
+    );
 
     // Corrupt the raw bytes the way a hand-written SQL fix would.
-    let mut raw = neko_store::repo::addresses::for_wallet(s.conn().unwrap(), id).unwrap()[0]
-        .address_raw
-        .clone();
+    let rows = neko_store::repo::addresses::for_wallet(s.conn().unwrap(), id).unwrap();
+    let target = rows
+        .iter()
+        .find(|r| r.chain_id == neko_store::repo::addresses::TRON_CHAIN_ID)
+        .unwrap();
+    let mut raw = target.address_raw.clone();
+    let row_id = target.id;
     raw[5] ^= 0xFF;
     s.conn()
         .unwrap()
         .execute(
-            "UPDATE addresses SET address_raw = ?1",
-            rusqlite::params![raw],
+            "UPDATE addresses SET address_raw = ?1 WHERE id = ?2",
+            rusqlite::params![raw, row_id],
         )
         .unwrap();
 
@@ -79,11 +109,16 @@ fn balances_round_trip_through_the_cache() {
         .create_wallet("w", NewWalletSpec::Generate { words: 12 })
         .unwrap();
 
-    assert!(s.cached_assets(id).unwrap().rows.is_empty());
-    assert!(s.cached_assets(id).unwrap().updated_at.is_none());
+    assert!(s.cached_assets(id, ChainId::Tron).unwrap().rows.is_empty());
+    assert!(s
+        .cached_assets(id, ChainId::Tron)
+        .unwrap()
+        .updated_at
+        .is_none());
 
     s.cache_assets(
         id,
+        ChainId::Tron,
         &[
             ("TRX".into(), 6, 1_500_000),
             // 2^53 + 1: must survive the round trip exactly.
@@ -92,7 +127,7 @@ fn balances_round_trip_through_the_cache() {
     )
     .unwrap();
 
-    let cached = s.cached_assets(id).unwrap();
+    let cached = s.cached_assets(id, ChainId::Tron).unwrap();
     assert_eq!(cached.amount("TRX"), Some((1_500_000, 6)));
     assert_eq!(cached.amount("USDT"), Some((9_007_199_254_740_993, 6)));
     assert!(cached.updated_at.is_some(), "no timestamp recorded");
@@ -106,10 +141,12 @@ fn caching_again_overwrites_rather_than_duplicating() {
         .create_wallet("w", NewWalletSpec::Generate { words: 12 })
         .unwrap();
 
-    s.cache_assets(id, &[("TRX".into(), 6, 100)]).unwrap();
-    s.cache_assets(id, &[("TRX".into(), 6, 200)]).unwrap();
+    s.cache_assets(id, ChainId::Tron, &[("TRX".into(), 6, 100)])
+        .unwrap();
+    s.cache_assets(id, ChainId::Tron, &[("TRX".into(), 6, 200)])
+        .unwrap();
 
-    let cached = s.cached_assets(id).unwrap();
+    let cached = s.cached_assets(id, ChainId::Tron).unwrap();
     assert_eq!(cached.rows.len(), 1, "duplicate balance rows");
     assert_eq!(cached.amount("TRX"), Some((200, 6)));
 }
@@ -127,12 +164,12 @@ fn the_cache_survives_reopening_the_vault() {
         id = s
             .create_wallet("w", NewWalletSpec::Generate { words: 12 })
             .unwrap();
-        s.cache_assets(id, &[("USDT".into(), 6, 12_345_678)])
+        s.cache_assets(id, ChainId::Tron, &[("USDT".into(), 6, 12_345_678)])
             .unwrap();
     }
     let s = VaultFile::at(&path).unlock(EMAIL, PW).unwrap();
     assert_eq!(
-        s.cached_assets(id).unwrap().amount("USDT"),
+        s.cached_assets(id, ChainId::Tron).unwrap().amount("USDT"),
         Some((12_345_678, 6))
     );
 }
@@ -163,11 +200,20 @@ fn wallets_without_an_address_row_are_backfilled() {
             .is_empty()
     );
 
-    assert_eq!(s.backfill_addresses().unwrap(), 1);
+    assert_eq!(s.backfill_addresses().unwrap(), neko_core::CHAINS.len());
     let rows = neko_store::repo::addresses::for_wallet(s.conn().unwrap(), id).unwrap();
+    let tron = rows
+        .iter()
+        .find(|r| r.chain_id == neko_store::repo::addresses::TRON_CHAIN_ID)
+        .expect("backfill skipped TRON");
     assert_eq!(
-        rows[0].address, LEDGER_ADDR,
+        tron.address, LEDGER_ADDR,
         "backfill derived the wrong address"
+    );
+    assert!(
+        rows.iter()
+            .any(|r| r.chain_id == neko_store::repo::addresses::BSC_CHAIN_ID),
+        "backfill skipped BNB Chain - an existing wallet would have no account there"
     );
 
     // Running it again must be a no-op, not a duplicate.
@@ -186,10 +232,14 @@ fn balances_do_not_leak_between_wallets() {
         .create_wallet("b", NewWalletSpec::Generate { words: 12 })
         .unwrap();
 
-    s.cache_assets(a, &[("TRX".into(), 6, 111)]).unwrap();
-    assert_eq!(s.cached_assets(a).unwrap().amount("TRX"), Some((111, 6)));
+    s.cache_assets(a, ChainId::Tron, &[("TRX".into(), 6, 111)])
+        .unwrap();
+    assert_eq!(
+        s.cached_assets(a, ChainId::Tron).unwrap().amount("TRX"),
+        Some((111, 6))
+    );
     assert!(
-        s.cached_assets(b).unwrap().rows.is_empty(),
+        s.cached_assets(b, ChainId::Tron).unwrap().rows.is_empty(),
         "balances bled across wallets"
     );
 }
@@ -212,12 +262,24 @@ fn two_wallets_may_share_an_address() {
 
     for id in [a, b] {
         let rows = neko_store::repo::addresses::for_wallet(s.conn().unwrap(), id).unwrap();
-        assert_eq!(rows.len(), 1, "wallet {id} has no address row");
+        assert_eq!(
+            rows.len(),
+            neko_core::CHAINS.len(),
+            "wallet {id} is missing an address row"
+        );
         assert_eq!(rows[0].address, LEDGER_ADDR);
     }
     // Each keeps its own cache entry rather than colliding.
-    s.cache_assets(a, &[("TRX".into(), 6, 111)]).unwrap();
-    s.cache_assets(b, &[("TRX".into(), 6, 222)]).unwrap();
-    assert_eq!(s.cached_assets(a).unwrap().amount("TRX"), Some((111, 6)));
-    assert_eq!(s.cached_assets(b).unwrap().amount("TRX"), Some((222, 6)));
+    s.cache_assets(a, ChainId::Tron, &[("TRX".into(), 6, 111)])
+        .unwrap();
+    s.cache_assets(b, ChainId::Tron, &[("TRX".into(), 6, 222)])
+        .unwrap();
+    assert_eq!(
+        s.cached_assets(a, ChainId::Tron).unwrap().amount("TRX"),
+        Some((111, 6))
+    );
+    assert_eq!(
+        s.cached_assets(b, ChainId::Tron).unwrap().amount("TRX"),
+        Some((222, 6))
+    );
 }

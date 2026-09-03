@@ -7,6 +7,7 @@
 
 pub mod codec;
 pub mod error;
+pub mod migrate;
 pub mod open;
 pub mod repo;
 pub mod vault_row;

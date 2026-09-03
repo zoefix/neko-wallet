@@ -123,6 +123,10 @@ pub fn open(path: &Path, key: &FileKey, header: &FileHeader) -> Result<Connectio
     conn.execute_batch(&keyspec_key_salt(key, header))?;
     apply_pragmas(&conn)?;
     probe(&conn)?;
+    // Only after `probe`: migrating a database whose key is wrong would fail
+    // in a way that says nothing about the real problem. And only on `open` -
+    // a freshly created vault is already current.
+    crate::migrate::run(&conn)?;
     Ok(conn)
 }
 

@@ -8,10 +8,11 @@
 //!    wallets does not touch entropy; deriving an address borrows the key for
 //!    the duration of the call and drops it.
 
-use neko_hd::{derive, Address};
+use neko_hd::derive;
 use neko_store::repo::wallets::{self, NewWallet, Origin, WalletMeta};
 use zeroize::Zeroizing;
 
+use crate::chain::{ChainAddress, ChainId};
 use crate::error::CoreError;
 use crate::session::Session;
 
@@ -21,11 +22,39 @@ pub struct WalletView {
     pub id: i64,
     pub label: String,
     pub origin: Origin,
-    pub address: String,
+    /// One address per chain. A wallet is not a single account any more: the
+    /// coin type in the derivation path differs per chain, so the same phrase
+    /// yields a different address on each.
+    pub addresses: Vec<(ChainId, String)>,
     pub created_at: i64,
-    /// Last known balances, straight from the local cache. Rendered
+    /// Last known balances per chain, straight from the local cache. Rendered
     /// immediately; refreshed in the background.
-    pub assets: CachedAssets,
+    ///
+    /// Kept per chain rather than merged. "USDT" exists on both, with six
+    /// decimals on one and eighteen on the other, and the two are not
+    /// interchangeable without a bridge - a combined figure would be a number
+    /// nobody can spend.
+    pub assets: Vec<(ChainId, CachedAssets)>,
+}
+
+impl WalletView {
+    /// Cached balances on one chain, empty if nothing has been fetched yet.
+    pub fn assets_on(&self, chain: ChainId) -> CachedAssets {
+        self.assets
+            .iter()
+            .find(|(c, _)| *c == chain)
+            .map(|(_, a)| a.clone())
+            .unwrap_or_default()
+    }
+
+    /// This wallet's address on one chain.
+    pub fn address(&self, chain: ChainId) -> &str {
+        self.addresses
+            .iter()
+            .find(|(c, _)| *c == chain)
+            .map(|(_, a)| a.as_str())
+            .unwrap_or("")
+    }
 }
 
 pub enum NewWalletSpec<'a> {
@@ -114,9 +143,9 @@ impl Session {
                 )?
             }
         };
-        // Give the wallet an address row immediately so balances and history
-        // have somewhere to attach.
-        self.register_address(id)?;
+        // Give the wallet an address row on every chain immediately, so
+        // balances and history have somewhere to attach.
+        self.register_all_chains(id)?;
         Ok(id)
     }
 
@@ -126,22 +155,40 @@ impl Session {
     }
 
     fn view(&self, m: WalletMeta) -> Result<WalletView, CoreError> {
-        let address = self.address_of(m.id, 0)?.to_string();
+        let mut addresses = Vec::new();
+        for c in crate::chain::CHAINS {
+            addresses.push((c, self.address_of(m.id, c, 0)?.to_string()));
+        }
         // Straight from the local cache: the list must render without waiting
         // on the network. An empty cache simply shows no figure yet.
-        let assets = self.cached_assets(m.id).unwrap_or_default();
+        let assets = crate::chain::CHAINS
+            .into_iter()
+            .map(|c| (c, self.cached_assets(m.id, c).unwrap_or_default()))
+            .collect();
         Ok(WalletView {
             id: m.id,
             label: m.label,
             origin: m.origin,
-            address,
+            addresses,
             created_at: m.created_at,
             assets,
         })
     }
 
-    /// Derive an address. The private key is borrowed for the call and dropped.
-    pub fn address_of(&self, wallet_id: i64, index: u32) -> Result<Address, CoreError> {
+    /// Derive an address on one chain. The private key is borrowed for the
+    /// call and dropped.
+    ///
+    /// A wallet imported from a raw private key has one key and therefore one
+    /// account per chain - the *same* twenty bytes, printed two ways. A wallet
+    /// with a phrase derives a different key per chain, because the coin type
+    /// in the path differs. Both are correct and standard; the difference
+    /// surprises people, which is why it is stated here.
+    pub fn address_of(
+        &self,
+        wallet_id: i64,
+        chain: ChainId,
+        index: u32,
+    ) -> Result<ChainAddress, CoreError> {
         let conn = self.conn()?;
         let key = self.data_key();
 
@@ -151,11 +198,17 @@ impl Session {
                 return Err(CoreError::BadPrivateKey);
             }
             sk.copy_from_slice(&pk);
-            return Ok(derive::address_from_private_key(&sk)?);
+            return Ok(match chain {
+                ChainId::Tron => ChainAddress::Tron(derive::address_from_private_key(&sk)?),
+                ChainId::Bsc => ChainAddress::Evm(derive::evm_address_from_private_key(&sk)?),
+            });
         }
 
         let seed = self.seed_for(wallet_id)?;
-        Ok(derive::address_at(&seed, 0, index)?)
+        Ok(match chain {
+            ChainId::Tron => ChainAddress::Tron(derive::address_at(&seed, 0, index)?),
+            ChainId::Bsc => ChainAddress::Evm(derive::evm_address_at(&seed, 0, index)?),
+        })
     }
 
     pub(crate) fn seed_for(&self, wallet_id: i64) -> Result<Zeroizing<[u8; 64]>, CoreError> {
@@ -241,16 +294,23 @@ impl CachedAssets {
 impl Session {
     /// Record a wallet's address so balances and history have something to hang
     /// off. Idempotent.
-    pub fn register_address(&self, wallet_id: i64) -> Result<i64, CoreError> {
-        let addr = self.address_of(wallet_id, 0)?;
+    pub fn register_address(&self, wallet_id: i64, chain: ChainId) -> Result<i64, CoreError> {
+        let addr = self.address_of(wallet_id, chain, 0)?;
         Ok(neko_store::repo::addresses::ensure(
             self.conn()?,
             wallet_id,
-            neko_store::repo::addresses::TRON_CHAIN_ID,
+            db_chain_id(chain),
             0,
             &addr.to_string(),
-            addr.as_bytes(),
+            &addr.as_bytes(),
         )?)
+    }
+
+    pub fn register_all_chains(&self, wallet_id: i64) -> Result<(), CoreError> {
+        for c in crate::chain::CHAINS {
+            self.register_address(wallet_id, c)?;
+        }
+        Ok(())
     }
 
     /// Register any wallet that predates address bookkeeping.
@@ -262,9 +322,15 @@ impl Session {
         let mut added = 0;
         for w in self.list_wallets()? {
             let existing = neko_store::repo::addresses::for_wallet(self.conn()?, w.id)?;
-            if existing.is_empty() {
-                self.register_address(w.id)?;
-                added += 1;
+            for c in crate::chain::CHAINS {
+                // Every wallet that predates a chain needs its address on that
+                // chain. This is what gives an existing wallet its BNB Chain
+                // account on the first unlock after upgrading, with no
+                // separate step and no new phrase.
+                if !existing.iter().any(|r| r.chain_id == db_chain_id(c)) {
+                    self.register_address(w.id, c)?;
+                    added += 1;
+                }
             }
         }
         Ok(added)
@@ -278,16 +344,25 @@ impl Session {
     pub fn verify_address_consistency(&self) -> Result<usize, CoreError> {
         Ok(neko_store::repo::addresses::verify_consistency(
             self.conn()?,
-            |raw| {
-                neko_hd::Address::from_bytes(raw)
+            |chain_id, raw| {
+                // Decoded with the chain's own encoder. Using TRON's on a
+                // 20-byte EVM address would fail in exactly the way real
+                // corruption does, and the wallet would refuse to start over
+                // an address that is perfectly correct.
+                let chain = from_db_chain_id(chain_id)?;
+                ChainAddress::from_bytes(chain, raw)
                     .ok()
                     .map(|a| a.to_string())
             },
         )?)
     }
 
-    pub fn cached_assets(&self, wallet_id: i64) -> Result<CachedAssets, CoreError> {
-        let rows = neko_store::repo::balances::for_wallet(self.conn()?, wallet_id)?;
+    pub fn cached_assets(&self, wallet_id: i64, chain: ChainId) -> Result<CachedAssets, CoreError> {
+        let rows = neko_store::repo::balances::for_wallet_on_chain(
+            self.conn()?,
+            wallet_id,
+            db_chain_id(chain),
+        )?;
         let updated_at = rows.iter().map(|r| r.updated_at).max();
         Ok(CachedAssets { rows, updated_at })
     }
@@ -296,26 +371,44 @@ impl Session {
     pub fn cache_assets(
         &self,
         wallet_id: i64,
+        chain: ChainId,
         assets: &[(String, u8, i128)],
     ) -> Result<(), CoreError> {
         use neko_store::repo::{addresses, balances};
         let conn = self.conn()?;
-        let address_id = match addresses::for_wallet(conn, wallet_id)?.first() {
+        let db_chain = db_chain_id(chain);
+        let address_id = match addresses::for_wallet(conn, wallet_id)?
+            .into_iter()
+            .find(|r| r.chain_id == db_chain)
+        {
             Some(a) => a.id,
-            None => self.register_address(wallet_id)?,
+            None => self.register_address(wallet_id, chain)?,
         };
         let now = now();
         for (symbol, decimals, amount) in assets {
-            let contract = (symbol == "USDT").then(neko_tron::usdt_address);
-            let asset = balances::asset_id(
-                conn,
-                addresses::TRON_CHAIN_ID,
-                symbol,
-                contract.as_ref().map(|c| c.as_bytes().as_slice()),
-                *decimals,
-            )?;
+            let contract = (symbol == "USDT").then(|| match chain {
+                ChainId::Tron => neko_tron::usdt_address().as_bytes().to_vec(),
+                ChainId::Bsc => neko_evm::usdt_address().as_bytes().to_vec(),
+            });
+            let asset = balances::asset_id(conn, db_chain, symbol, contract.as_deref(), *decimals)?;
             balances::upsert(conn, address_id, asset, *amount, 0, now)?;
         }
         Ok(())
     }
+}
+
+/// The chain ids the database uses. Kept next to the code that reads and
+/// writes them rather than exported, so nothing outside this module has to
+/// know that `tron` is 1.
+fn db_chain_id(c: ChainId) -> i64 {
+    match c {
+        ChainId::Tron => neko_store::repo::addresses::TRON_CHAIN_ID,
+        ChainId::Bsc => neko_store::repo::addresses::BSC_CHAIN_ID,
+    }
+}
+
+fn from_db_chain_id(id: i64) -> Option<ChainId> {
+    crate::chain::CHAINS
+        .into_iter()
+        .find(|c| db_chain_id(*c) == id)
 }

@@ -110,24 +110,46 @@ async fn navigation_drills_down_and_back() {
     assert!(matches!(app.screen, Screen::Wallets(_)));
 }
 
-/// Bitcoin is listed but not built; selecting it must say so, not crash or
-/// silently do nothing.
+/// The second chain is BNB Chain, and it works: one wallet, one phrase, an
+/// account on each chain.
+///
+/// The addresses must differ. They are derived at different SLIP-44 coin types
+/// - 195 and 60 - so the same phrase yields different keys, which is standard
+/// and is what every other wallet does. A test that let them be equal would be
+/// hiding a derivation bug that sends funds to an account nobody can spend
+/// from.
 #[tokio::test]
-async fn unbuilt_chain_is_refused_with_an_explanation() {
+async fn the_second_chain_is_bnb_and_has_its_own_address() {
     neko_i18n::set_locale(neko_i18n::Locale::English);
     let dir = tempfile::tempdir().unwrap();
     let mut app = unlocked(dir.path());
     add_ledger_wallet(&mut app, "w");
     keys::on_key_wallets(&mut app, code(KeyCode::Enter), &channel());
 
-    keys::on_key_chains(&mut app, key('j'), &channel()); // move to Bitcoin
+    keys::on_key_chains(&mut app, key('j'), &channel()); // move to BNB Chain
     keys::on_key_chains(&mut app, code(KeyCode::Enter), &channel());
 
+    let Screen::Assets { chain, address, .. } = &app.screen else {
+        panic!(
+            "did not open the BNB Chain assets screen: {}",
+            app.toast
+                .as_ref()
+                .map(|t| t.text.as_str())
+                .unwrap_or("no message")
+        )
+    };
+    assert_eq!(*chain, neko_core::ChainId::Bsc);
     assert!(
-        matches!(app.screen, Screen::Chains { .. }),
-        "navigated into an unbuilt chain"
+        address.starts_with("0x") && address.len() == 42,
+        "not an EVM address: {address}"
     );
-    assert!(app.toast.as_ref().unwrap().text.contains("Bitcoin"));
+    assert_ne!(
+        address, LEDGER_ADDR,
+        "both chains produced the same address - the coin type is not reaching derivation"
+    );
+    // The canonical vector for this phrase, so the address can be checked
+    // against any other wallet.
+    assert_eq!(address, "0x9858EfFD232B4033E47d90003D41EC34EcaEda94");
 }
 
 /// The reveal must start at the gate and refuse a wrong password.
@@ -513,6 +535,7 @@ async fn the_wallet_list_renders_cached_balances_without_the_network() {
         .unwrap()
         .cache_assets(
             id,
+            neko_core::ChainId::Tron,
             &[
                 ("TRX".into(), 6, 55_101_572_000),
                 ("USDT".into(), 6, 17_476_654_444),
@@ -571,7 +594,11 @@ async fn cached_balances_survive_relocking() {
         app.session
             .as_ref()
             .unwrap()
-            .cache_assets(id, &[("USDT".into(), 6, 1_234_560_000)])
+            .cache_assets(
+                id,
+                neko_core::ChainId::Tron,
+                &[("USDT".into(), 6, 1_234_560_000)],
+            )
             .unwrap();
     }
 
@@ -605,16 +632,22 @@ async fn asset_replies_are_applied_to_the_right_wallet() {
     app.on_app_event(neko_tui::event::AppEvent::WalletAssets {
         req: neko_tui::event::ReqId(1),
         wallet_id: b,
+        chain: neko_core::ChainId::Tron,
         res: Ok(vec![("TRX".into(), 6, 42_000_000)]),
     });
 
     let s = app.session.as_ref().unwrap();
     assert_eq!(
-        s.cached_assets(b).unwrap().amount("TRX"),
+        s.cached_assets(b, neko_core::ChainId::Tron)
+            .unwrap()
+            .amount("TRX"),
         Some((42_000_000, 6))
     );
     assert!(
-        s.cached_assets(a).unwrap().rows.is_empty(),
+        s.cached_assets(a, neko_core::ChainId::Tron)
+            .unwrap()
+            .rows
+            .is_empty(),
         "balance landed on the wrong wallet"
     );
 }

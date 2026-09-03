@@ -110,6 +110,9 @@ retry = "R で再試行"
 hint = "jk 切替  s 送金  t 取引履歴  y アドレスをコピー  R 更新  Esc 戻る"
 
 [send]
+gas = "Gas"
+bnb_balance = "BNB 残高"
+need_more_bnb = "手数料の BNB が足りません - %{amount} 不足。ガスは必ず BNB で支払われます。"
 title = "%{asset} を送金 . %{wallet}"
 verify = "一行ずつ確認してください。署名してブロードキャストします。"
 from = "送金元"
@@ -196,6 +199,7 @@ ssh = "SSH 接続です。この語はネットワークを経由します。"
 recording = "asciinema がこのセッションを録画しています。"
 
 [history]
+needs_indexer = "BNB Chain の履歴にはインデクサが必要です。nodereal.io で無料のキーを取得し、設定に入力してください。"
 col_when = "日時"
 col_asset = "資産"
 col_amount = "金額"
@@ -218,6 +222,8 @@ from_to = "相手先"
 hint = "jk 移動  Enter リンクをコピー  y IDをコピー  D ダスト表示  R 更新  Esc 戻る"
 
 [settings]
+bsc_api_key = "BNB Chain 履歴キー"
+bsc_api_key_unset = "未設定 (履歴は利用できません)"
 language = "言語"
 api_key = "TronGrid API Key"
 node_url = "カスタムノード URL"

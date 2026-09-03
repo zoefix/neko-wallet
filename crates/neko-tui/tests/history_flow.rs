@@ -37,7 +37,7 @@ fn entry(n: i64, dir: Direction, status: TxStatus) -> HistoryEntry {
 
 fn app_with_history(entries: Vec<HistoryEntry>) -> App {
     let mut app = App::new(std::path::PathBuf::from("/tmp/neko-hist.db"));
-    let mut h = HistoryState::new(ADDR.into());
+    let mut h = HistoryState::new(neko_core::ChainId::Tron, ADDR.into());
     h.entries = Some(entries);
     app.screen = Screen::History(h);
     app
@@ -197,7 +197,7 @@ async fn large_amounts_render_in_full() {
         (9_007_199_254_740_993i128, "9,007,199,254.740993"), // 2^53 + 1
         (100_000_000_000_000_000, "100,000,000,000.000000"), // whole USDT supply
         // The smallest amount that is NOT filtered as poisoning dust.
-        (neko_tron::history::DUST_THRESHOLD, "0.001000"),
+        (neko_tron::history::dust_threshold(6), "0.001000"),
     ] {
         let mut e = entry(1, Direction::In, TxStatus::Success);
         e.amount = raw;

@@ -58,17 +58,26 @@ pub fn upsert(
 }
 
 /// Cached balances for every address belonging to a wallet.
-pub fn for_wallet(conn: &Connection, wallet_id: i64) -> Result<Vec<CachedBalance>, StoreError> {
+/// Cached balances for one wallet on one chain.
+///
+/// Filtered by chain, not merged: the same symbol exists on both - and USDT
+/// has six decimals on TRON and eighteen on BNB Chain, so a merged total would
+/// be meaningless even before it was wrong.
+pub fn for_wallet_on_chain(
+    conn: &Connection,
+    wallet_id: i64,
+    chain_id: i64,
+) -> Result<Vec<CachedBalance>, StoreError> {
     let mut stmt = conn.prepare(
         "SELECT s.symbol, s.decimals, b.amount, b.updated_at
          FROM balances b
          JOIN addresses a  ON a.id = b.address_id
          JOIN accounts  ac ON ac.id = a.account_id
          JOIN assets    s  ON s.id = b.asset_id
-         WHERE ac.wallet_id = ?1
+         WHERE ac.wallet_id = ?1 AND ac.chain_id = ?2
          ORDER BY s.symbol",
     )?;
-    let rows = stmt.query_map([wallet_id], |r| {
+    let rows = stmt.query_map(rusqlite::params![wallet_id, chain_id], |r| {
         Ok(CachedBalance {
             symbol: r.get(0)?,
             decimals: r.get::<_, i64>(1)? as u8,

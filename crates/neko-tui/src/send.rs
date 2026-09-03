@@ -7,9 +7,7 @@
 //! destination is the only step that forces attention onto the bytes about to
 //! be signed.
 
-use neko_core::{Amount, Asset, TransferRequest};
-use neko_hd::Address;
-use neko_tron::tx::TxParams;
+use neko_core::{Amount, Asset, ChainAddress, ChainId, ChainTxParams, TransferRequest};
 
 use crate::input::Field;
 
@@ -24,6 +22,8 @@ pub const CONFIRM_CHARS: usize = 6;
 
 /// Base58 TRON addresses are always this long.
 pub const TRON_ADDRESS_LEN: usize = 34;
+/// `0x` plus 40 hex characters.
+pub const EVM_ADDRESS_LEN: usize = 42;
 
 /// The fee, broken down.
 ///
@@ -31,7 +31,7 @@ pub const TRON_ADDRESS_LEN: usize = 34;
 /// transfer the account cannot already cover, so the same transfer is free for
 /// an account with staked energy and costly for one without. Showing what is
 /// needed alongside what is held is what makes the number mean anything.
-pub struct FeeQuote {
+pub struct TronFee {
     /// Base cost of the contract call.
     pub energy_base: i64,
     /// TRON's dynamic-energy surcharge on heavily used contracts. For USDT this
@@ -61,7 +61,7 @@ pub struct FeeQuote {
 pub const FALLBACK_SUN_PER_ENERGY: i64 = 210;
 pub const FALLBACK_SUN_PER_BANDWIDTH: i64 = 1_000;
 
-impl FeeQuote {
+impl TronFee {
     pub fn energy_available(&self) -> Option<i64> {
         self.available.map(|(e, _)| e.0)
     }
@@ -127,6 +127,93 @@ impl FeeQuote {
     }
 }
 
+/// What a BNB Chain transfer costs.
+///
+/// Nothing here resembles TRON's model and that is the point. There is no
+/// allowance to draw down: gas is always paid, always in BNB, at a price the
+/// node quotes. The consequence worth surfacing is that a wallet holding only
+/// USDT cannot send that USDT - it has no BNB for the fee - which is a state
+/// people reach constantly and which an "insufficient funds" from the node
+/// explains badly.
+pub struct BscFee {
+    pub gas_limit: u64,
+    pub gas_price: u128,
+    /// `None` when the balance could not be read. Distinct from zero: one is a
+    /// fact about the account, the other is our own failure.
+    pub bnb_balance: Option<u128>,
+    /// Whether the amount and the fee come out of the same balance.
+    pub sending_native: bool,
+    pub amount: u128,
+}
+
+impl BscFee {
+    /// Gas is paid in full, so this is the fee - not a ceiling.
+    pub fn fee_wei(&self) -> u128 {
+        self.gas_limit as u128 * self.gas_price
+    }
+
+    pub fn fee(&self) -> Amount {
+        Amount::new(self.fee_wei() as i128, neko_evm::BNB_DECIMALS)
+    }
+
+    /// What this transfer takes out of the BNB balance: the fee, plus the
+    /// amount itself when the amount *is* BNB.
+    pub fn bnb_needed(&self) -> u128 {
+        if self.sending_native {
+            self.fee_wei().saturating_add(self.amount)
+        } else {
+            self.fee_wei()
+        }
+    }
+
+    /// `None` while the balance is unknown - never guessed.
+    pub fn affordable(&self) -> Option<bool> {
+        self.bnb_balance.map(|b| b >= self.bnb_needed())
+    }
+
+    pub fn shortfall(&self) -> Option<Amount> {
+        self.bnb_balance.map(|b| {
+            Amount::new(
+                self.bnb_needed().saturating_sub(b) as i128,
+                neko_evm::BNB_DECIMALS,
+            )
+        })
+    }
+}
+
+/// The fee, per chain.
+pub enum FeeQuote {
+    Tron(TronFee),
+    Bsc(BscFee),
+}
+
+impl FeeQuote {
+    /// The figure shown as the total. On TRON this can be an upper bound; on
+    /// BNB Chain it is exact.
+    pub fn total(&self) -> Amount {
+        match self {
+            FeeQuote::Tron(t) => t.total_burn(),
+            FeeQuote::Bsc(b) => b.fee(),
+        }
+    }
+
+    pub fn is_upper_bound(&self) -> bool {
+        match self {
+            FeeQuote::Tron(t) => t.is_upper_bound(),
+            // Gas limit times gas price, both known. Nothing is being assumed.
+            FeeQuote::Bsc(_) => false,
+        }
+    }
+
+    pub fn is_free(&self) -> bool {
+        match self {
+            FeeQuote::Tron(t) => t.is_free(),
+            // A BNB Chain transaction always costs gas.
+            FeeQuote::Bsc(_) => false,
+        }
+    }
+}
+
 pub enum SendStep {
     Recipient,
     EnterAmount,
@@ -134,7 +221,7 @@ pub enum SendStep {
     Quoting,
     Review {
         req: Box<TransferRequest>,
-        params: Box<TxParams>,
+        params: Box<ChainTxParams>,
         quote: Option<FeeQuote>,
         typed: Field,
     },
@@ -145,7 +232,7 @@ pub enum SendStep {
     /// whole Argon2id derivation runs again.
     Authorize {
         req: Box<TransferRequest>,
-        params: Box<TxParams>,
+        params: Box<ChainTxParams>,
         password: Field,
         checking: bool,
     },
@@ -163,7 +250,7 @@ pub struct SendState {
     pub known: Vec<String>,
     pub wallet_id: i64,
     pub wallet_name: String,
-    pub from: Address,
+    pub from: ChainAddress,
     pub asset: Asset,
     pub asset_label: String,
     pub to: Field,
@@ -176,7 +263,7 @@ impl SendState {
     pub fn new(
         wallet_id: i64,
         wallet_name: String,
-        from: Address,
+        from: ChainAddress,
         asset: Asset,
         asset_label: String,
     ) -> Self {
@@ -196,11 +283,18 @@ impl SendState {
 
     /// Validate as the user types, so a bad address is obvious before they
     /// commit to an amount.
+    pub fn chain(&self) -> ChainId {
+        self.asset.chain()
+    }
+
+    /// Validate as the user types, against *this chain's* address format. A
+    /// TRON address typed into a BNB Chain transfer is invalid here, not
+    /// merely unusual.
     pub fn recipient_error(&self) -> Option<&'static str> {
         if self.to.is_empty() {
             return None;
         }
-        match Address::parse(self.to.value().trim()) {
+        match ChainAddress::parse(self.chain(), self.to.value().trim()) {
             Ok(a) if a == self.from => Some(neko_i18n::t(neko_i18n::Key::Send_ErrOwnAddress)),
             Ok(_) => None,
             Err(_) => Some(neko_i18n::t(neko_i18n::Key::Send_ErrInvalidAddress)),
@@ -238,7 +332,13 @@ impl SendState {
         // one whose checksum is wrong, where a mistyped character is exactly
         // what we want to surface.
         let dest = self.to.value().trim();
-        if dest.chars().count() != TRON_ADDRESS_LEN {
+        // Only once a full-length address has been typed; comparing prefixes
+        // while somebody is still typing would warn on every keystroke.
+        let want = match self.chain() {
+            ChainId::Tron => TRON_ADDRESS_LEN,
+            ChainId::Bsc => EVM_ADDRESS_LEN,
+        };
+        if dest.chars().count() != want {
             return None;
         }
         self.known

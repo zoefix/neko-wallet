@@ -12,9 +12,11 @@ neko-vault  = { path = "../neko-vault" }
 neko-store  = { path = "../neko-store" }
 neko-hd     = { path = "../neko-hd" }
 neko-tron   = { path = "../neko-tron" }
+neko-evm    = { path = "../neko-evm" }
 rusqlite.workspace = true
 zeroize.workspace = true
 thiserror.workspace = true
+hex.workspace = true
 
 [dev-dependencies]
 neko-hd = { path = "../neko-hd" }
