@@ -13,10 +13,11 @@ use neko_tron::TronGrid;
 
 use crate::event::Quote;
 
-/// Decimal places shown on the assets screen. Eight is finer than any figure
-/// a person reads at a glance and still shows a real dust amount as something
-/// other than zero; transfers use the exact value, never this.
-const BALANCE_FRAC: u8 = 8;
+/// Decimal places shown wherever a balance is scanned rather than signed.
+/// Eight is finer than any figure a person reads at a glance and still shows a
+/// real dust amount as something other than zero; transfers use the exact
+/// value, never this.
+pub const BALANCE_FRAC: u8 = 8;
 
 /// Tag plus length prefix for `Transaction.raw_data`.
 const RAW_DATA_FIELD_OVERHEAD: usize = 4;
@@ -267,13 +268,13 @@ pub async fn balances(c: &Client, addr: ChainAddress) -> Result<Vec<(String, Str
     Ok(rows
         .into_iter()
         .map(|(sym, dec, amt)| {
-            // Capped: eighteen decimals is a row of zeros nobody reads, and it
-            // pushed the column off the screen. The cap never renders a
-            // non-empty balance as zero - it shows `<0.00000001` instead - and
-            // the send screen still works from the exact figure.
+            // Capped and trimmed: eighteen decimals is a row of zeros nobody
+            // reads, and it pushed the column off the screen. Neither step can
+            // render a non-empty balance as zero - below the cap shows
+            // `<0.00000001` - and the send screen works from the exact figure.
             (
                 sym,
-                neko_core::Amount::new(amt, dec).to_display_string_max(BALANCE_FRAC),
+                neko_core::Amount::new(amt, dec).to_display_string_trim(BALANCE_FRAC),
             )
         })
         .collect())

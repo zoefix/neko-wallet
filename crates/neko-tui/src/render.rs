@@ -1071,7 +1071,8 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                             Span::raw(format!(
                                 "{} units x {} gwei",
                                 group(b.gas_limit as i64),
-                                neko_core::Amount::new(b.gas_price as i128, 9).to_display_string()
+                                neko_core::Amount::new(b.gas_price as i128, 9)
+                                    .to_display_string_trim(crate::chain::BALANCE_FRAC)
                             )),
                         ]));
                         lines.push(Line::from(vec![
@@ -1082,7 +1083,8 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                             match b.bnb_balance {
                                 Some(v) => Span::raw(format!(
                                     "{} BNB",
-                                    neko_core::Amount::new(v as i128, 18).to_display_string()
+                                    neko_core::Amount::new(v as i128, 18)
+                                        .to_display_string_trim(crate::chain::BALANCE_FRAC)
                                 )),
                                 // A failed lookup is not zero, and must not be
                                 // rendered as though it were.
@@ -1098,7 +1100,14 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                                     "     {}",
                                     tf(
                                         Key::Send_NeedMoreBnb,
-                                        &[("amount", &short.to_exact_string())]
+                                        &[
+                                            (
+                                                "amount",
+                                                &short.to_display_string_trim(
+                                                    crate::chain::BALANCE_FRAC,
+                                                ),
+                                            )
+                                        ]
                                     )
                                 ),
                                 Style::default().fg(theme::DANGER),
@@ -1125,14 +1134,20 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                         )
                     } else if q.is_upper_bound() {
                         Span::styled(
-                            format!("at most {} {unit}{verb}", total.to_exact_string()),
+                            format!(
+                                "at most {} {unit}{verb}",
+                                total.to_display_string_trim(crate::chain::BALANCE_FRAC)
+                            ),
                             Style::default()
                                 .fg(theme::WARN)
                                 .add_modifier(Modifier::BOLD),
                         )
                     } else {
                         Span::styled(
-                            format!("~{} {unit}{verb}", total.to_exact_string()),
+                            format!(
+                                "~{} {unit}{verb}",
+                                total.to_display_string_trim(crate::chain::BALANCE_FRAC)
+                            ),
                             Style::default()
                                 .fg(theme::WARN)
                                 .add_modifier(Modifier::BOLD),
@@ -1529,7 +1544,8 @@ fn draw_history(f: &mut Frame, area: Rect, app: &App, h: &HistoryState) {
                 } else {
                     Style::default().fg(theme::WARN)
                 };
-                let amount = neko_core::Amount::new(e.amount, e.decimals).to_display_string();
+                let amount = neko_core::Amount::new(e.amount, e.decimals)
+                    .to_display_string_trim(crate::chain::BALANCE_FRAC);
                 let (status, status_style) = if e.is_dust() {
                     (t(Key::History_StatusDust), theme::danger())
                 } else {

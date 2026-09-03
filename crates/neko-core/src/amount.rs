@@ -150,6 +150,34 @@ impl Amount {
         }
         format!("{int}.{cut}")
     }
+
+    /// Grouped, capped at `max_frac`, and with trailing zeros removed.
+    ///
+    /// For a figure you scan rather than one you sign. `0.00000000` and
+    /// `250.00000000` say exactly as much as `0` and `250` while costing eight
+    /// columns, and an eighteen-decimal chain turns every balance into a row of
+    /// zeros wide enough to push the column off the screen. Nothing is lost:
+    /// trailing zeros in a fixed-point fraction carry no information, and the
+    /// figure that actually gets signed comes from `to_exact_string`, which this
+    /// cannot reach.
+    ///
+    /// The below-the-cap marker keeps its zeros. `<0.00000001` trimmed to `<0.1`
+    /// would claim the value is ten million times larger than it is.
+    pub fn to_display_string_trim(self, max_frac: u8) -> String {
+        let capped = self.to_display_string_max(max_frac);
+        if capped.contains('<') {
+            return capped;
+        }
+        let Some((int, frac)) = capped.split_once('.') else {
+            return capped;
+        };
+        let frac = frac.trim_end_matches('0');
+        if frac.is_empty() {
+            int.to_string()
+        } else {
+            format!("{int}.{frac}")
+        }
+    }
 }
 
 impl fmt::Display for Amount {
@@ -300,5 +328,80 @@ mod tests {
     fn matches_the_transaction_vector_amount() {
         assert_eq!(Amount::parse("2.5", 6).unwrap().raw, 2_500_000);
         assert_eq!(Amount::parse("1.5", 6).unwrap().raw, 1_500_000);
+    }
+
+    /// The assets column is scanned, not signed, and eighteen trailing zeros
+    /// are pure noise there. What the trim must never do is change the value.
+    #[test]
+    fn trimmed_display_drops_only_zeros_that_say_nothing() {
+        // Zero is one character, not nineteen.
+        assert_eq!(Amount::new(0, 18).to_display_string_trim(8), "0");
+        assert_eq!(Amount::new(0, 6).to_display_string_trim(8), "0");
+
+        // A round figure loses its tail, not its magnitude.
+        assert_eq!(
+            Amount::new(250_000_000_000_000_000_000, 18).to_display_string_trim(8),
+            "250"
+        );
+        assert_eq!(
+            Amount::new(1_500_000_000_000_000_000, 18).to_display_string_trim(8),
+            "1.5"
+        );
+
+        // Thousands separators survive; the grouped zeros are in the integer
+        // part and must not be touched.
+        assert_eq!(
+            Amount::new(1_200_000_000_000_000_000_000, 18).to_display_string_trim(8),
+            "1,200"
+        );
+
+        // Significant digits are kept to the cap.
+        assert_eq!(
+            Amount::new(12_345_678_901_234_567_890, 18).to_display_string_trim(8),
+            "12.34567890".trim_end_matches('0')
+        );
+        assert_eq!(
+            Amount::new(8_655_008, 6).to_display_string_trim(8),
+            "8.655008"
+        );
+
+        // Below the cap keeps every zero: `<0.1` would be a lie by a factor of
+        // ten million.
+        assert_eq!(
+            Amount::new(183_016_821, 18).to_display_string_trim(8),
+            "<0.00000001"
+        );
+        assert_eq!(
+            Amount::new(-183_016_821, 18).to_display_string_trim(8),
+            "-<0.00000001"
+        );
+
+        // Negative values keep their sign through the trim.
+        assert_eq!(
+            Amount::new(-1_500_000_000_000_000_000, 18).to_display_string_trim(8),
+            "-1.5"
+        );
+    }
+
+    /// A trimmed figure has to parse back to the same amount whenever it was
+    /// not capped, otherwise the column and the ledger disagree.
+    #[test]
+    fn trimmed_display_round_trips_when_nothing_was_cut() {
+        // `parse` rejects zero by design, so it cannot appear here; the case
+        // above pins it instead. Everything else has to come back exactly, and
+        // a parse failure is a failure, not a zero.
+        for raw in [
+            1_500_000_000_000_000_000i128,
+            250_000_000_000_000_000_000,
+            1_200_000_000_000_000_000_000,
+            30_000_000_000_000_000,
+            12_345_678_900_000_000_000,
+        ] {
+            let shown = Amount::new(raw, 18).to_display_string_trim(8);
+            assert!(!shown.contains('<'), "{shown} should not have been capped");
+            let back = Amount::parse(&shown, 18)
+                .unwrap_or_else(|e| panic!("{shown} no longer parses: {e}"));
+            assert_eq!(back.raw, raw, "{shown} did not survive the round trip");
+        }
     }
 }

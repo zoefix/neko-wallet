@@ -191,14 +191,28 @@ async fn failed_and_pending_rows_are_rendered_distinctly() {
 
 /// Amounts must never lose precision OR be truncated on the way to the screen.
 /// A clipped amount is worse than none: it silently misinforms.
+///
+/// Trailing zeros are the one thing that may go: `100,000,000,000` and
+/// `100,000,000,000.000000` are the same number, and the second costs seven
+/// columns to say so. The guard against that becoming an excuse to drop real
+/// digits is the round trip below - whatever the screen shows has to parse back
+/// to the exact amount that was rendered.
 #[tokio::test]
 async fn large_amounts_render_in_full() {
     for (raw, want) in [
         (9_007_199_254_740_993i128, "9,007,199,254.740993"), // 2^53 + 1
-        (100_000_000_000_000_000, "100,000,000,000.000000"), // whole USDT supply
+        (100_000_000_000_000_000, "100,000,000,000"),        // whole USDT supply
         // The smallest amount that is NOT filtered as poisoning dust.
-        (neko_tron::history::dust_threshold(6), "0.001000"),
+        (neko_tron::history::dust_threshold(6), "0.001"),
     ] {
+        // What the screen shows must be the amount, not merely something that
+        // looks like it.
+        let parsed = neko_core::Amount::parse(want, 6).expect("the rendered figure must parse");
+        assert_eq!(
+            parsed.raw, raw,
+            "expectation {want} is not {raw} - the test itself is wrong"
+        );
+
         let mut e = entry(1, Direction::In, TxStatus::Success);
         e.amount = raw;
         let app = app_with_history(vec![e]);
@@ -408,9 +422,16 @@ async fn header_columns_line_up_with_the_rows() {
         row.find("USDT"),
         "the Asset header does not sit above the symbol\nheader: {header}\nrow:    {row}"
     );
-    // "Amount" is right-aligned, so compare its right edge to the value's.
+    // "Amount" is right-aligned, so compare its right edge to the value's. The
+    // figure is derived rather than spelled out, so that changing how balances
+    // are formatted moves the expectation with it instead of failing here.
+    let shown =
+        neko_core::Amount::new(1_500_000, 6).to_display_string_trim(neko_tui::chain::BALANCE_FRAC);
     let header_amount_end = header.find("Amount").unwrap() + "Amount".len();
-    let row_amount_end = row.find(".500000").unwrap() + ".500000".len();
+    let row_amount_end = row
+        .find(&shown)
+        .unwrap_or_else(|| panic!("no amount {shown:?} in row: {row}"))
+        + shown.len();
     assert_eq!(
         header_amount_end, row_amount_end,
         "the Amount column is not right-aligned with its header\nheader: {header}\nrow:    {row}"
