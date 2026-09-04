@@ -663,7 +663,11 @@ fn draw_assets(
     // The native coin is named by the chain, not assumed. Showing "TRX" while
     // standing on BNB Chain would be a placeholder that misidentifies the
     // asset a user is about to send.
-    let native = chain.native_symbol();
+    // What this chain actually carries. The two placeholder branches below
+    // used to spell out a native coin and a USDT, which put a USDT row on
+    // Bitcoin for the second it took the balances to arrive - an asset that
+    // does not exist on that chain, shown as though it were still loading.
+    let symbols: Vec<&'static str> = chain.assets().iter().map(|a| a.symbol()).collect();
     let rows: Vec<(String, String)> = match &app.balances {
         // Capped and trimmed here rather than at the fetch: eighteen decimals
         // is a row of zeros nobody reads and it pushed the column off the
@@ -680,13 +684,14 @@ fn draw_assets(
                 )
             })
             .collect(),
-        None if app.balances_error.is_some() => {
-            vec![(native.into(), "?".into()), ("USDT".into(), "?".into())]
-        }
-        None => vec![
-            (native.into(), format!("{} loading", app.spinner())),
-            ("USDT".into(), format!("{} loading", app.spinner())),
-        ],
+        None if app.balances_error.is_some() => symbols
+            .iter()
+            .map(|s| ((*s).to_string(), "?".to_string()))
+            .collect(),
+        None => symbols
+            .iter()
+            .map(|s| ((*s).to_string(), format!("{} loading", app.spinner())))
+            .collect(),
     };
 
     for (i, (sym, bal)) in rows.iter().enumerate() {

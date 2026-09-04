@@ -262,14 +262,27 @@ pub fn on_key_assets(app: &mut App, k: KeyEvent, tx: &Sender) {
         KeyCode::Esc | KeyCode::Char('h') | KeyCode::Left => {
             app.pop();
         }
+        // Both of these were `% 2`, which is how one of them was also wrong in
+        // a way nothing could show: with exactly two rows, "next" and
+        // "previous" are the same expression. Bitcoin has one asset, and a
+        // third row would have moved the cursor onto something that is not
+        // there.
         KeyCode::Char('j') | KeyCode::Down => {
-            if let Screen::Assets { selected, .. } = &mut app.screen {
-                *selected = (*selected + 1) % 2;
+            if let Screen::Assets {
+                selected, chain, ..
+            } = &mut app.screen
+            {
+                let n = chain.assets().len();
+                *selected = (*selected + 1) % n;
             }
         }
         KeyCode::Char('k') | KeyCode::Up => {
-            if let Screen::Assets { selected, .. } = &mut app.screen {
-                *selected = (*selected + 1) % 2;
+            if let Screen::Assets {
+                selected, chain, ..
+            } = &mut app.screen
+            {
+                let n = chain.assets().len();
+                *selected = (*selected + n - 1) % n;
             }
         }
         KeyCode::Char('y') => {
