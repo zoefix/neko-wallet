@@ -29,6 +29,12 @@ pub enum HdError {
     // prefix, no checksum, nothing to say beyond the length.
     #[error("a Solana address must be 32 bytes of base58")]
     BadSolanaAddress,
+
+    // --- Bitcoin. Five script types, three text encodings, and a testnet that
+    // uses the same alphabet - so there is nothing useful to say beyond that
+    // this is not a mainnet address this program can pay.
+    #[error("not a Bitcoin mainnet address")]
+    BadBtcAddress,
     #[error("not valid base58")]
     BadBase58,
     #[error("mnemonic is not valid BIP39")]

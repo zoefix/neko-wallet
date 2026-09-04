@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/neko-crypto", "crates/neko-vault", "crates/neko-hd", "crates/neko-tron", "crates/neko-evm", "crates/neko-solana", "crates/neko-store", "crates/neko-core", "crates/neko-i18n", "crates/neko-tui", "crates/neko-wallet"]
+members = ["crates/neko-crypto", "crates/neko-vault", "crates/neko-hd", "crates/neko-tron", "crates/neko-btc", "crates/neko-evm", "crates/neko-solana", "crates/neko-store", "crates/neko-core", "crates/neko-i18n", "crates/neko-tui", "crates/neko-wallet"]
 
 [workspace.package]
 version      = "0.1.0"
@@ -26,6 +26,10 @@ bip32 = { version = "0.5.3", default-features = false, features = ["alloc", "sec
 bip39 = { version = "2.2", default-features = false, features = ["std"] }
 k256  = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
 sha3  = "0.10"
+# HASH160 for Bitcoin: RIPEMD160 over SHA256.
+# 0.1, not 0.2: it has to share `digest` 0.10 with sha2, or the Digest trait
+# in scope is not the one Ripemd160 implements.
+ripemd = "0.1"
 bs58  = { version = "0.5.1", features = ["check"] }
 # Solana signs with Ed25519, which the bip32/k256 stack cannot produce.
 ed25519-dalek = { version = "3", default-features = false, features = ["fast", "zeroize", "signature", "alloc"] }

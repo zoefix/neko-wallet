@@ -1640,6 +1640,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "neko-btc"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "k256",
+ "neko-hd",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.20",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
 name = "neko-core"
 version = "0.1.0"
 dependencies = [
@@ -1703,6 +1719,7 @@ dependencies = [
  "hex",
  "hmac",
  "k256",
+ "ripemd",
  "serde",
  "serde_json",
  "sha2 0.10.9",

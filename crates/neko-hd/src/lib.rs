@@ -15,12 +15,15 @@
 //! official Ledger test vector.
 
 pub mod address;
+pub mod bech32;
+pub mod bitcoin;
 pub mod derive;
 pub mod error;
 pub mod evm;
 pub mod solana;
 
 pub use address::{Address, ADDRESS_LEN};
+pub use bitcoin::{BtcAddress, COIN_TYPE_BTC};
 pub use derive::{
     address_at, address_from_private_key, entropy_from_mnemonic, evm_address_at,
     evm_address_from_private_key, evm_private_key_at, generate_mnemonic, mnemonic_from_entropy,
