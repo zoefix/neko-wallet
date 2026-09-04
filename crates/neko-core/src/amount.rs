@@ -163,6 +163,18 @@ impl Amount {
     ///
     /// The below-the-cap marker keeps its zeros. `<0.00000001` trimmed to `<0.1`
     /// would claim the value is ten million times larger than it is.
+    /// Full precision, grouped, with trailing zeros removed.
+    ///
+    /// For the confirmation screen, where the figure is about to be signed.
+    /// `1.000000000000000000` is not a more careful way of writing `1`: telling
+    /// it apart from `10.00000000000000000` means counting eighteen characters,
+    /// which is the kind of check people get wrong. No cap applies here - the
+    /// cap is the amount's own precision - so no digit can go missing, only
+    /// zeros that carry nothing.
+    pub fn to_display_string_full(self) -> String {
+        self.to_display_string_trim(self.decimals)
+    }
+
     pub fn to_display_string_trim(self, max_frac: u8) -> String {
         let capped = self.to_display_string_max(max_frac);
         if capped.contains('<') {
@@ -381,6 +393,45 @@ mod tests {
             Amount::new(-1_500_000_000_000_000_000, 18).to_display_string_trim(8),
             "-1.5"
         );
+    }
+
+    /// The confirmation screen trims without capping, so it must be incapable
+    /// of dropping a digit no matter how fine the amount is.
+    #[test]
+    fn full_display_drops_zeros_but_never_a_digit() {
+        assert_eq!(
+            Amount::new(1_000_000_000_000_000_000, 18).to_display_string_full(),
+            "1"
+        );
+        assert_eq!(Amount::new(1_000_000, 6).to_display_string_full(), "1");
+
+        // One wei more is a different amount, and has to still look like one.
+        assert_eq!(
+            Amount::new(1_000_000_000_000_000_001, 18).to_display_string_full(),
+            "1.000000000000000001"
+        );
+
+        // The capped form would have hidden exactly that difference, which is
+        // why the confirmation screen does not use it.
+        assert_eq!(
+            Amount::new(1_000_000_000_000_000_001, 18).to_display_string_trim(8),
+            "1"
+        );
+
+        // Whatever is shown still parses back to the exact amount.
+        for raw in [
+            1_000_000_000_000_000_000i128,
+            1_000_000_000_000_000_001,
+            123_456_789_000_000_000_000_000,
+        ] {
+            let shown = Amount::new(raw, 18).to_display_string_full();
+            assert_eq!(
+                Amount::parse(&shown, 18)
+                    .unwrap_or_else(|e| panic!("{shown} no longer parses: {e}"))
+                    .raw,
+                raw
+            );
+        }
     }
 
     /// A trimmed figure has to parse back to the same amount whenever it was

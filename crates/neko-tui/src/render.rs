@@ -1019,7 +1019,7 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
             lines.push(Line::from(vec![
                 Span::styled(format!("   {}   ", t(Key::Send_Amount)), theme::hint()),
                 Span::styled(
-                    format!("{} {}", req.amount.to_exact_string(), st.asset_label),
+                    format!("{} {}", req.amount.to_display_string_full(), st.asset_label),
                     Style::default()
                         .fg(theme::ACCENT)
                         .add_modifier(Modifier::BOLD),
@@ -1117,7 +1117,12 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                 }
 
                 let total = q.total();
-                let unit = st.asset.chain().native_symbol();
+                let chain = st.asset.chain();
+                let unit = chain.native_symbol();
+                // What the fee actually costs. Without this the line reads
+                // "~0.00000311 BNB", which nobody can weigh against what they
+                // are sending - and weighing it is the entire point.
+                let priced = fee_in_usdt(total, chain, &app.prices);
                 // TRON literally destroys the TRX that covers a shortfall;
                 // BNB Chain pays gas to a validator. Same column, different
                 // fact, so the word differs.
@@ -1125,35 +1130,32 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                     crate::send::FeeQuote::Tron(_) => " burned",
                     crate::send::FeeQuote::Bsc(_) => "",
                 };
-                lines.push(Line::from(vec![
+                let mut total_line = vec![
                     Span::styled(format!("     {}      ", t(Key::Send_Total)), theme::hint()),
                     if q.is_free() {
                         Span::styled(
                             t(Key::Send_Free).to_string(),
                             Style::default().fg(theme::OK),
                         )
-                    } else if q.is_upper_bound() {
-                        Span::styled(
-                            format!(
-                                "at most {} {unit}{verb}",
-                                total.to_display_string_trim(crate::chain::BALANCE_FRAC)
-                            ),
-                            Style::default()
-                                .fg(theme::WARN)
-                                .add_modifier(Modifier::BOLD),
-                        )
                     } else {
+                        let shown = total.to_display_string_trim(crate::chain::BALANCE_FRAC);
+                        let lead = if q.is_upper_bound() { "at most " } else { "~" };
                         Span::styled(
-                            format!(
-                                "~{} {unit}{verb}",
-                                total.to_display_string_trim(crate::chain::BALANCE_FRAC)
-                            ),
+                            format!("{lead}{shown} {unit}{verb}"),
                             Style::default()
                                 .fg(theme::WARN)
                                 .add_modifier(Modifier::BOLD),
                         )
                     },
-                ]));
+                ];
+                // A free transfer costs nothing to price, and a fee whose price
+                // is not known yet says nothing rather than implying zero.
+                if !q.is_free() {
+                    if let Some(p) = priced {
+                        total_line.push(Span::styled(format!("   {p}"), theme::hint()));
+                    }
+                }
+                lines.push(Line::from(total_line));
 
                 // Never let a failed lookup masquerade as a fact about the
                 // account. Without an API key these calls hit the public rate
@@ -1273,7 +1275,7 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
             lines.push(Line::from(vec![
                 Span::styled(format!("   {}  ", t(Key::Send_Sending)), theme::hint()),
                 Span::styled(
-                    format!("{} {}", req.amount.to_exact_string(), st.asset_label),
+                    format!("{} {}", req.amount.to_display_string_full(), st.asset_label),
                     Style::default()
                         .fg(theme::ACCENT)
                         .add_modifier(Modifier::BOLD),
@@ -1647,6 +1649,29 @@ fn fmt_time(ms: i64) -> String {
 
 /// Width of the estimated-value column.
 const VALUE_COL: usize = 18;
+
+/// The fee, in something a person can weigh.
+///
+/// `~0.00000311 BNB` answers "how much gas" and not "how much money", and the
+/// question on this screen is the second one. The unit is USDT rather than
+/// dollars for the reason `neko_core::value` sets out: the quote came from a
+/// swap pool, not a currency market, and the two are not the same thing.
+///
+/// Sub-cent fees come out as `<0.01` rather than `0.00`, because a fee shown as
+/// zero is a fee somebody stops checking.
+///
+/// `None` when the price is not known, so the line stays silent instead of
+/// implying the transfer is free.
+fn fee_in_usdt(
+    total: neko_core::Amount,
+    chain: neko_core::ChainId,
+    prices: &neko_core::Prices,
+) -> Option<String> {
+    let price = prices.native(chain)?;
+    let v = neko_core::value::value_of(total.raw, total.decimals, price)?;
+    let shown = neko_core::Amount::new(v, neko_core::PRICE_SCALE).to_display_string_trim(2);
+    Some(format!("\u{2248} {shown} USDT"))
+}
 
 /// A wallet's total, or a placeholder saying why there isn't one.
 ///

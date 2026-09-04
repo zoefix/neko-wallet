@@ -278,7 +278,7 @@ pub fn on_key_assets(app: &mut App, k: KeyEvent, tx: &Sender) {
                 app.copy_to_clipboard(&a);
             }
         }
-        KeyCode::Char('s') => app.open_send(),
+        KeyCode::Char('s') => app.open_send(tx),
         KeyCode::Char('t') => app.open_history(tx),
         KeyCode::Char('R') => app.fetch_balances(tx),
         _ => {}

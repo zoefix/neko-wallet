@@ -650,7 +650,7 @@ impl App {
     }
 
     /// Open the transfer flow for the asset highlighted on the assets screen.
-    pub fn open_send(&mut self) {
+    pub fn open_send(&mut self, tx: &crate::keys::Sender) {
         let Screen::Assets {
             wallet_id,
             name,
@@ -677,6 +677,13 @@ impl App {
         // checked against them for a crafted lookalike.
         state.known = self.known_counterparties();
         self.push(Screen::Send(Box::new(state)));
+        // The review screen prices the fee, and the wallet list is the only
+        // other place that fetches. Reaching send without passing through it -
+        // or with that fetch having failed - would leave the fee as a bare gas
+        // figure, which is the thing this is here to avoid.
+        if self.prices.is_empty() {
+            self.fetch_prices(tx);
+        }
     }
 
     fn on_quoted(&mut self, req: ReqId, res: Result<Box<crate::event::Quote>, String>) {
