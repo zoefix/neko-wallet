@@ -201,6 +201,9 @@ impl Session {
             return Ok(match chain {
                 ChainId::Tron => ChainAddress::Tron(derive::address_from_private_key(&sk)?),
                 ChainId::Bsc => ChainAddress::Evm(derive::evm_address_from_private_key(&sk)?),
+                ChainId::Ethereum => {
+                    ChainAddress::Ethereum(derive::evm_address_from_private_key(&sk)?)
+                }
                 ChainId::Solana => {
                     ChainAddress::Solana(neko_hd::solana::address_from_private_key(&sk)?)
                 }
@@ -214,6 +217,9 @@ impl Session {
         Ok(match chain {
             ChainId::Tron => ChainAddress::Tron(derive::address_at(&seed, 0, index)?),
             ChainId::Bsc => ChainAddress::Evm(derive::evm_address_at(&seed, 0, index)?),
+            // Coin type 60, the same as BNB Chain's - so this is the same
+            // address, which is correct and is what every EVM wallet does.
+            ChainId::Ethereum => ChainAddress::Ethereum(derive::evm_address_at(&seed, 0, index)?),
             // SLIP-0010, hardened at every level, so the account level is what
             // varies rather than a change/index pair that cannot exist here.
             ChainId::Solana => ChainAddress::Solana(neko_hd::solana::address_at(&seed, index)?),
@@ -403,7 +409,8 @@ impl Session {
         for (symbol, decimals, amount) in assets {
             let contract = (symbol == "USDT").then(|| match chain {
                 ChainId::Tron => neko_tron::usdt_address().as_bytes().to_vec(),
-                ChainId::Bsc => neko_evm::usdt_address().as_bytes().to_vec(),
+                ChainId::Bsc => neko_evm::BSC.usdt_address().as_bytes().to_vec(),
+                ChainId::Ethereum => neko_evm::ETHEREUM.usdt_address().as_bytes().to_vec(),
                 ChainId::Solana => neko_solana::usdt_mint().as_bytes().to_vec(),
                 // Unreachable: Bitcoin has no USDT, so this closure is never
                 // reached for it.
@@ -425,6 +432,7 @@ fn db_chain_id(c: ChainId) -> i64 {
         ChainId::Bsc => neko_store::repo::addresses::BSC_CHAIN_ID,
         ChainId::Solana => neko_store::repo::addresses::SOLANA_CHAIN_ID,
         ChainId::Bitcoin => neko_store::repo::addresses::BITCOIN_CHAIN_ID,
+        ChainId::Ethereum => neko_store::repo::addresses::ETHEREUM_CHAIN_ID,
     }
 }
 

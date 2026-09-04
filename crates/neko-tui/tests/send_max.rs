@@ -11,7 +11,7 @@
 //! plausible happened.
 
 use neko_core::Amount;
-use neko_tui::send::{BscFee, FeeQuote, SendState, TronFee};
+use neko_tui::send::{EvmFee, FeeQuote, SendState, TronFee};
 
 const BSC_MINE: &str = "0x1111111111111111111111111111111111111111";
 const BSC_TO: &str = "0x2222222222222222222222222222222222222222";
@@ -32,6 +32,8 @@ fn state(asset: neko_core::Asset, balance: Option<i128>) -> SendState {
         neko_core::ChainId::Bsc => BSC_MINE,
         neko_core::ChainId::Solana => SOLANA_MINE,
         neko_core::ChainId::Bitcoin => BTC_MINE,
+        // The same twenty bytes as BNB Chain's, which is the point.
+        neko_core::ChainId::Ethereum => BSC_MINE,
     };
     let mut st = SendState::new(
         1,
@@ -46,10 +48,13 @@ fn state(asset: neko_core::Asset, balance: Option<i128>) -> SendState {
 }
 
 fn bsc_quote(amount: u128, balance: Option<u128>) -> FeeQuote {
-    FeeQuote::Bsc(BscFee {
+    FeeQuote::Evm(EvmFee {
+        chain: neko_evm::BSC,
         gas_limit: GAS_LIMIT,
-        gas_price: GAS_PRICE,
-        bnb_balance: balance,
+        fees: neko_evm::tx::Fees::Legacy {
+            gas_price: GAS_PRICE,
+        },
+        native_balance: balance,
         sending_native: true,
         amount,
     })
@@ -87,7 +92,7 @@ fn the_maximum_plus_the_fee_is_the_balance_exactly() {
 #[test]
 fn the_reduced_amount_is_affordable() {
     let mut q = bsc_quote(BALANCE as u128, Some(BALANCE as u128));
-    let FeeQuote::Bsc(b) = &q else { unreachable!() };
+    let FeeQuote::Evm(b) = &q else { unreachable!() };
     assert_eq!(b.affordable(), Some(false), "the setup must start short");
 
     let mut st = state(neko_core::Asset::Bnb, Some(BALANCE));
@@ -95,9 +100,13 @@ fn the_reduced_amount_is_affordable() {
     let new = st.hold_back_fee(BALANCE, q.total()).unwrap();
     q.set_amount(new);
 
-    let FeeQuote::Bsc(b) = &q else { unreachable!() };
+    let FeeQuote::Evm(b) = &q else { unreachable!() };
     assert_eq!(b.affordable(), Some(true), "still short after reducing");
-    assert_eq!(b.bnb_needed(), BALANCE as u128, "it should use every wei");
+    assert_eq!(
+        b.native_needed(),
+        BALANCE as u128,
+        "it should use every wei"
+    );
 }
 
 /// A token's fee is paid in the chain's own coin, out of a different balance.
@@ -263,14 +272,17 @@ fn the_request_built_for_signing_carries_the_reduced_amount() {
     app.inflight = Some(id);
     app.on_app_event(neko_tui::event::AppEvent::Quoted {
         req: id,
-        res: Ok(Box::new(neko_tui::event::Quote::Bsc {
+        res: Ok(Box::new(neko_tui::event::Quote::Evm {
+            chain: neko_evm::BSC,
             params: neko_evm::tx::TxParams {
                 nonce: 0,
-                gas_price: GAS_PRICE,
                 gas_limit: GAS_LIMIT,
-                chain_id: neko_evm::CHAIN_ID,
+                chain_id: neko_evm::BSC.chain_id,
+                fees: neko_evm::tx::Fees::Legacy {
+                    gas_price: GAS_PRICE,
+                },
             },
-            bnb_balance: Some(BALANCE as u128),
+            native_balance: Some(BALANCE as u128),
             sending_native: true,
             amount: BALANCE as u128,
         })),
@@ -292,7 +304,8 @@ fn the_request_built_for_signing_carries_the_reduced_amount() {
         BALANCE,
         "it does not empty the account"
     );
-    let Some(FeeQuote::Bsc(b)) = quote else {
+    let Some(q) = quote else { panic!("no quote") };
+    let FeeQuote::Evm(b) = &**q else {
         panic!("no BSC quote")
     };
     assert_eq!(

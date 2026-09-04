@@ -105,7 +105,7 @@ fn review_screen(q: TronFee) -> App {
                 fee_limit: 100_000_000,
             },
         ))),
-        quote: Some(FeeQuote::Tron(q)),
+        quote: Some(Box::new(FeeQuote::Tron(q))),
         typed: neko_tui::input::Field::new(false),
     };
     app.screen = Screen::Send(Box::new(st));

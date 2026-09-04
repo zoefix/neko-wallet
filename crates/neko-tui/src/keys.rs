@@ -722,7 +722,8 @@ fn cycle_setting(app: &mut App, forward: bool, tx: &Sender) {
         | SettingRow::BscApiKey
         | SettingRow::NodeUrl
         | SettingRow::SolanaRpc
-        | SettingRow::BitcoinApi => begin_edit(app, tx),
+        | SettingRow::BitcoinApi
+        | SettingRow::EthRpc => begin_edit(app, tx),
     }
 }
 
@@ -736,9 +737,10 @@ fn begin_edit(app: &mut App, _tx: &Sender) {
         SettingRow::ApiKey | SettingRow::BscApiKey => st.editing = Some(Field::new(true)),
         // Not credentials, so shown while typing - a mistyped node URL is
         // easier to spot than to debug.
-        SettingRow::NodeUrl | SettingRow::SolanaRpc | SettingRow::BitcoinApi => {
-            st.editing = Some(Field::new(false))
-        }
+        SettingRow::NodeUrl
+        | SettingRow::SolanaRpc
+        | SettingRow::BitcoinApi
+        | SettingRow::EthRpc => st.editing = Some(Field::new(false)),
         _ => {}
     }
 }
@@ -762,9 +764,10 @@ fn apply_text_setting(app: &mut App, row: crate::nav::SettingRow, value: &str) {
                 "API key saved"
             });
         }
-        SettingRow::NodeUrl | SettingRow::SolanaRpc | SettingRow::BitcoinApi => {
-            set_node_url(app, row, value)
-        }
+        SettingRow::NodeUrl
+        | SettingRow::SolanaRpc
+        | SettingRow::BitcoinApi
+        | SettingRow::EthRpc => set_node_url(app, row, value),
         _ => {}
     }
 }
@@ -781,6 +784,7 @@ fn set_node_url(app: &mut App, row: crate::nav::SettingRow, value: &str) {
     let (key, saved) = match row {
         SettingRow::SolanaRpc => (keys::SOLANA_RPC, neko_i18n::Key::Settings_SolanaRpcSaved),
         SettingRow::BitcoinApi => (keys::BITCOIN_API, neko_i18n::Key::Settings_BitcoinApiSaved),
+        SettingRow::EthRpc => (keys::ETH_RPC, neko_i18n::Key::Settings_EthRpcSaved),
         _ => (keys::NODE_URL, neko_i18n::Key::Settings_NodeSaved),
     };
 
@@ -794,6 +798,7 @@ fn set_node_url(app: &mut App, row: crate::nav::SettingRow, value: &str) {
     match row {
         SettingRow::SolanaRpc => app.solana_rpc = stored,
         SettingRow::BitcoinApi => app.bitcoin_api = stored,
+        SettingRow::EthRpc => app.eth_rpc = stored,
         _ => app.node_url = stored,
     }
     if let Some(s) = app.session.as_ref() {

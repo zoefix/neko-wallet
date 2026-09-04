@@ -8,13 +8,13 @@ A self-custody encrypted crypto wallet for the terminal. Your whole wallet is
 one encrypted file — carry it on a USB stick, keep it on a network drive, copy
 it anywhere. Unlocked by an email and a password that are stored nowhere.
 
-Multi-chain by design: TRON, BNB Chain, Solana and Bitcoin.
+Multi-chain by design: TRON, Ethereum, BNB Chain, Solana and Bitcoin.
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
 ![Version](https://img.shields.io/badge/VERSION-v0.1.0-8A2BE2?style=for-the-badge&labelColor=444)
 ![Platform](https://img.shields.io/badge/PLATFORM-MACOS%20%7C%20LINUX%20%7C%20WINDOWS-00B5E2?style=for-the-badge&labelColor=444)
-![Chains](https://img.shields.io/badge/CHAINS-TRON%20%7C%20BNB%20%7C%20SOL%20%7C%20BTC-1BC47D?style=for-the-badge&labelColor=444)
+![Chains](https://img.shields.io/badge/CHAINS-TRON%20%7C%20ETH%20%7C%20BNB%20%7C%20SOL%20%7C%20BTC-1BC47D?style=for-the-badge&labelColor=444)
 ![Rust](https://img.shields.io/badge/RUST-1.86%2B-000000?style=for-the-badge&labelColor=444)
 ![Licence](https://img.shields.io/badge/LICENCE-MIT-F5A623?style=for-the-badge&labelColor=444)
 
@@ -139,6 +139,7 @@ phrase, or a new thing to back up.
 | BNB Chain | working | BNB, USDT (BEP20) |
 | Solana | working | SOL, USDT (SPL) |
 | Bitcoin | working | BTC |
+| Ethereum | working | ETH, USDT (ERC20) |
 
 The same phrase gives a different address on each — that is correct and
 universal, not a bug. Solana has no agreed derivation path; this wallet uses
@@ -153,6 +154,15 @@ still works. Two things are Bitcoin-only and are shown on the send screen
 rather than left to be discovered: the fee depends on how many separate
 coins are being spent, not on the amount, and a remainder too small to
 return goes to the fee instead of coming back as change.
+
+Ethereum and BNB Chain share a derivation path, so one phrase gives the
+**same address** on both - that is correct and is what every EVM wallet
+does. What they do not share is the chain id, which is what makes a
+signature valid on one and useless on the other, or USDT: different
+contracts, and **six decimals on Ethereum against eighteen on BNB Chain**.
+Ethereum builds EIP-1559 transactions, so the screen shows what a transfer
+is expected to cost alongside the ceiling it reserves; the difference is
+refunded.
 
 Chain-specific code is confined to one crate. Key derivation, storage,
 encryption, and the interface are shared and chain-agnostic, and the database
@@ -448,7 +458,7 @@ neko-vault    key hierarchy, KDF profiles, password policy, normalization
 neko-store    SQLCipher, migrations, field-level envelopes  (never derives keys)
 neko-hd       BIP39 / BIP32 / BIP44 and SLIP-0010; TRON, EVM and Solana addresses
 neko-tron     TRON only: protobuf, transaction building and signing, node client
-neko-evm      BNB Chain: RLP, EIP-155 signing, ABI encoding, JSON-RPC
+neko-evm      Ethereum and BNB Chain: RLP, EIP-155 and EIP-1559 signing, ABI, JSON-RPC
 neko-solana   Solana: Ed25519, the wire format, token accounts, cluster RPC
 neko-btc      Bitcoin: bech32, segwit v0 signing, coin selection, Esplora
 neko-core     the facade the UI talks to

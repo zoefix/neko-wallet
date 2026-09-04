@@ -18,13 +18,15 @@ pub enum ChainId {
     Bsc,
     Solana,
     Bitcoin,
+    Ethereum,
 }
 
-pub const CHAINS: [ChainId; 4] = [
+pub const CHAINS: [ChainId; 5] = [
     ChainId::Tron,
     ChainId::Bsc,
     ChainId::Solana,
     ChainId::Bitcoin,
+    ChainId::Ethereum,
 ];
 
 impl ChainId {
@@ -35,6 +37,7 @@ impl ChainId {
             ChainId::Bsc => "bsc",
             ChainId::Solana => "solana",
             ChainId::Bitcoin => "bitcoin",
+            ChainId::Ethereum => "ethereum",
         }
     }
 
@@ -48,6 +51,7 @@ impl ChainId {
             ChainId::Bsc => "BNB Chain",
             ChainId::Solana => "Solana",
             ChainId::Bitcoin => "Bitcoin",
+            ChainId::Ethereum => "Ethereum",
         }
     }
 
@@ -60,6 +64,9 @@ impl ChainId {
             ChainId::Bsc => neko_hd::derive::COIN_TYPE_EVM,
             ChainId::Solana => neko_hd::COIN_TYPE_SOLANA,
             ChainId::Bitcoin => neko_hd::COIN_TYPE_BTC,
+            // 60, the same as BNB Chain's: every EVM chain shares Ethereum's
+            // coin type, so one phrase gives the same address on all of them.
+            ChainId::Ethereum => neko_hd::derive::COIN_TYPE_EVM,
         }
     }
 
@@ -69,6 +76,7 @@ impl ChainId {
             ChainId::Bsc => "BNB",
             ChainId::Solana => "SOL",
             ChainId::Bitcoin => "BTC",
+            ChainId::Ethereum => "ETH",
         }
     }
 
@@ -77,7 +85,8 @@ impl ChainId {
     pub fn native_decimals(self) -> u8 {
         match self {
             ChainId::Tron => neko_tron::TRX_DECIMALS,
-            ChainId::Bsc => neko_evm::BNB_DECIMALS,
+            ChainId::Bsc => neko_evm::BSC.native_decimals,
+            ChainId::Ethereum => neko_evm::ETHEREUM.native_decimals,
             ChainId::Solana => neko_solana::SOL_DECIMALS,
             ChainId::Bitcoin => neko_btc::BTC_DECIMALS,
         }
@@ -105,8 +114,14 @@ impl ChainId {
             }),
             ChainId::Bitcoin => None,
             ChainId::Bsc => Some(Asset::Bep20 {
-                contract: neko_evm::usdt_address(),
-                decimals: neko_evm::USDT_DECIMALS,
+                contract: neko_evm::BSC.usdt_address(),
+                decimals: neko_evm::BSC.usdt_decimals,
+            }),
+            // A different contract *and* a different precision from BNB
+            // Chain's: six decimals here, eighteen there.
+            ChainId::Ethereum => Some(Asset::Erc20 {
+                contract: neko_evm::ETHEREUM.usdt_address(),
+                decimals: neko_evm::ETHEREUM.usdt_decimals,
             }),
         }
     }
@@ -122,12 +137,25 @@ impl ChainId {
         v
     }
 
+    /// The EVM parameters for this chain, when it is one.
+    ///
+    /// `None` for TRON, Solana and Bitcoin, which is what keeps a caller from
+    /// reaching for a chain id or a USDT precision that does not apply to them.
+    pub fn evm(self) -> Option<neko_evm::EvmChain> {
+        match self {
+            ChainId::Bsc => Some(neko_evm::BSC),
+            ChainId::Ethereum => Some(neko_evm::ETHEREUM),
+            ChainId::Tron | ChainId::Solana | ChainId::Bitcoin => None,
+        }
+    }
+
     pub fn native(self) -> Asset {
         match self {
             ChainId::Tron => Asset::Trx,
             ChainId::Bsc => Asset::Bnb,
             ChainId::Solana => Asset::Sol,
             ChainId::Bitcoin => Asset::Btc,
+            ChainId::Ethereum => Asset::Eth,
         }
     }
 
@@ -138,6 +166,7 @@ impl ChainId {
             ChainId::Bsc => format!("https://bscscan.com/tx/{id}"),
             ChainId::Solana => format!("https://solscan.io/tx/{id}"),
             ChainId::Bitcoin => format!("{}{id}", neko_btc::EXPLORER_TX),
+            ChainId::Ethereum => format!("{}{id}", neko_evm::ETHEREUM.explorer_tx),
         }
     }
 }
@@ -149,6 +178,12 @@ pub enum ChainAddress {
     Evm(neko_hd::EvmAddress),
     Solana(neko_hd::SolanaAddress),
     Bitcoin(neko_hd::BtcAddress),
+    /// The same twenty bytes as [`ChainAddress::Evm`], and deliberately a
+    /// different variant. One phrase gives one address on both EVM chains, but
+    /// a *destination* is chain-specific: pasting a BNB Chain address into an
+    /// Ethereum send form has to be a decision rather than a coincidence that
+    /// happens to parse.
+    Ethereum(neko_hd::EvmAddress),
 }
 
 impl ChainAddress {
@@ -158,6 +193,7 @@ impl ChainAddress {
             ChainAddress::Evm(_) => ChainId::Bsc,
             ChainAddress::Solana(_) => ChainId::Solana,
             ChainAddress::Bitcoin(_) => ChainId::Bitcoin,
+            ChainAddress::Ethereum(_) => ChainId::Ethereum,
         }
     }
 
@@ -181,6 +217,9 @@ impl ChainAddress {
             ChainId::Bitcoin => neko_hd::BtcAddress::parse(s)
                 .map(ChainAddress::Bitcoin)
                 .map_err(|_| CoreError::BadAddress),
+            ChainId::Ethereum => neko_hd::EvmAddress::parse(s)
+                .map(ChainAddress::Ethereum)
+                .map_err(|_| CoreError::BadAddress),
         }
     }
 
@@ -195,6 +234,7 @@ impl ChainAddress {
             // payment is matched on, and it is what distinguishes the five
             // address types that share the same 20 bytes.
             ChainAddress::Bitcoin(a) => a.as_bytes(),
+            ChainAddress::Ethereum(a) => a.as_bytes().to_vec(),
         }
     }
 
@@ -212,6 +252,9 @@ impl ChainAddress {
             ChainId::Bitcoin => neko_hd::BtcAddress::from_bytes(b)
                 .map(ChainAddress::Bitcoin)
                 .map_err(|_| CoreError::BadAddress),
+            ChainId::Ethereum => neko_hd::EvmAddress::from_bytes(b)
+                .map(ChainAddress::Ethereum)
+                .map_err(|_| CoreError::BadAddress),
         }
     }
 
@@ -222,9 +265,12 @@ impl ChainAddress {
         }
     }
 
+    /// Either EVM chain's address. The bytes are the same shape; which chain
+    /// they belong to is settled by the variant, and by the caller having asked
+    /// for the right one.
     pub fn as_evm(&self) -> Result<neko_hd::EvmAddress, CoreError> {
         match self {
-            ChainAddress::Evm(a) => Ok(*a),
+            ChainAddress::Evm(a) | ChainAddress::Ethereum(a) => Ok(*a),
             _ => Err(CoreError::WrongChain),
         }
     }
@@ -251,6 +297,7 @@ impl std::fmt::Display for ChainAddress {
             ChainAddress::Evm(a) => write!(f, "{a}"),
             ChainAddress::Solana(a) => write!(f, "{a}"),
             ChainAddress::Bitcoin(a) => write!(f, "{a}"),
+            ChainAddress::Ethereum(a) => write!(f, "{a}"),
         }
     }
 }
@@ -277,6 +324,11 @@ pub enum Asset {
     },
     /// The only asset on its chain: no contracts, no tokens.
     Btc,
+    Eth,
+    Erc20 {
+        contract: neko_hd::EvmAddress,
+        decimals: u8,
+    },
 }
 
 impl Asset {
@@ -286,18 +338,21 @@ impl Asset {
             Asset::Bnb | Asset::Bep20 { .. } => ChainId::Bsc,
             Asset::Sol | Asset::SplToken { .. } => ChainId::Solana,
             Asset::Btc => ChainId::Bitcoin,
+            Asset::Eth | Asset::Erc20 { .. } => ChainId::Ethereum,
         }
     }
 
     pub fn decimals(self) -> u8 {
         match self {
             Asset::Trx => neko_tron::TRX_DECIMALS,
-            Asset::Bnb => neko_evm::BNB_DECIMALS,
+            Asset::Bnb => neko_evm::BSC.native_decimals,
+            Asset::Eth => neko_evm::ETHEREUM.native_decimals,
             Asset::Sol => neko_solana::SOL_DECIMALS,
             Asset::Btc => neko_btc::BTC_DECIMALS,
             Asset::Trc20 { decimals, .. }
             | Asset::Bep20 { decimals, .. }
-            | Asset::SplToken { decimals, .. } => decimals,
+            | Asset::SplToken { decimals, .. }
+            | Asset::Erc20 { decimals, .. } => decimals,
         }
     }
 
@@ -307,9 +362,13 @@ impl Asset {
             Asset::Bnb => "BNB",
             Asset::Sol => "SOL",
             Asset::Btc => "BTC",
+            Asset::Eth => "ETH",
             // Only USDT is known so far; when a second token is added this
             // has to carry its symbol rather than assume.
-            Asset::Trc20 { .. } | Asset::Bep20 { .. } | Asset::SplToken { .. } => "USDT",
+            Asset::Trc20 { .. }
+            | Asset::Bep20 { .. }
+            | Asset::SplToken { .. }
+            | Asset::Erc20 { .. } => "USDT",
         }
     }
 
@@ -325,9 +384,13 @@ impl Asset {
             Asset::Trx => Some(neko_tron::FEE_LIMIT_TRX),
             // A contract call with no fee limit fails for lack of energy.
             Asset::Trc20 { .. } => Some(neko_tron::FEE_LIMIT_TRC20),
-            Asset::Bnb | Asset::Bep20 { .. } | Asset::Sol | Asset::SplToken { .. } | Asset::Btc => {
-                None
-            }
+            Asset::Bnb
+            | Asset::Bep20 { .. }
+            | Asset::Sol
+            | Asset::SplToken { .. }
+            | Asset::Btc
+            | Asset::Eth
+            | Asset::Erc20 { .. } => None,
         }
     }
 
@@ -337,7 +400,10 @@ impl Asset {
     /// own coin, so the whole token balance can go, while sending the coin has
     /// to hold back enough of itself to pay for the sending.
     pub fn is_native(self) -> bool {
-        matches!(self, Asset::Trx | Asset::Bnb | Asset::Sol | Asset::Btc)
+        matches!(
+            self,
+            Asset::Trx | Asset::Bnb | Asset::Sol | Asset::Btc | Asset::Eth
+        )
     }
 }
 
@@ -350,19 +416,60 @@ mod tests {
         for c in CHAINS {
             assert_eq!(ChainId::from_slug(c.slug()), Some(c));
         }
-        // Pinned: these are written into the database.
+        // Pinned: these are written into the database, so renaming one
+        // orphans every row that already carries it.
         assert_eq!(ChainId::Tron.slug(), "tron");
         assert_eq!(ChainId::Bsc.slug(), "bsc");
-        assert_eq!(ChainId::from_slug("ethereum"), None);
+        assert_eq!(ChainId::Solana.slug(), "solana");
+        assert_eq!(ChainId::Bitcoin.slug(), "bitcoin");
+        assert_eq!(ChainId::Ethereum.slug(), "ethereum");
+        assert_eq!(ChainId::from_slug("dogecoin"), None);
     }
 
-    /// The difference that will bite somebody if it ever regresses.
+    /// One token name, four chains, and not one precision between them.
+    ///
+    /// The difference that will bite somebody if it ever regresses: eighteen
+    /// on BNB Chain and six everywhere else, which is a factor of a million
+    /// million between two rows that both say "USDT".
     #[test]
     fn usdt_has_a_different_precision_on_each_chain() {
         assert_eq!(ChainId::Tron.usdt().unwrap().decimals(), 6);
         assert_eq!(ChainId::Bsc.usdt().unwrap().decimals(), 18);
+        assert_eq!(ChainId::Solana.usdt().unwrap().decimals(), 6);
+        assert_eq!(ChainId::Ethereum.usdt().unwrap().decimals(), 6);
+        assert_eq!(ChainId::Bitcoin.usdt(), None, "there is no USDT on Bitcoin");
+
         assert_eq!(ChainId::Tron.native_decimals(), 6);
         assert_eq!(ChainId::Bsc.native_decimals(), 18);
+        assert_eq!(ChainId::Ethereum.native_decimals(), 18);
+        assert_eq!(ChainId::Solana.native_decimals(), 9);
+        assert_eq!(ChainId::Bitcoin.native_decimals(), 8);
+
+        // And the two EVM chains are not the same contract, which is the other
+        // half of the same mistake.
+        assert_ne!(
+            ChainId::Bsc.usdt().unwrap(),
+            ChainId::Ethereum.usdt().unwrap()
+        );
+    }
+
+    /// Both EVM chains derive the same address, and that is correct - one
+    /// phrase, one coin type, the address every EVM wallet shows. What must
+    /// *not* be shared is the chain id, which is what makes a signature valid
+    /// on one and useless on the other.
+    #[test]
+    fn the_evm_chains_share_an_address_and_not_a_chain_id() {
+        assert_eq!(ChainId::Bsc.coin_type(), ChainId::Ethereum.coin_type());
+        assert_ne!(
+            ChainId::Bsc.evm().unwrap().chain_id,
+            ChainId::Ethereum.evm().unwrap().chain_id
+        );
+        assert_eq!(ChainId::Bsc.evm().unwrap().chain_id, 56);
+        assert_eq!(ChainId::Ethereum.evm().unwrap().chain_id, 1);
+        // And the non-EVM chains have no such parameters to reach for.
+        for c in [ChainId::Tron, ChainId::Solana, ChainId::Bitcoin] {
+            assert!(c.evm().is_none(), "{c:?} is not an EVM chain");
+        }
     }
 
     /// An address for one chain must never parse as an address for the other.

@@ -40,12 +40,13 @@ pub enum Quote {
         /// which costs considerably more energy.
         recipient_is_new: bool,
     },
-    Bsc {
+    Evm {
+        chain: neko_evm::EvmChain,
         params: neko_evm::tx::TxParams,
-        /// BNB pays the fee whatever is being sent, so a wallet holding only
-        /// USDT cannot move it. `None` means the balance could not be read -
-        /// not that it is zero.
-        bnb_balance: Option<u128>,
+        /// The chain's own coin pays the fee whatever is being sent, so a
+        /// wallet holding only USDT cannot move it. `None` means the balance
+        /// could not be read - not that it is zero.
+        native_balance: Option<u128>,
         /// Whether the amount and the fee come out of the same balance.
         sending_native: bool,
         amount: u128,
@@ -83,7 +84,13 @@ impl Quote {
     pub fn chain(&self) -> neko_core::ChainId {
         match self {
             Quote::Tron { .. } => neko_core::ChainId::Tron,
-            Quote::Bsc { .. } => neko_core::ChainId::Bsc,
+            Quote::Evm { chain, .. } => {
+                if chain.chain_id == neko_evm::ETHEREUM.chain_id {
+                    neko_core::ChainId::Ethereum
+                } else {
+                    neko_core::ChainId::Bsc
+                }
+            }
             Quote::Solana { .. } => neko_core::ChainId::Solana,
             Quote::Bitcoin { .. } => neko_core::ChainId::Bitcoin,
         }
@@ -92,7 +99,7 @@ impl Quote {
     pub fn tx_params(&self) -> neko_core::ChainTxParams {
         match self {
             Quote::Tron { params, .. } => neko_core::ChainTxParams::Tron(params.clone()),
-            Quote::Bsc { params, .. } => neko_core::ChainTxParams::Evm(*params),
+            Quote::Evm { params, .. } => neko_core::ChainTxParams::Evm(*params),
             Quote::Solana { params, .. } => neko_core::ChainTxParams::Solana(*params),
             Quote::Bitcoin {
                 selection,

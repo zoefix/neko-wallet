@@ -14,6 +14,7 @@ pub const TRON_CHAIN_ID: i64 = 1;
 pub const BSC_CHAIN_ID: i64 = 2;
 pub const SOLANA_CHAIN_ID: i64 = 3;
 pub const BITCOIN_CHAIN_ID: i64 = 4;
+pub const ETHEREUM_CHAIN_ID: i64 = 5;
 
 /// Lengths Bitcoin's script column may take: 22 for P2WPKH, 23 for P2SH, 25
 /// for P2PKH, 34 for P2WSH and Taproot. Bitcoin is the only chain here whose
@@ -30,7 +31,7 @@ pub const BITCOIN_SCRIPT_LENS: [usize; 4] = [22, 23, 25, 34];
 fn width_is_plausible(chain_id: i64, len: usize) -> bool {
     match chain_id {
         TRON_CHAIN_ID => len == 21,
-        BSC_CHAIN_ID => len == 20,
+        BSC_CHAIN_ID | ETHEREUM_CHAIN_ID => len == 20,
         SOLANA_CHAIN_ID => len == 32,
         BITCOIN_CHAIN_ID => BITCOIN_SCRIPT_LENS.contains(&len),
         _ => false,

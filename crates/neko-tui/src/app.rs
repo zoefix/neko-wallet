@@ -109,6 +109,8 @@ pub struct App {
     /// cannot answer what an address holds, so this server is not an
     /// alternative to asking the chain - it is the only one being asked.
     pub bitcoin_api: Option<String>,
+    /// Ethereum's node. `None` means the public one, which rate-limits.
+    pub eth_rpc: Option<String>,
     pub api_key: Option<String>,
     /// NodeReal key for BNB Chain history. Balances and transfers work without
     /// it; only history needs an indexer.
@@ -167,6 +169,7 @@ impl App {
             node_url: None,
             solana_rpc: None,
             bitcoin_api: None,
+            eth_rpc: None,
             api_key: std::env::var("TRONGRID_API_KEY").ok(),
             bsc_api_key: std::env::var("NODEREAL_API_KEY").ok(),
             balances: None,
@@ -655,11 +658,14 @@ impl App {
             neko_core::ChainId::Tron => self.node_url.as_deref(),
             neko_core::ChainId::Solana => self.solana_rpc.as_deref(),
             neko_core::ChainId::Bitcoin => self.bitcoin_api.as_deref(),
+            neko_core::ChainId::Ethereum => self.eth_rpc.as_deref(),
             neko_core::ChainId::Bsc => None,
         };
         let key = match chain {
             neko_core::ChainId::Tron => self.api_key.clone(),
-            neko_core::ChainId::Bsc => self.bsc_api_key.clone(),
+            // The same NodeReal key works on both EVM chains; only the host
+            // differs, and that comes from the chain.
+            neko_core::ChainId::Bsc | neko_core::ChainId::Ethereum => self.bsc_api_key.clone(),
             // Neither Solana's public cluster nor Esplora needs a key. Both
             // rate-limit, which costs a retry rather than a screen.
             neko_core::ChainId::Solana | neko_core::ChainId::Bitcoin => None,
@@ -747,15 +753,17 @@ impl App {
                         prices: prices.map(|p| (p.sun_per_energy, p.sun_per_bandwidth)),
                         recipient_is_new,
                     }),
-                    crate::event::Quote::Bsc {
+                    crate::event::Quote::Evm {
+                        chain,
                         params: p,
-                        bnb_balance,
+                        native_balance,
                         sending_native,
                         amount,
-                    } => crate::send::FeeQuote::Bsc(crate::send::BscFee {
+                    } => crate::send::FeeQuote::Evm(crate::send::EvmFee {
+                        chain,
                         gas_limit: p.gas_limit,
-                        gas_price: p.gas_price,
-                        bnb_balance,
+                        fees: p.fees,
+                        native_balance,
                         sending_native,
                         amount,
                     }),
@@ -816,7 +824,7 @@ impl App {
                 s.step = crate::send::SendStep::Review {
                     req: Box::new(request),
                     params: Box::new(params),
-                    quote: Some(fee),
+                    quote: Some(Box::new(fee)),
                     typed: Field::new(false),
                 };
             }
@@ -861,6 +869,9 @@ impl App {
         }
         if let Ok(v) = s.setting(keys::BITCOIN_API) {
             self.bitcoin_api = v.filter(|u| !u.is_empty());
+        }
+        if let Ok(v) = s.setting(keys::ETH_RPC) {
+            self.eth_rpc = v.filter(|u| !u.is_empty());
         }
         // An env var still wins, so a throwaway key can be supplied per run.
         if self.api_key.is_none() {
@@ -946,6 +957,10 @@ impl App {
                 .bitcoin_api
                 .clone()
                 .unwrap_or_else(|| neko_btc::DEFAULT_API.into()),
+            SettingRow::EthRpc => self
+                .eth_rpc
+                .clone()
+                .unwrap_or_else(|| neko_evm::ETHEREUM.default_rpc.into()),
             SettingRow::AutoLock => neko_i18n::tf(
                 neko_i18n::Key::Settings_Minutes,
                 &[("n", &(self.autolock.as_secs() / 60).to_string())],

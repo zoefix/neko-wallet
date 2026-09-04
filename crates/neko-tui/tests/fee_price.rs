@@ -6,7 +6,7 @@
 //! priced.
 
 use neko_tui::app::{App, Screen};
-use neko_tui::send::{BscFee, BtcFee, FeeQuote, SendState, SendStep, SolanaFee, TronFee};
+use neko_tui::send::{BtcFee, EvmFee, FeeQuote, SendState, SendStep, SolanaFee, TronFee};
 
 const TRON_MINE: &str = "TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH";
 const TRON_TO: &str = "TNYxHL2s6Wjpx86NRwhekYzc27p3oDYrk6";
@@ -56,6 +56,7 @@ fn app_at_review(chain: neko_core::ChainId, quote: FeeQuote) -> App {
         neko_core::ChainId::Bsc => (BSC_MINE, BSC_TO),
         neko_core::ChainId::Solana => (SOL_MINE, SOL_TO),
         neko_core::ChainId::Bitcoin => (BTC_MINE, BTC_TO),
+        neko_core::ChainId::Ethereum => (BSC_MINE, BSC_TO),
     };
     let mut st = SendState::new(
         1,
@@ -79,12 +80,16 @@ fn app_at_review(chain: neko_core::ChainId, quote: FeeQuote) -> App {
                 fee_limit: 100_000_000,
             }))
         }
-        neko_core::ChainId::Bsc => neko_core::ChainTxParams::Evm(neko_evm::tx::TxParams {
-            nonce: 0,
-            gas_price: 50_000_000,
-            gas_limit: 62_395,
-            chain_id: neko_evm::CHAIN_ID,
-        }),
+        neko_core::ChainId::Bsc | neko_core::ChainId::Ethereum => {
+            neko_core::ChainTxParams::Evm(neko_evm::tx::TxParams {
+                nonce: 0,
+                gas_limit: 62_395,
+                chain_id: chain.evm().unwrap().chain_id,
+                fees: neko_evm::tx::Fees::Legacy {
+                    gas_price: 50_000_000,
+                },
+            })
+        }
         neko_core::ChainId::Solana => neko_core::ChainTxParams::Solana(neko_solana::tx::TxParams {
             recent_blockhash: [0x22; 32],
             compute_unit_limit: neko_solana::COMPUTE_UNITS_TOKEN_WITH_ATA,
@@ -105,7 +110,7 @@ fn app_at_review(chain: neko_core::ChainId, quote: FeeQuote) -> App {
     st.step = SendStep::Review {
         req: Box::new(req),
         params: Box::new(params),
-        quote: Some(quote),
+        quote: Some(Box::new(quote)),
         typed: neko_tui::input::Field::new(false),
     };
     let mut app = App::new(std::path::PathBuf::from("/tmp/neko-fee-price.db"));
@@ -115,10 +120,13 @@ fn app_at_review(chain: neko_core::ChainId, quote: FeeQuote) -> App {
 
 /// The exact quote from a real BEP-20 transfer: 62,395 gas at 0.05 gwei.
 fn bsc_quote() -> FeeQuote {
-    FeeQuote::Bsc(BscFee {
+    FeeQuote::Evm(EvmFee {
+        chain: neko_evm::BSC,
         gas_limit: 62_395,
-        gas_price: 50_000_000,
-        bnb_balance: Some(490_000_000_000_000),
+        fees: neko_evm::tx::Fees::Legacy {
+            gas_price: 50_000_000,
+        },
+        native_balance: Some(490_000_000_000_000),
         sending_native: false,
         amount: 1_000_000_000_000_000_000,
     })

@@ -106,12 +106,17 @@ impl TransferRequest {
             // instruction, which is built by the chain crate rather than
             // encoded here. Bitcoin has no calldata at all - an amount is an
             // output, not an argument.
-            Asset::Trx | Asset::Bnb | Asset::Sol | Asset::SplToken { .. } | Asset::Btc => Ok(None),
+            Asset::Trx
+            | Asset::Bnb
+            | Asset::Eth
+            | Asset::Sol
+            | Asset::SplToken { .. }
+            | Asset::Btc => Ok(None),
             Asset::Trc20 { .. } => Ok(Some(neko_tron::tx::encode_trc20_transfer(
                 self.to.as_tron()?,
                 self.amount.raw as u128,
             )?)),
-            Asset::Bep20 { .. } => Ok(Some(neko_evm::abi::transfer(
+            Asset::Bep20 { .. } | Asset::Erc20 { .. } => Ok(Some(neko_evm::abi::transfer(
                 self.to.as_evm()?,
                 self.amount.raw as u128,
             ))),
@@ -165,7 +170,10 @@ impl Session {
                     id: hex::encode(signed.txid),
                 })
             }
-            (Asset::Bnb, ChainTxParams::Evm(p)) => {
+            // One arm for both EVM chains: the bytes are identical and the
+            // difference - chain id and transaction format - already lives in
+            // the parameters the quote produced.
+            (Asset::Bnb | Asset::Eth, ChainTxParams::Evm(p)) => {
                 let tx = neko_evm::tx::Tx {
                     to: req.to.as_evm()?,
                     value: req.amount.raw as u128,
@@ -179,7 +187,10 @@ impl Session {
                     id,
                 })
             }
-            (Asset::Bep20 { contract, .. }, ChainTxParams::Evm(p)) => {
+            (
+                Asset::Bep20 { contract, .. } | Asset::Erc20 { contract, .. },
+                ChainTxParams::Evm(p),
+            ) => {
                 // The amount lives in the calldata; the transaction itself
                 // moves no BNB.
                 let tx = neko_evm::tx::Tx {
@@ -314,7 +325,7 @@ impl Session {
             // 44' and building a segwit script produces an address that is
             // valid, empty, and unspendable by the key that made it.
             ChainId::Bitcoin => neko_hd::bitcoin::private_key_at(&seed, 0, 0, index)?,
-            ChainId::Tron | ChainId::Bsc => {
+            ChainId::Tron | ChainId::Bsc | ChainId::Ethereum => {
                 neko_hd::derive::private_key_at_coin(&seed, chain.coin_type(), 0, index)?
             }
         })

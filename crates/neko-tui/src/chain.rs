@@ -30,7 +30,10 @@ const MAX_RESULT_SIZE_IN_TX: usize = 64;
 /// A connection to one chain.
 pub enum Client {
     Tron(Box<TronGrid>),
-    Bsc {
+    /// Both EVM chains. Which one it is comes from the client, because the
+    /// chain id goes into every signature and carrying it separately is how
+    /// the two get confused.
+    Evm {
         rpc: Box<neko_evm::client::Rpc>,
         /// Only history needs this. Balances, fees and transfers all work
         /// from the plain RPC, so a missing key costs one screen rather than
@@ -57,14 +60,17 @@ impl Client {
             ChainId::Tron => Client::Tron(Box::new(TronGrid::new(url, api_key))),
             // The TronGrid key is not a BscScan key; passing it here would only
             // be misleading. BNB Chain's public RPC needs no key at all.
-            ChainId::Bsc => Client::Bsc {
-                rpc: Box::new(neko_evm::client::Rpc::new(url)),
+            ChainId::Bsc | ChainId::Ethereum => Client::Evm {
+                rpc: Box::new(neko_evm::client::Rpc::new(
+                    chain.evm().expect("both EVM chains have parameters"),
+                    url,
+                )),
                 history_key: api_key.filter(|k| !k.is_empty()),
             },
             ChainId::Solana => Client::Solana(Box::new(neko_solana::client::Rpc::new(url))),
             ChainId::Bitcoin => Client::Bitcoin {
                 esplora: Box::new(neko_btc::client::Esplora::new(url)),
-                bsc: Box::new(neko_evm::client::Rpc::new(None)),
+                bsc: Box::new(neko_evm::client::Rpc::new(neko_evm::BSC, None)),
             },
         }
     }
@@ -83,7 +89,13 @@ impl Client {
     pub fn chain(&self) -> ChainId {
         match self {
             Client::Tron(_) => ChainId::Tron,
-            Client::Bsc { .. } => ChainId::Bsc,
+            Client::Evm { rpc, .. } => {
+                if rpc.chain().chain_id == neko_evm::ETHEREUM.chain_id {
+                    ChainId::Ethereum
+                } else {
+                    ChainId::Bsc
+                }
+            }
             Client::Solana(_) => ChainId::Solana,
             Client::Bitcoin { .. } => ChainId::Bitcoin,
         }
@@ -99,7 +111,7 @@ pub fn client(url: Option<&str>, api_key: Option<String>) -> TronGrid {
 pub async fn quote(c: &Client, req: &TransferRequest) -> Result<Quote, String> {
     match c {
         Client::Tron(t) => tron_quote(t, req).await,
-        Client::Bsc { rpc, .. } => bsc_quote(rpc, req).await,
+        Client::Evm { rpc, .. } => evm_quote(rpc, req).await,
         Client::Solana(rpc) => solana_quote(rpc, req).await,
         Client::Bitcoin { esplora, .. } => bitcoin_quote(esplora, req).await,
     }
@@ -322,16 +334,17 @@ async fn tron_quote(c: &TronGrid, req: &TransferRequest) -> Result<Quote, String
 /// call, times a price it quotes. Unlike TRON there is no allowance to cover
 /// part of it - the fee is always paid in BNB, so a wallet holding only USDT
 /// cannot send that USDT. Saying so before the attempt is the useful part.
-async fn bsc_quote(rpc: &neko_evm::client::Rpc, req: &TransferRequest) -> Result<Quote, String> {
+async fn evm_quote(rpc: &neko_evm::client::Rpc, req: &TransferRequest) -> Result<Quote, String> {
     let from = req.from.as_evm().map_err(|e| e.to_string())?;
 
+    let chain = rpc.chain();
     let (to, value, data) = match req.asset {
-        Asset::Bnb => (
+        Asset::Bnb | Asset::Eth => (
             req.to.as_evm().map_err(|e| e.to_string())?,
             req.amount.raw as u128,
             Vec::new(),
         ),
-        Asset::Bep20 { contract, decimals } => {
+        Asset::Bep20 { contract, decimals } | Asset::Erc20 { contract, decimals } => {
             // Same reasoning as TRON's: ask the contract what it is before
             // trusting a built-in address.
             let (symbol, chain_decimals) = rpc
@@ -354,20 +367,22 @@ async fn bsc_quote(rpc: &neko_evm::client::Rpc, req: &TransferRequest) -> Result
                 .unwrap_or_default();
             (contract, 0u128, data)
         }
-        _ => return Err("that asset is not on BNB Chain".into()),
+        _ => return Err(format!("that asset is not on chain {}", chain.chain_id)),
     };
 
     let params = rpc
         .tx_params(from, to, value, &data)
         .await
         .map_err(|e| e.to_string())?;
-    // What pays the fee, which is BNB regardless of what is being sent.
-    let bnb_balance = rpc.balance(from).await.ok();
+    // What pays the fee, which is the chain's own coin regardless of what is
+    // being sent.
+    let native_balance = rpc.balance(from).await.ok();
 
-    Ok(Quote::Bsc {
+    Ok(Quote::Evm {
+        chain,
         params,
-        bnb_balance,
-        sending_native: matches!(req.asset, Asset::Bnb),
+        native_balance,
+        sending_native: matches!(req.asset, Asset::Bnb | Asset::Eth),
         amount: req.amount.raw as u128,
     })
 }
@@ -392,9 +407,14 @@ pub async fn native_price(c: &Client) -> Result<i128, String> {
             t.trx_price_in_usdt().await.map_err(|e| e.to_string())?,
             neko_tron::USDT_DECIMALS,
         ),
-        Client::Bsc { rpc, .. } => (
-            rpc.bnb_price_in_usdt().await.map_err(|e| e.to_string())?,
-            neko_evm::USDT_DECIMALS,
+        Client::Evm { rpc, .. } => (
+            rpc.native_price_in_usdt()
+                .await
+                .map_err(|e| e.to_string())?,
+            // Six on Ethereum, eighteen on BNB Chain: the pool answers in its
+            // own chain's USDT, and storing either figure directly would value
+            // one of them a million million times wrong.
+            rpc.chain().usdt_decimals,
         ),
         // Already normalised by the pool reader, which is handed the scale it
         // should answer at rather than a chain's own USDT precision.
@@ -409,7 +429,7 @@ pub async fn native_price(c: &Client) -> Result<i128, String> {
         // off as a spot BTC price.
         Client::Bitcoin { bsc, .. } => (
             bsc.btcb_price_in_usdt().await.map_err(|e| e.to_string())?,
-            neko_evm::USDT_DECIMALS,
+            neko_evm::BSC.usdt_decimals,
         ),
     };
     Ok(rescale(
@@ -433,7 +453,7 @@ fn rescale(v: i128, from: u8, to: u8) -> i128 {
 pub async fn broadcast(c: &Client, raw: Vec<u8>) -> Result<String, String> {
     match c {
         Client::Tron(t) => t.broadcast(&raw).await.map_err(|e| e.to_string()),
-        Client::Bsc { rpc, .. } => rpc.send_raw(&raw).await.map_err(|e| e.to_string()),
+        Client::Evm { rpc, .. } => rpc.send_raw(&raw).await.map_err(|e| e.to_string()),
         Client::Solana(rpc) => rpc.send(&raw).await.map_err(|e| e.to_string()),
         Client::Bitcoin { esplora, .. } => esplora.broadcast(&raw).await.map_err(|e| e.to_string()),
     }
@@ -457,16 +477,20 @@ pub async fn wallet_assets(
                 ("USDT".to_string(), 6, usdt_bal as i128),
             ])
         }
-        Client::Bsc { rpc: r, .. } => {
+        Client::Evm { rpc: r, .. } => {
+            let chain = r.chain();
             let a = addr.as_evm().map_err(|e| e.to_string())?;
-            let usdt = neko_evm::usdt_address();
-            let bnb = r.balance(a).await.map_err(|e| e.to_string())?;
-            let usdt_bal = r.token_balance(usdt, a).await.unwrap_or(0);
+            let native = r.balance(a).await.map_err(|e| e.to_string())?;
+            let usdt_bal = r.token_balance(chain.usdt_address(), a).await.unwrap_or(0);
             Ok(vec![
-                ("BNB".to_string(), 18, bnb as i128),
-                // Eighteen decimals here, six on TRON. The number travels with
-                // the balance for exactly this reason.
-                ("USDT".to_string(), 18, usdt_bal as i128),
+                (
+                    chain.native_symbol.to_string(),
+                    chain.native_decimals,
+                    native as i128,
+                ),
+                // Eighteen decimals on BNB Chain, six on Ethereum. The number
+                // travels with the balance for exactly this reason.
+                ("USDT".to_string(), chain.usdt_decimals, usdt_bal as i128),
             ])
         }
         Client::Solana(rpc) => {
@@ -534,7 +558,9 @@ pub async fn history(
             }
             Ok(neko_tron::history::merge(all))
         }
-        Client::Bsc { history_key, .. } => {
+        Client::Evm {
+            rpc, history_key, ..
+        } => {
             // A node's RPC cannot answer "what has this address done"; that
             // needs an index. Without a key, say so - an empty list would
             // read as "you have never used this address".
@@ -542,8 +568,9 @@ pub async fn history(
                 return Err(neko_i18n::t(neko_i18n::Key::History_NeedsIndexer).to_string());
             };
             let a = addr.as_evm().map_err(|e| e.to_string())?;
-            let rows = neko_evm::history::Bsctrace::new(key)
-                .transfers(a, neko_evm::usdt_address(), limit as usize)
+            let chain = rpc.chain();
+            let rows = neko_evm::history::Bsctrace::new(chain, key)
+                .transfers(a, chain.usdt_address(), limit as usize)
                 .await
                 .map_err(|e| e.to_string())?;
 

@@ -22,6 +22,7 @@ pub mod keys {
     /// Esplora. Not an alternative to asking a node - a Bitcoin node cannot
     /// answer what an address holds - so this is the only server being asked.
     pub const BITCOIN_API: &str = "bitcoin_api";
+    pub const ETH_RPC: &str = "eth_rpc";
     pub const API_KEY: &str = "trongrid_api_key";
     /// NodeReal / BSCTrace key, for BNB Chain history. A credential, so it is
     /// stored with the same field-level encryption as the TronGrid one.

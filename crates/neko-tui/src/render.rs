@@ -1101,7 +1101,7 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                     theme::hint(),
                 )));
 
-                match q {
+                match &**q {
                     crate::send::FeeQuote::Tron(q) => {
                         lines.push(resource_line(
                             t(Key::Send_Energy),
@@ -1128,27 +1128,55 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                             q.bandwidth_burn(),
                         ));
                     }
-                    crate::send::FeeQuote::Bsc(b) => {
+                    crate::send::FeeQuote::Evm(e) => {
+                        let coin = e.chain.native_symbol;
                         // No allowance to draw down here, so there is nothing
                         // to show as "needed against held": gas is simply
-                        // bought. What matters instead is whether the BNB
+                        // bought. What matters instead is whether the coin
                         // balance covers it, because a wallet holding only
                         // USDT cannot move that USDT.
                         lines.push(Line::from(vec![
                             Span::styled(fee_label(t(Key::Send_Gas)), theme::hint()),
                             Span::raw(format!(
                                 "{} units x {} gwei",
-                                group(b.gas_limit as i64),
-                                neko_core::Amount::new(b.gas_price as i128, 9)
+                                group(e.gas_limit as i64),
+                                neko_core::Amount::new(e.fees.expected_per_gas() as i128, 9)
                                     .to_display_string_trim(crate::chain::BALANCE_FRAC)
                             )),
                         ]));
+                        // Ethereum names a ceiling and pays the base fee plus
+                        // a tip. Showing the ceiling as the price would say a
+                        // transfer costs about twice what it does; hiding it
+                        // would understate what the balance has to cover.
+                        if e.fees.is_eip1559() && e.max_fee_wei() > e.fee_wei() {
+                            lines.push(Line::from(Span::styled(
+                                format!(
+                                    "                {}",
+                                    tf(
+                                        Key::Send_FeeCeiling,
+                                        &[
+                                            (
+                                                "amount",
+                                                &e.max_fee().to_display_string_trim(
+                                                    crate::chain::BALANCE_FRAC,
+                                                ),
+                                            ),
+                                            ("coin", coin),
+                                        ]
+                                    )
+                                ),
+                                theme::hint(),
+                            )));
+                        }
                         lines.push(Line::from(vec![
-                            Span::styled(fee_label(t(Key::Send_BnbBalance)), theme::hint()),
-                            match b.bnb_balance {
+                            Span::styled(
+                                fee_label(&tf(Key::Send_CoinBalance, &[("coin", coin)])),
+                                theme::hint(),
+                            ),
+                            match e.native_balance {
                                 Some(v) => Span::raw(format!(
-                                    "{} BNB",
-                                    neko_core::Amount::new(v as i128, 18)
+                                    "{} {coin}",
+                                    neko_core::Amount::new(v as i128, e.chain.native_decimals)
                                         .to_display_string_trim(crate::chain::BALANCE_FRAC)
                                 )),
                                 // A failed lookup is not zero, and must not be
@@ -1158,20 +1186,23 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                                 }
                             },
                         ]));
-                        if b.affordable() == Some(false) {
-                            let short = b.shortfall().unwrap_or(neko_core::Amount::new(0, 18));
+                        if e.affordable() == Some(false) {
+                            let short = e
+                                .shortfall()
+                                .unwrap_or(neko_core::Amount::new(0, e.chain.native_decimals));
                             lines.push(Line::from(Span::styled(
                                 format!(
                                     "     {}",
                                     tf(
-                                        Key::Send_NeedMoreBnb,
+                                        Key::Send_NeedMoreCoin,
                                         &[
                                             (
                                                 "amount",
                                                 &short.to_display_string_trim(
                                                     crate::chain::BALANCE_FRAC,
                                                 ),
-                                            )
+                                            ),
+                                            ("coin", coin),
                                         ]
                                     )
                                 ),
@@ -1320,10 +1351,10 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                 // TRON literally destroys the TRX that covers a shortfall;
                 // BNB Chain pays gas to a validator. Same column, different
                 // fact, so the word differs.
-                let verb = match q {
+                let verb = match &**q {
                     crate::send::FeeQuote::Tron(_) => " burned",
                     // Both pay a validator rather than destroying anything.
-                    crate::send::FeeQuote::Bsc(_)
+                    crate::send::FeeQuote::Evm(_)
                     | crate::send::FeeQuote::Solana(_)
                     | crate::send::FeeQuote::Bitcoin(_) => "",
                 };
@@ -1373,7 +1404,7 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                     )));
                 }
 
-                if let crate::send::FeeQuote::Tron(q) = q {
+                if let crate::send::FeeQuote::Tron(q) = &**q {
                     lines.push(Line::from(Span::styled(
                         format!(
                             "                {}",
@@ -1624,6 +1655,8 @@ fn draw_settings(f: &mut Frame, area: Rect, app: &App, st: &SettingsState) {
     if matches!(st.row(), SettingRow::SolanaRpc) {
         lines.extend(hint_lines(t(Key::Settings_SolanaRpcNote), inner.width));
         lines.extend(hint_lines(t(Key::Settings_SolanaRpcNote2), inner.width));
+    } else if matches!(st.row(), SettingRow::EthRpc) {
+        lines.extend(hint_lines(t(Key::Settings_EthRpcNote), inner.width));
     } else if matches!(st.row(), SettingRow::BitcoinApi) {
         lines.extend(hint_lines(t(Key::Settings_BitcoinApiNote), inner.width));
         lines.extend(hint_lines(t(Key::Settings_BitcoinApiNote2), inner.width));

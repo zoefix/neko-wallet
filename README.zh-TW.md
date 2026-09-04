@@ -8,13 +8,13 @@
 插隨身碟帶走、放雲端硬碟、隨便拷到哪裡都行。用一個信箱加一個密碼解鎖，
 而這兩樣東西哪裡都沒有儲存。
 
-多鏈架構：TRON、BNB Chain、Solana、Bitcoin。
+多鏈架構：TRON、Ethereum、BNB Chain、Solana、Bitcoin。
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
 ![Version](https://img.shields.io/badge/VERSION-v0.1.0-8A2BE2?style=for-the-badge&labelColor=444)
 ![Platform](https://img.shields.io/badge/PLATFORM-MACOS%20%7C%20LINUX%20%7C%20WINDOWS-00B5E2?style=for-the-badge&labelColor=444)
-![Chains](https://img.shields.io/badge/CHAINS-TRON%20%7C%20BNB%20%7C%20SOL%20%7C%20BTC-1BC47D?style=for-the-badge&labelColor=444)
+![Chains](https://img.shields.io/badge/CHAINS-TRON%20%7C%20ETH%20%7C%20BNB%20%7C%20SOL%20%7C%20BTC-1BC47D?style=for-the-badge&labelColor=444)
 ![Rust](https://img.shields.io/badge/RUST-1.86%2B-000000?style=for-the-badge&labelColor=444)
 ![Licence](https://img.shields.io/badge/LICENCE-MIT-F5A623?style=for-the-badge&labelColor=444)
 
@@ -130,6 +130,7 @@ neko-wallet
 | BNB Chain | 可用 | BNB、USDT (BEP20) |
 | Solana | 可用 | SOL、USDT (SPL) |
 | Bitcoin | 可用 | BTC |
+| Ethereum | 可用 | ETH、USDT (ERC20) |
 | Bitcoin | 介面裡已列出，功能還沒做 | — |
 
 鏈相關的程式碼只集中在一個 crate 裡。金鑰推導、儲存、加密和介面都是共用且與鏈無關的，
@@ -384,7 +385,7 @@ neko-vault    金鑰階層、KDF 檔位、密碼政策、正規化
 neko-store    SQLCipher、遷移、欄位級信封（永不推導金鑰）
 neko-hd       BIP39 / BIP32 / BIP44 與 SLIP-0010；TRON、EVM、Solana 地址編解碼
 neko-tron     僅 TRON：protobuf、交易組裝與簽章、節點用戶端
-neko-evm      BNB Chain：RLP、EIP-155 簽章、ABI 編碼、JSON-RPC
+neko-evm      Ethereum 與 BNB Chain：RLP、EIP-155 與 EIP-1559 簽章、ABI、JSON-RPC
 neko-solana   Solana：Ed25519、交易編碼、代幣帳戶、叢集 RPC
 neko-btc      Bitcoin：bech32、隔離見證簽章、選幣、Esplora
 neko-core     介面唯一對話的門面

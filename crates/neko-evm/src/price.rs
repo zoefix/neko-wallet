@@ -16,25 +16,14 @@ use neko_hd::EvmAddress;
 
 use crate::error::EvmError;
 
-/// PancakeSwap V2 router. Used only to *quote* - this wallet never trades.
-pub const PANCAKE_ROUTER: &str = "0x10ED43C718714eb63d5aA57B78B54704E256024E";
-/// Wrapped BNB, the pair's other side.
-pub const WBNB: &str = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c";
-
-/// BTCB, Binance-pegged Bitcoin, and its precision.
-///
-/// Bitcoin has no exchange on it, so there is no pool on its own chain to ask.
-/// Rather than reach for a price service - which would be a new destination
-/// learning which addresses this wallet cares about - BTC is quoted from the
-/// deep BTCB/USDT pool on a chain we already talk to. BTCB is redeemable one
-/// for one and tracks closely, and it is not BTC; the interface says so instead
-/// of pretending otherwise.
-///
-/// **Eighteen decimals, not Bitcoin's eight.** BTCB is an ordinary BEP-20 token
-/// and follows that convention, so a quote taken from it is scaled for the
-/// token, not for the coin it represents.
-pub const BTCB: &str = "0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c";
-pub const BTCB_DECIMALS: u8 = 18;
+// The routers and wrapped coins live on `EvmChain`: PancakeSwap on BNB Chain,
+// Uniswap V2 on Ethereum, and the second is a fork of the first, so one
+// `getAmountsOut` serves both.
+//
+// BTCB - Binance-pegged Bitcoin - is in `chain_consts` for a different reason:
+// Bitcoin has no exchange on its own chain, so BTC is priced from the BTCB pool
+// on BNB Chain rather than from a price service, which would be a new
+// destination learning which addresses this wallet cares about.
 
 /// `keccak256("getAmountsOut(uint256,address[])")[..4]`
 pub const SEL_GET_AMOUNTS_OUT: [u8; 4] = [0xd0, 0x6c, 0xa6, 0x1f];
@@ -77,15 +66,19 @@ fn word_addr(a: EvmAddress) -> [u8; 32] {
 
 impl crate::client::Rpc {
     /// One BNB in USDT, in USDT's minimal units.
-    pub async fn bnb_price_in_usdt(&self) -> Result<u128, EvmError> {
-        let router = EvmAddress::parse(PANCAKE_ROUTER)?;
-        let wbnb = EvmAddress::parse(WBNB)?;
+    /// What one native coin is worth, in this chain's USDT.
+    ///
+    /// Quoted at the chain's own `usdt_decimals`, which differ - six on
+    /// Ethereum, eighteen on BNB Chain - so the caller must rescale rather than
+    /// assume.
+    pub async fn native_price_in_usdt(&self) -> Result<u128, EvmError> {
+        let chain = self.chain();
         let data = amounts_out_call(
-            10u128.pow(crate::BNB_DECIMALS as u32),
-            wbnb,
-            crate::usdt_address(),
+            10u128.pow(chain.native_decimals as u32),
+            chain.wrapped_native_address(),
+            chain.usdt_address(),
         );
-        read_last_amount(&self.eth_call(router, &data).await?)
+        read_last_amount(&self.eth_call(chain.router_address(), &data).await?)
     }
 
     /// What one BTCB is worth, in USDT, at [`crate::USDT_DECIMALS`].
@@ -93,15 +86,17 @@ impl crate::client::Rpc {
     /// One BTCB, not one satoshi: the caller converts. Asking for a whole unit
     /// keeps the quote out of the part of the curve where a tiny trade prices
     /// badly.
+    /// What one BTCB is worth, in USDT. Only meaningful on BNB Chain, which is
+    /// where BTCB lives.
     pub async fn btcb_price_in_usdt(&self) -> Result<u128, EvmError> {
-        let router = EvmAddress::parse(PANCAKE_ROUTER)?;
-        let btcb = EvmAddress::parse(BTCB)?;
+        let chain = self.chain();
+        let btcb = EvmAddress::parse(crate::BTCB)?;
         let data = amounts_out_call(
-            10u128.pow(BTCB_DECIMALS as u32),
+            10u128.pow(crate::BTCB_DECIMALS as u32),
             btcb,
-            crate::usdt_address(),
+            chain.usdt_address(),
         );
-        read_last_amount(&self.eth_call(router, &data).await?)
+        read_last_amount(&self.eth_call(chain.router_address(), &data).await?)
     }
 }
 
@@ -113,13 +108,6 @@ mod tests {
     /// round trip through EIP-55 proves both that it is well-formed and that
     /// no character was transposed.
     #[test]
-    fn the_pair_addresses_are_checksummed() {
-        for s in [PANCAKE_ROUTER, WBNB, BTCB] {
-            assert_eq!(EvmAddress::parse(s).unwrap().to_string(), s);
-        }
-    }
-
-    #[test]
     fn the_selector_matches_its_signature() {
         assert_eq!(
             &crate::tx::keccak(b"getAmountsOut(uint256,address[])")[..4],
@@ -129,8 +117,8 @@ mod tests {
 
     #[test]
     fn the_call_has_the_expected_layout() {
-        let wbnb = EvmAddress::parse(WBNB).unwrap();
-        let usdt = crate::usdt_address();
+        let wbnb = crate::BSC.wrapped_native_address();
+        let usdt = crate::BSC.usdt_address();
         let d = amounts_out_call(10u128.pow(18), wbnb, usdt);
         assert_eq!(d.len(), 4 + 32 * 5);
         assert_eq!(&d[..4], &SEL_GET_AMOUNTS_OUT);
@@ -163,7 +151,7 @@ mod tests {
     /// trap as a token transfer's recipient.
     #[test]
     fn addresses_are_left_padded_to_a_word() {
-        let a = EvmAddress::parse(WBNB).unwrap();
+        let a = crate::BSC.wrapped_native_address();
         let w = word_addr(a);
         assert!(w[..12].iter().all(|b| *b == 0));
         assert_eq!(&w[12..], a.as_bytes());

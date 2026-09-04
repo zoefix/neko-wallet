@@ -19,16 +19,21 @@ use crate::tx::TxParams;
 
 pub struct Rpc {
     url: String,
+    /// Which chain this talks to. Carried rather than assumed: the chain id
+    /// goes into every signature, and the wrong one produces a transaction
+    /// that is replayable where the same address holds different funds.
+    chain: crate::EvmChain,
     http: reqwest::Client,
 }
 
 impl Rpc {
-    pub fn new(url: Option<&str>) -> Self {
+    pub fn new(chain: crate::EvmChain, url: Option<&str>) -> Self {
         Rpc {
             url: url
                 .filter(|u| !u.is_empty())
-                .unwrap_or(crate::DEFAULT_RPC)
+                .unwrap_or(chain.default_rpc)
                 .to_string(),
+            chain,
             http: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(30))
                 .build()
@@ -201,6 +206,34 @@ impl Rpc {
         Ok(Some(parse_quantity(s)? == 1))
     }
 
+    pub fn chain(&self) -> crate::EvmChain {
+        self.chain
+    }
+
+    /// The current base fee, from the latest block header.
+    ///
+    /// EIP-1559 only. It is set by the protocol from how full recent blocks
+    /// were, and it is what a type-2 transaction actually pays - the ceiling
+    /// is only headroom.
+    pub async fn base_fee(&self) -> Result<u128, EvmError> {
+        let v = self
+            .call("eth_getBlockByNumber", json!(["latest", false]))
+            .await?;
+        let s = v
+            .get("baseFeePerGas")
+            .and_then(Value::as_str)
+            .ok_or_else(|| EvmError::BadReply("block header has no base fee".into()))?;
+        parse_quantity(s)
+    }
+
+    /// What recent blocks have been accepting as a tip.
+    ///
+    /// Zero is a legitimate answer on a quiet chain, and is what Ethereum
+    /// returns at the time of writing.
+    pub async fn priority_fee(&self) -> Result<u128, EvmError> {
+        self.quantity("eth_maxPriorityFeePerGas", json!([])).await
+    }
+
     /// Everything needed to build a transaction, in one place.
     pub async fn tx_params(
         &self,
@@ -210,17 +243,34 @@ impl Rpc {
         data: &[u8],
     ) -> Result<TxParams, EvmError> {
         let nonce = self.nonce(from).await?;
-        let gas_price = self.gas_price().await?;
         let estimate = self.estimate_gas(from, to, value, data).await?;
+        let fees = match self.chain.tx_type {
+            crate::TxType::Legacy => crate::tx::Fees::Legacy {
+                gas_price: self.gas_price().await?,
+            },
+            crate::TxType::Eip1559 => {
+                let base = self.base_fee().await?;
+                let tip = self.priority_fee().await.unwrap_or(0);
+                crate::tx::Fees::Eip1559 {
+                    // Double the base fee, plus the tip. The base fee can rise
+                    // at most 12.5% per block, so this is headroom for six
+                    // consecutive full blocks - and headroom costs nothing,
+                    // because only the base fee and the tip are charged.
+                    max_fee_per_gas: base.saturating_mul(2).saturating_add(tip),
+                    max_priority_fee_per_gas: tip,
+                    base_fee: base,
+                }
+            }
+        };
         Ok(TxParams {
             nonce,
-            gas_price,
             // A fifth over the estimate. Estimation runs against the current
             // state, and a token transfer that has to create a storage slot
             // for a first-time holder costs more by the time it lands; running
             // out of gas still spends the fee.
             gas_limit: estimate + estimate / 5,
-            chain_id: crate::CHAIN_ID,
+            chain_id: self.chain.chain_id,
+            fees,
         })
     }
 }
@@ -313,8 +363,15 @@ mod tests {
 
     #[test]
     fn the_default_endpoint_is_used_when_none_is_configured() {
-        assert_eq!(Rpc::new(None).url, crate::DEFAULT_RPC);
-        assert_eq!(Rpc::new(Some("")).url, crate::DEFAULT_RPC);
-        assert_eq!(Rpc::new(Some("https://x.example")).url, "https://x.example");
+        assert_eq!(Rpc::new(crate::BSC, None).url, crate::BSC.default_rpc);
+        assert_eq!(Rpc::new(crate::BSC, Some("")).url, crate::BSC.default_rpc);
+        assert_eq!(
+            Rpc::new(crate::ETHEREUM, None).url,
+            crate::ETHEREUM.default_rpc
+        );
+        assert_eq!(
+            Rpc::new(crate::BSC, Some("https://x.example")).url,
+            "https://x.example"
+        );
     }
 }

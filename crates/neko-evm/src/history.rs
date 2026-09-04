@@ -22,6 +22,7 @@ use serde_json::{json, Value};
 
 use crate::error::EvmError;
 
+#[allow(dead_code)]
 pub const DEFAULT_HOST: &str = "https://bsc-mainnet.nodereal.io/v1";
 pub const SIGNUP_URL: &str = "https://nodereal.io";
 
@@ -40,6 +41,9 @@ pub struct Transfer {
 }
 
 pub struct Bsctrace {
+    /// Decides the symbol and the precision of what comes back. USDT is six
+    /// decimals on Ethereum and eighteen on BNB Chain.
+    chain: crate::EvmChain,
     url: String,
     http: reqwest::Client,
 }
@@ -47,9 +51,10 @@ pub struct Bsctrace {
 impl Bsctrace {
     /// `api_key` is required: the endpoint carries it in the path, and there
     /// is no anonymous access.
-    pub fn new(api_key: &str) -> Self {
+    pub fn new(chain: crate::EvmChain, api_key: &str) -> Self {
         Bsctrace {
-            url: format!("{DEFAULT_HOST}/{api_key}"),
+            chain,
+            url: format!("{}/{api_key}", chain.history_host),
             http: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(30))
                 .build()
@@ -136,7 +141,7 @@ impl Bsctrace {
         let mut errors = Vec::new();
         for r in [out_v, in_v] {
             match r {
-                Ok(v) => all.extend(parse(&v)),
+                Ok(v) => all.extend(parse(&v, self.chain)),
                 Err(e) => errors.push(e),
             }
         }
@@ -158,23 +163,24 @@ impl Bsctrace {
 
 /// Read the provider's reply, skipping anything malformed rather than failing
 /// the whole page: one odd row must not hide a history.
-pub fn parse(result: &Value) -> Vec<Transfer> {
+pub fn parse(result: &Value, chain: crate::EvmChain) -> Vec<Transfer> {
     let Some(rows) = result.get("transfers").and_then(Value::as_array) else {
         return Vec::new();
     };
-    rows.iter().filter_map(parse_one).collect()
+    rows.iter().filter_map(|t| parse_one(t, chain)).collect()
 }
 
-fn parse_one(t: &Value) -> Option<Transfer> {
+fn parse_one(t: &Value, chain: crate::EvmChain) -> Option<Transfer> {
     let category = t.get("category")?.as_str()?;
-    // BNB and BEP-20 USDT both have eighteen decimals. Anything else would
-    // need its precision from the chain, so it is skipped rather than shown
-    // with a made-up scale.
+    // The precision comes from the chain, not from a constant: USDT is six
+    // decimals on Ethereum and eighteen on BNB Chain. Anything that is not the
+    // native coin or that token is skipped rather than shown with a made-up
+    // scale.
     let (symbol, decimals) = match category {
-        "external" | "internal" => ("BNB".to_string(), crate::BNB_DECIMALS),
+        "external" | "internal" => (chain.native_symbol.to_string(), chain.native_decimals),
         "20" => (
             t.get("asset")?.as_str().unwrap_or("USDT").to_string(),
-            crate::USDT_DECIMALS,
+            chain.usdt_decimals,
         ),
         _ => return None,
     };
@@ -245,7 +251,7 @@ mod tests {
             "blockTimeStamp": 1620515273,
             "receiptsStatus": 1
         }]});
-        let got = parse(&v);
+        let got = parse(&v, crate::BSC);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].symbol, "BNB");
         assert_eq!(got[0].decimals, 18);
@@ -267,7 +273,7 @@ mod tests {
             "blockTimeStamp": 1788469375,
             "receiptsStatus": 1
         }]});
-        let got = parse(&v);
+        let got = parse(&v, crate::BSC);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].symbol, "USDT");
         // Eighteen here, six on TRON. The number travels with the transfer.
@@ -287,7 +293,7 @@ mod tests {
             {"category": "external", "from": "0xa", "to": "0xb",
              "value": "0x1", "hash": "0x3", "blockTimeStamp": 5, "receiptsStatus": 0},
         ]});
-        let got = parse(&v);
+        let got = parse(&v, crate::BSC);
         assert_eq!(got.len(), 1, "a good row was lost among bad ones");
         assert_eq!(got[0].hash, "0x3");
         assert!(!got[0].success, "a failed transfer was shown as successful");
@@ -295,13 +301,16 @@ mod tests {
         // A row with no transaction hash cannot be shown or looked up, so it
         // is skipped. Worth its own case: it is exactly what a truncated
         // reply looks like.
-        assert!(parse(&serde_json::json!({"transfers": [{
-            "category": "20", "from": "0xa", "to": "0xb",
-            "value": "0x1", "asset": "USDT", "blockTimeStamp": 1
-        }]}))
+        assert!(parse(
+            &serde_json::json!({"transfers": [{
+                "category": "20", "from": "0xa", "to": "0xb",
+                "value": "0x1", "asset": "USDT", "blockTimeStamp": 1
+            }]}),
+            crate::BSC
+        )
         .is_empty());
 
-        assert!(parse(&serde_json::json!({})).is_empty());
-        assert!(parse(&serde_json::json!({"transfers": "nope"})).is_empty());
+        assert!(parse(&serde_json::json!({}), crate::BSC).is_empty());
+        assert!(parse(&serde_json::json!({"transfers": "nope"}), crate::BSC).is_empty());
     }
 }

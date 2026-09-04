@@ -135,55 +135,77 @@ impl TronFee {
     }
 }
 
-/// What a BNB Chain transfer costs.
+/// What an EVM transfer costs, on either chain.
 ///
 /// Nothing here resembles TRON's model and that is the point. There is no
-/// allowance to draw down: gas is always paid, always in BNB, at a price the
-/// node quotes. The consequence worth surfacing is that a wallet holding only
-/// USDT cannot send that USDT - it has no BNB for the fee - which is a state
-/// people reach constantly and which an "insufficient funds" from the node
-/// explains badly.
-pub struct BscFee {
+/// allowance to draw down: gas is always paid, always in the chain's own coin,
+/// at a price the node quotes. The consequence worth surfacing is that a wallet
+/// holding only USDT cannot send that USDT - it has no coin for the fee - which
+/// is a state people reach constantly and which an "insufficient funds" from
+/// the node explains badly.
+///
+/// The two chains differ in one visible way: BNB Chain names a single gas
+/// price, Ethereum names a ceiling and pays the base fee plus a tip. Showing
+/// Ethereum's ceiling as though it were the price would say a transfer costs
+/// about twice what it does, so both figures are carried and the screen shows
+/// the one that is true.
+pub struct EvmFee {
+    pub chain: neko_evm::EvmChain,
     pub gas_limit: u64,
-    pub gas_price: u128,
+    pub fees: neko_evm::tx::Fees,
     /// `None` when the balance could not be read. Distinct from zero: one is a
     /// fact about the account, the other is our own failure.
-    pub bnb_balance: Option<u128>,
+    pub native_balance: Option<u128>,
     /// Whether the amount and the fee come out of the same balance.
     pub sending_native: bool,
     pub amount: u128,
 }
 
-impl BscFee {
-    /// Gas is paid in full, so this is the fee - not a ceiling.
+impl EvmFee {
+    /// What this is expected to cost. For a legacy transaction it is exact;
+    /// for a type-2 one it is the base fee plus the tip, which is what gets
+    /// charged.
     pub fn fee_wei(&self) -> u128 {
-        self.gas_limit as u128 * self.gas_price
+        self.gas_limit as u128 * self.fees.expected_per_gas()
+    }
+
+    /// The most it can cost - the ceiling a balance has to cover even though
+    /// the difference comes back. Equal to `fee_wei` on a legacy chain.
+    pub fn max_fee_wei(&self) -> u128 {
+        self.gas_limit as u128 * self.fees.max_per_gas()
     }
 
     pub fn fee(&self) -> Amount {
-        Amount::new(self.fee_wei() as i128, neko_evm::BNB_DECIMALS)
+        Amount::new(self.fee_wei() as i128, self.chain.native_decimals)
     }
 
-    /// What this transfer takes out of the BNB balance: the fee, plus the
-    /// amount itself when the amount *is* BNB.
-    pub fn bnb_needed(&self) -> u128 {
+    pub fn max_fee(&self) -> Amount {
+        Amount::new(self.max_fee_wei() as i128, self.chain.native_decimals)
+    }
+
+    /// What this transfer takes out of the coin balance: the ceiling, plus the
+    /// amount itself when the amount *is* the coin.
+    ///
+    /// The ceiling rather than the expected cost, because that is what the
+    /// chain checks before it will accept the transaction at all.
+    pub fn native_needed(&self) -> u128 {
         if self.sending_native {
-            self.fee_wei().saturating_add(self.amount)
+            self.max_fee_wei().saturating_add(self.amount)
         } else {
-            self.fee_wei()
+            self.max_fee_wei()
         }
     }
 
     /// `None` while the balance is unknown - never guessed.
     pub fn affordable(&self) -> Option<bool> {
-        self.bnb_balance.map(|b| b >= self.bnb_needed())
+        self.native_balance.map(|b| b >= self.native_needed())
     }
 
     pub fn shortfall(&self) -> Option<Amount> {
-        self.bnb_balance.map(|b| {
+        self.native_balance.map(|b| {
             Amount::new(
-                self.bnb_needed().saturating_sub(b) as i128,
-                neko_evm::BNB_DECIMALS,
+                self.native_needed().saturating_sub(b) as i128,
+                self.chain.native_decimals,
             )
         })
     }
@@ -309,7 +331,7 @@ impl BtcFee {
 /// The fee, per chain.
 pub enum FeeQuote {
     Tron(TronFee),
-    Bsc(BscFee),
+    Evm(EvmFee),
     Solana(SolanaFee),
     Bitcoin(BtcFee),
 }
@@ -320,7 +342,7 @@ impl FeeQuote {
     pub fn total(&self) -> Amount {
         match self {
             FeeQuote::Tron(t) => t.total_burn(),
-            FeeQuote::Bsc(b) => b.fee(),
+            FeeQuote::Evm(e) => e.fee(),
             FeeQuote::Solana(s) => s.fee(),
             FeeQuote::Bitcoin(b) => b.fee_amount(),
         }
@@ -334,7 +356,7 @@ impl FeeQuote {
     pub fn native_balance(&self) -> Option<i128> {
         match self {
             FeeQuote::Tron(_) => None,
-            FeeQuote::Bsc(b) => b.bnb_balance.map(|v| v as i128),
+            FeeQuote::Evm(e) => e.native_balance.map(|v| v as i128),
             FeeQuote::Solana(s) => s.sol_balance.map(|v| v as i128),
             FeeQuote::Bitcoin(b) => Some(b.balance as i128),
         }
@@ -348,7 +370,7 @@ impl FeeQuote {
             // account's resources, not of the amount, and its quote carries no
             // amount to update.
             FeeQuote::Tron(_) => {}
-            FeeQuote::Bsc(b) => b.amount = amount.max(0) as u128,
+            FeeQuote::Evm(e) => e.amount = amount.max(0) as u128,
             FeeQuote::Solana(s) => s.amount = amount.max(0) as u64,
             // The coins were chosen for a particular amount; changing it after
             // the fact would invalidate the selection that produced this fee.
@@ -360,8 +382,10 @@ impl FeeQuote {
     pub fn is_upper_bound(&self) -> bool {
         match self {
             FeeQuote::Tron(t) => t.is_upper_bound(),
-            // Gas limit times gas price, both known. Nothing is being assumed.
-            FeeQuote::Bsc(_) => false,
+            // Gas limit times a price the node quoted. Nothing is assumed -
+            // and on Ethereum the *expected* figure can come in under the
+            // ceiling, which is a refund rather than an upper bound.
+            FeeQuote::Evm(_) => false,
             // Signature fee, compute budget and rent are all exact figures the
             // cluster gave us.
             FeeQuote::Solana(_) => false,
@@ -373,8 +397,8 @@ impl FeeQuote {
     pub fn is_free(&self) -> bool {
         match self {
             FeeQuote::Tron(t) => t.is_free(),
-            // A BNB Chain transaction always costs gas.
-            FeeQuote::Bsc(_) => false,
+            // An EVM transaction always costs gas.
+            FeeQuote::Evm(_) => false,
             // And a Solana one always costs at least a signature.
             FeeQuote::Solana(_) => false,
             // Bitcoin has no free transactions at all.
@@ -391,7 +415,10 @@ pub enum SendStep {
     Review {
         req: Box<TransferRequest>,
         params: Box<ChainTxParams>,
-        quote: Option<FeeQuote>,
+        /// Boxed: the quote now carries a whole chain's parameters, and an
+        /// unboxed one makes every other step of the flow as large as the
+        /// heaviest.
+        quote: Option<Box<FeeQuote>>,
         typed: Field,
     },
     /// The last gate: the password, re-derived in full.
@@ -572,7 +599,7 @@ impl SendState {
         let n = dest.chars().count();
         let complete = match self.chain() {
             ChainId::Tron => n == TRON_ADDRESS_LEN,
-            ChainId::Bsc => n == EVM_ADDRESS_LEN,
+            ChainId::Bsc | ChainId::Ethereum => n == EVM_ADDRESS_LEN,
             // A Solana address is 32 bytes in base58, and base58 shortens a
             // value with leading zero bytes - so there is no single length to
             // compare against, only a range.
