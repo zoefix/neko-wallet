@@ -1022,11 +1022,11 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
             )));
             lines.push(Line::from(""));
             lines.push(Line::from(vec![
-                Span::styled(format!("   {}     ", t(Key::Send_From)), theme::hint()),
+                Span::styled(address_label(t(Key::Send_From)), theme::hint()),
                 Span::raw(req.from.to_string()),
             ]));
             lines.push(Line::from(vec![
-                Span::styled(format!("   {}       ", t(Key::Send_To)), theme::hint()),
+                Span::styled(address_label(t(Key::Send_To)), theme::hint()),
                 Span::styled(
                     head.clone(),
                     Style::default()
@@ -1042,7 +1042,7 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                 ),
             ]));
             lines.push(Line::from(vec![
-                Span::styled("            ", theme::hint()),
+                Span::styled(" ".repeat(ADDRESS_COL), theme::hint()),
                 Span::styled(
                     "^".repeat(head.chars().count()),
                     Style::default().fg(theme::WARN),
@@ -1059,7 +1059,7 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
             ]));
             lines.push(Line::from(""));
             lines.push(Line::from(vec![
-                Span::styled(format!("   {}   ", t(Key::Send_Amount)), theme::hint()),
+                Span::styled(address_label(t(Key::Send_Amount)), theme::hint()),
                 Span::styled(
                     format!("{} {}", req.amount.to_display_string_full(), st.asset_label),
                     Style::default()
@@ -1130,7 +1130,7 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                         // balance covers it, because a wallet holding only
                         // USDT cannot move that USDT.
                         lines.push(Line::from(vec![
-                            Span::styled(format!("     {}      ", t(Key::Send_Gas)), theme::hint()),
+                            Span::styled(fee_label(t(Key::Send_Gas)), theme::hint()),
                             Span::raw(format!(
                                 "{} units x {} gwei",
                                 group(b.gas_limit as i64),
@@ -1139,10 +1139,7 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                             )),
                         ]));
                         lines.push(Line::from(vec![
-                            Span::styled(
-                                format!("     {}   ", t(Key::Send_BnbBalance)),
-                                theme::hint(),
-                            ),
+                            Span::styled(fee_label(t(Key::Send_BnbBalance)), theme::hint()),
                             match b.bnb_balance {
                                 Some(v) => Span::raw(format!(
                                     "{} BNB",
@@ -1179,7 +1176,7 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                     }
                     crate::send::FeeQuote::Solana(s) => {
                         lines.push(Line::from(vec![
-                            Span::styled(format!("     {}  ", t(Key::Send_Compute)), theme::hint()),
+                            Span::styled(fee_label(t(Key::Send_Compute)), theme::hint()),
                             Span::raw(format!(
                                 "{} units x {} micro-lamports",
                                 group(s.compute_units as i64),
@@ -1187,10 +1184,7 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                             )),
                         ]));
                         lines.push(Line::from(vec![
-                            Span::styled(
-                                format!("     {}   ", t(Key::Send_SolBalance)),
-                                theme::hint(),
-                            ),
+                            Span::styled(fee_label(t(Key::Send_SolBalance)), theme::hint()),
                             match s.sol_balance {
                                 Some(v) => Span::raw(format!(
                                     "{} SOL",
@@ -1214,7 +1208,7 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                                 .to_display_string_trim(crate::chain::BALANCE_FRAC);
                             lines.push(Line::from(vec![
                                 Span::styled(
-                                    format!("     {}  ", t(Key::Send_NewTokenAccount)),
+                                    fee_label(t(Key::Send_NewTokenAccount)),
                                     theme::hint(),
                                 ),
                                 Span::styled(
@@ -1276,7 +1270,7 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                     crate::send::FeeQuote::Bsc(_) | crate::send::FeeQuote::Solana(_) => "",
                 };
                 let mut total_line = vec![
-                    Span::styled(format!("     {}      ", t(Key::Send_Total)), theme::hint()),
+                    Span::styled(fee_label(t(Key::Send_Total)), theme::hint()),
                     if q.is_free() {
                         Span::styled(
                             t(Key::Send_Free).to_string(),
@@ -1427,7 +1421,7 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                 ),
             ]));
             lines.push(Line::from(vec![
-                Span::styled(format!("   {}       ", t(Key::Send_To)), theme::hint()),
+                Span::styled(address_label(t(Key::Send_To)), theme::hint()),
                 Span::raw(req.to.to_string()),
             ]));
             lines.push(Line::from(""));
@@ -1578,6 +1572,34 @@ fn draw_settings(f: &mut Frame, area: Rect, app: &App, st: &SettingsState) {
     }
 
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+}
+
+/// The column the two addresses on the review screen start at.
+///
+/// The markers underneath point at the characters that have to be checked, so
+/// they have to sit under those exact characters. Padding each label by hand -
+/// which is what this replaced - held only in English: `From` is four cells and
+/// `To` is two, so trailing spaces tuned to that put the Japanese labels two
+/// and four cells further right than the markers below them.
+///
+/// Twelve fits the longest label this has (`送金先`, six cells) with a gap.
+const ADDRESS_COL: usize = 12;
+
+/// A label padded so whatever follows starts at [`ADDRESS_COL`], in any script.
+fn address_label(label: &str) -> String {
+    format!("   {}", width::pad(label, ADDRESS_COL - 3, Align::Left))
+}
+
+/// The column the fee breakdown's values start at.
+///
+/// Same reasoning as [`ADDRESS_COL`], one indent level in. Twelve clears the
+/// widest label in any of the four languages (`BNB balance`, eleven cells) with
+/// a space to spare.
+const FEE_LABEL_COLS: usize = 12;
+
+/// A fee-row label padded so its value starts at the same column in any script.
+fn fee_label(label: &str) -> String {
+    format!("     {}", width::pad(label, FEE_LABEL_COLS, Align::Left))
 }
 
 /// History table column widths.
@@ -1897,10 +1919,7 @@ fn resource_line<'a>(
     burn: neko_core::Amount,
 ) -> Line<'a> {
     let mut spans = vec![
-        Span::styled(
-            format!("     {}", width::pad(label, 11, Align::Left)),
-            theme::hint(),
-        ),
+        Span::styled(fee_label(label), theme::hint()),
         Span::raw(width::pad(&group(needed), 10, Align::Right)),
         Span::styled(format!("  {}  ", t(Key::Send_Needed)), theme::hint()),
     ];

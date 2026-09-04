@@ -22,6 +22,12 @@ const SOL_PRICE: i128 = 103_553_245; // 1 SOL = 103.553245 USDT, read from the p
 
 fn render(app: &App, w: u16, h: u16) -> String {
     neko_i18n::set_locale(neko_i18n::Locale::English);
+    render_raw(app, w, h)
+}
+
+/// Renders in whatever locale is currently set, for the tests that are about
+/// the other three.
+fn render_raw(app: &App, w: u16, h: u16) -> String {
     let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(w, h)).unwrap();
     term.draw(|f| neko_tui::render::draw(f, app)).unwrap();
     let buf = term.backend().buffer().clone();
@@ -270,4 +276,55 @@ fn a_wallet_with_no_sol_is_told_what_it_needs() {
         out.contains("0.00204428"),
         "the shortfall figure is wrong:\n{out}"
     );
+}
+
+/// The markers under the destination point at the characters that have to be
+/// checked, so they have to sit under exactly those characters.
+///
+/// This held only in English, because each of the three lines padded its own
+/// label by hand and the padding was tuned to `From` being four cells and `To`
+/// being two. In Japanese the two addresses and the markers started at three
+/// different columns, and the thing the markers point at was whatever happened
+/// to be two cells to the left.
+#[test]
+fn the_markers_sit_under_the_characters_they_point_at() {
+    for locale in neko_i18n::LOCALES {
+        neko_i18n::set_locale(locale);
+        let app = app_at_review(neko_core::ChainId::Bsc, bsc_quote());
+        let out = render_raw(&app, 135, 40);
+
+        let from = out
+            .lines()
+            .find(|l| l.contains(BSC_MINE))
+            .unwrap_or_else(|| panic!("{locale:?}: no From line"));
+        let to = out
+            .lines()
+            .find(|l| l.contains(BSC_TO))
+            .unwrap_or_else(|| panic!("{locale:?}: no To line"));
+        let carets = out
+            .lines()
+            .find(|l| l.contains("^^^^^^"))
+            .unwrap_or_else(|| panic!("{locale:?}: no marker line"));
+
+        // Cells, not characters: a CJK label is two cells per character, which
+        // is the whole reason this drifted.
+        let col = |line: &str, needle: &str| {
+            let at = line.find(needle).unwrap();
+            unicode_width::UnicodeWidthStr::width(&line[..at])
+        };
+
+        let from_col = col(from, BSC_MINE);
+        let to_col = col(to, BSC_TO);
+        let caret_col = col(carets, "^");
+
+        assert_eq!(
+            from_col, to_col,
+            "{locale:?}: the two addresses start at different columns\n{from}\n{to}"
+        );
+        assert_eq!(
+            to_col, caret_col,
+            "{locale:?}: the markers are not under the address\n{to}\n{carets}"
+        );
+    }
+    neko_i18n::set_locale(neko_i18n::Locale::English);
 }
