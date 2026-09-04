@@ -12,13 +12,16 @@ use crate::error::StoreError;
 
 pub const TRON_CHAIN_ID: i64 = 1;
 pub const BSC_CHAIN_ID: i64 = 2;
+pub const SOLANA_CHAIN_ID: i64 = 3;
 
 /// Address widths this store accepts, by chain. TRON carries a `0x41` prefix
-/// and is 21 bytes; EVM chains are 20.
+/// and is 21 bytes; EVM chains are 20; a Solana address is a 32-byte Ed25519
+/// public key.
 fn expected_len(chain_id: i64) -> Option<usize> {
     match chain_id {
         TRON_CHAIN_ID => Some(21),
         BSC_CHAIN_ID => Some(20),
+        SOLANA_CHAIN_ID => Some(32),
         _ => None,
     }
 }

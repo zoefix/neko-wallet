@@ -15,6 +15,7 @@ use neko_tui::send::{BscFee, FeeQuote, SendState, TronFee};
 
 const BSC_MINE: &str = "0x1111111111111111111111111111111111111111";
 const BSC_TO: &str = "0x2222222222222222222222222222222222222222";
+const SOLANA_MINE: &str = "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9";
 const TRON_MINE: &str = "TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH";
 
 /// The balance from the screenshot that started this: 0.00008488 BNB, and a
@@ -28,6 +29,7 @@ fn state(asset: neko_core::Asset, balance: Option<i128>) -> SendState {
     let mine = match asset.chain() {
         neko_core::ChainId::Tron => TRON_MINE,
         neko_core::ChainId::Bsc => BSC_MINE,
+        neko_core::ChainId::Solana => SOLANA_MINE,
     };
     let mut st = SendState::new(
         1,

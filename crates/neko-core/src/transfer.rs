@@ -25,6 +25,7 @@ use crate::session::Session;
 pub enum ChainTxParams {
     Tron(Box<neko_tron::tx::TxParams>),
     Evm(neko_evm::tx::TxParams),
+    Solana(neko_solana::tx::TxParams),
 }
 
 /// A signed transaction, reduced to what every caller actually needs: the
@@ -81,7 +82,10 @@ impl TransferRequest {
     /// chain what it will cost.
     pub fn calldata(&self) -> Result<Option<Vec<u8>>, CoreError> {
         match self.asset {
-            Asset::Trx | Asset::Bnb => Ok(None),
+            // Solana carries no calldata: the amount lives in the
+            // instruction, which is built by the chain crate rather than
+            // encoded here.
+            Asset::Trx | Asset::Bnb | Asset::Sol | Asset::SplToken { .. } => Ok(None),
             Asset::Trc20 { .. } => Ok(Some(neko_tron::tx::encode_trc20_transfer(
                 self.to.as_tron()?,
                 self.amount.raw as u128,
@@ -170,6 +174,50 @@ impl Session {
                     id,
                 })
             }
+            (Asset::Sol, ChainTxParams::Solana(p)) => {
+                let from = req.from.as_solana()?;
+                let lamports = u64::try_from(req.amount.raw)
+                    .map_err(|_| neko_solana::SolanaError::AmountTooLarge)?;
+                let mut ixs = compute_budget(p);
+                ixs.push(neko_solana::tx::transfer_sol(
+                    from,
+                    req.to.as_solana()?,
+                    lamports,
+                ));
+                sign_solana(from, ixs, p, &key)
+            }
+            (Asset::SplToken { mint, decimals }, ChainTxParams::Solana(p)) => {
+                let from = req.from.as_solana()?;
+                let to = req.to.as_solana()?;
+                let amount = u64::try_from(req.amount.raw)
+                    .map_err(|_| neko_solana::SolanaError::AmountTooLarge)?;
+
+                // Tokens do not go to the recipient's address. They go to an
+                // account derived from it and the mint, which may not exist -
+                // and if it does not, this transfer creates it and pays its
+                // rent.
+                let source = neko_solana::associated_token_address(&from, &mint)?;
+                let destination = neko_solana::associated_token_address(&to, &mint)?;
+
+                let mut ixs = compute_budget(p);
+                if p.create_recipient_account {
+                    ixs.push(neko_solana::tx::create_associated_token_account(
+                        from, to, mint,
+                    )?);
+                }
+                // `decimals` is passed to the program, which checks it against
+                // the mint on chain. A wrong value fails there rather than
+                // moving a millionth or a million times the amount.
+                ixs.push(neko_solana::tx::transfer_token_checked(
+                    source,
+                    mint,
+                    destination,
+                    from,
+                    amount,
+                    decimals,
+                ));
+                sign_solana(from, ixs, p, &key)
+            }
             // Unreachable through the interface, because the asset and the
             // parameters are chosen together. Refused rather than assumed.
             _ => Err(CoreError::WrongChain),
@@ -196,11 +244,52 @@ impl Session {
             return Ok(Zeroizing::new(k));
         }
         let seed = self.seed_for(wallet_id)?;
-        Ok(neko_hd::derive::private_key_at_coin(
-            &seed,
-            chain.coin_type(),
-            0,
-            index,
-        )?)
+        Ok(match chain {
+            // SLIP-0010 over Ed25519. Deriving this with the BIP32 machinery
+            // the other chains use would produce a perfectly valid key for an
+            // address that holds nothing.
+            ChainId::Solana => neko_hd::solana::private_key_at(&seed, index)?,
+            ChainId::Tron | ChainId::Bsc => {
+                neko_hd::derive::private_key_at_coin(&seed, chain.coin_type(), 0, index)?
+            }
+        })
     }
+}
+
+/// The compute-budget instructions, if the cluster gave us a reason for them.
+///
+/// Both are omitted when they would be no-ops, because every instruction costs
+/// bytes and a transaction has one packet to fit in.
+fn compute_budget(p: &neko_solana::tx::TxParams) -> Vec<neko_solana::tx::Instruction> {
+    let mut out = Vec::with_capacity(2);
+    if p.compute_unit_limit > 0 {
+        out.push(neko_solana::tx::set_compute_unit_limit(
+            p.compute_unit_limit,
+        ));
+    }
+    if p.compute_unit_price > 0 {
+        out.push(neko_solana::tx::set_compute_unit_price(
+            p.compute_unit_price,
+        ));
+    }
+    out
+}
+
+/// Compile, sign, and hand back the bytes with the id they will be found by.
+///
+/// `Transaction::sign` refuses a key that is not the fee payer, which is this
+/// chain's equivalent of the public-key recovery check the other two do: proof
+/// that the signature belongs to the account being debited.
+fn sign_solana(
+    from: neko_hd::SolanaAddress,
+    ixs: Vec<neko_solana::tx::Instruction>,
+    p: &neko_solana::tx::TxParams,
+    key: &Zeroizing<[u8; 32]>,
+) -> Result<SignedTransfer, CoreError> {
+    let msg = neko_solana::tx::Message::compile(&from, &ixs, p.recent_blockhash)?;
+    let signed = neko_solana::tx::Transaction::sign(msg, key)?;
+    Ok(SignedTransfer {
+        id: signed.id(),
+        raw: signed.serialize()?,
+    })
 }

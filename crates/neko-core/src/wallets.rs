@@ -201,6 +201,9 @@ impl Session {
             return Ok(match chain {
                 ChainId::Tron => ChainAddress::Tron(derive::address_from_private_key(&sk)?),
                 ChainId::Bsc => ChainAddress::Evm(derive::evm_address_from_private_key(&sk)?),
+                ChainId::Solana => {
+                    ChainAddress::Solana(neko_hd::solana::address_from_private_key(&sk)?)
+                }
             });
         }
 
@@ -208,6 +211,9 @@ impl Session {
         Ok(match chain {
             ChainId::Tron => ChainAddress::Tron(derive::address_at(&seed, 0, index)?),
             ChainId::Bsc => ChainAddress::Evm(derive::evm_address_at(&seed, 0, index)?),
+            // SLIP-0010, hardened at every level, so the account level is what
+            // varies rather than a change/index pair that cannot exist here.
+            ChainId::Solana => ChainAddress::Solana(neko_hd::solana::address_at(&seed, index)?),
         })
     }
 
@@ -389,6 +395,7 @@ impl Session {
             let contract = (symbol == "USDT").then(|| match chain {
                 ChainId::Tron => neko_tron::usdt_address().as_bytes().to_vec(),
                 ChainId::Bsc => neko_evm::usdt_address().as_bytes().to_vec(),
+                ChainId::Solana => neko_solana::usdt_mint().as_bytes().to_vec(),
             });
             let asset = balances::asset_id(conn, db_chain, symbol, contract.as_deref(), *decimals)?;
             balances::upsert(conn, address_id, asset, *amount, 0, now)?;
@@ -404,6 +411,7 @@ fn db_chain_id(c: ChainId) -> i64 {
     match c {
         ChainId::Tron => neko_store::repo::addresses::TRON_CHAIN_ID,
         ChainId::Bsc => neko_store::repo::addresses::BSC_CHAIN_ID,
+        ChainId::Solana => neko_store::repo::addresses::SOLANA_CHAIN_ID,
     }
 }
 

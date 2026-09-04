@@ -16,9 +16,10 @@ use crate::error::CoreError;
 pub enum ChainId {
     Tron,
     Bsc,
+    Solana,
 }
 
-pub const CHAINS: [ChainId; 2] = [ChainId::Tron, ChainId::Bsc];
+pub const CHAINS: [ChainId; 3] = [ChainId::Tron, ChainId::Bsc, ChainId::Solana];
 
 impl ChainId {
     /// Stored in the database and in settings; never shown to a user.
@@ -26,6 +27,7 @@ impl ChainId {
         match self {
             ChainId::Tron => "tron",
             ChainId::Bsc => "bsc",
+            ChainId::Solana => "solana",
         }
     }
 
@@ -37,6 +39,7 @@ impl ChainId {
         match self {
             ChainId::Tron => "TRON",
             ChainId::Bsc => "BNB Chain",
+            ChainId::Solana => "Solana",
         }
     }
 
@@ -47,6 +50,7 @@ impl ChainId {
         match self {
             ChainId::Tron => neko_hd::derive::COIN_TYPE,
             ChainId::Bsc => neko_hd::derive::COIN_TYPE_EVM,
+            ChainId::Solana => neko_hd::COIN_TYPE_SOLANA,
         }
     }
 
@@ -54,6 +58,7 @@ impl ChainId {
         match self {
             ChainId::Tron => "TRX",
             ChainId::Bsc => "BNB",
+            ChainId::Solana => "SOL",
         }
     }
 
@@ -63,6 +68,7 @@ impl ChainId {
         match self {
             ChainId::Tron => neko_tron::TRX_DECIMALS,
             ChainId::Bsc => neko_evm::BNB_DECIMALS,
+            ChainId::Solana => neko_solana::SOL_DECIMALS,
         }
     }
 
@@ -77,6 +83,10 @@ impl ChainId {
                 contract: neko_tron::usdt_address(),
                 decimals: neko_tron::USDT_DECIMALS,
             },
+            ChainId::Solana => Asset::SplToken {
+                mint: neko_solana::usdt_mint(),
+                decimals: neko_solana::USDT_DECIMALS,
+            },
             ChainId::Bsc => Asset::Bep20 {
                 contract: neko_evm::usdt_address(),
                 decimals: neko_evm::USDT_DECIMALS,
@@ -88,6 +98,7 @@ impl ChainId {
         match self {
             ChainId::Tron => Asset::Trx,
             ChainId::Bsc => Asset::Bnb,
+            ChainId::Solana => Asset::Sol,
         }
     }
 
@@ -96,6 +107,7 @@ impl ChainId {
         match self {
             ChainId::Tron => format!("https://tronscan.org/#/transaction/{id}"),
             ChainId::Bsc => format!("https://bscscan.com/tx/{id}"),
+            ChainId::Solana => format!("https://solscan.io/tx/{id}"),
         }
     }
 }
@@ -105,6 +117,7 @@ impl ChainId {
 pub enum ChainAddress {
     Tron(neko_hd::Address),
     Evm(neko_hd::EvmAddress),
+    Solana(neko_hd::SolanaAddress),
 }
 
 impl ChainAddress {
@@ -112,6 +125,7 @@ impl ChainAddress {
         match self {
             ChainAddress::Tron(_) => ChainId::Tron,
             ChainAddress::Evm(_) => ChainId::Bsc,
+            ChainAddress::Solana(_) => ChainId::Solana,
         }
     }
 
@@ -129,6 +143,9 @@ impl ChainAddress {
             ChainId::Bsc => neko_hd::EvmAddress::parse(s)
                 .map(ChainAddress::Evm)
                 .map_err(|_| CoreError::BadAddress),
+            ChainId::Solana => neko_hd::SolanaAddress::parse(s)
+                .map(ChainAddress::Solana)
+                .map_err(|_| CoreError::BadAddress),
         }
     }
 
@@ -138,6 +155,7 @@ impl ChainAddress {
         match self {
             ChainAddress::Tron(a) => a.as_bytes().to_vec(),
             ChainAddress::Evm(a) => a.as_bytes().to_vec(),
+            ChainAddress::Solana(a) => a.as_bytes().to_vec(),
         }
     }
 
@@ -148,6 +166,9 @@ impl ChainAddress {
                 .map_err(|_| CoreError::BadAddress),
             ChainId::Bsc => neko_hd::EvmAddress::from_bytes(b)
                 .map(ChainAddress::Evm)
+                .map_err(|_| CoreError::BadAddress),
+            ChainId::Solana => neko_hd::SolanaAddress::from_bytes(b)
+                .map(ChainAddress::Solana)
                 .map_err(|_| CoreError::BadAddress),
         }
     }
@@ -165,6 +186,13 @@ impl ChainAddress {
             _ => Err(CoreError::WrongChain),
         }
     }
+
+    pub fn as_solana(&self) -> Result<neko_hd::SolanaAddress, CoreError> {
+        match self {
+            ChainAddress::Solana(a) => Ok(*a),
+            _ => Err(CoreError::WrongChain),
+        }
+    }
 }
 
 impl std::fmt::Display for ChainAddress {
@@ -172,6 +200,7 @@ impl std::fmt::Display for ChainAddress {
         match self {
             ChainAddress::Tron(a) => write!(f, "{a}"),
             ChainAddress::Evm(a) => write!(f, "{a}"),
+            ChainAddress::Solana(a) => write!(f, "{a}"),
         }
     }
 }
@@ -189,6 +218,13 @@ pub enum Asset {
         contract: neko_hd::EvmAddress,
         decimals: u8,
     },
+    Sol,
+    /// An SPL token. `mint` is the token's own account, not the holder's - on
+    /// Solana a balance lives in a separate account derived from the two.
+    SplToken {
+        mint: neko_hd::SolanaAddress,
+        decimals: u8,
+    },
 }
 
 impl Asset {
@@ -196,6 +232,7 @@ impl Asset {
         match self {
             Asset::Trx | Asset::Trc20 { .. } => ChainId::Tron,
             Asset::Bnb | Asset::Bep20 { .. } => ChainId::Bsc,
+            Asset::Sol | Asset::SplToken { .. } => ChainId::Solana,
         }
     }
 
@@ -203,7 +240,10 @@ impl Asset {
         match self {
             Asset::Trx => neko_tron::TRX_DECIMALS,
             Asset::Bnb => neko_evm::BNB_DECIMALS,
-            Asset::Trc20 { decimals, .. } | Asset::Bep20 { decimals, .. } => decimals,
+            Asset::Sol => neko_solana::SOL_DECIMALS,
+            Asset::Trc20 { decimals, .. }
+            | Asset::Bep20 { decimals, .. }
+            | Asset::SplToken { decimals, .. } => decimals,
         }
     }
 
@@ -211,9 +251,10 @@ impl Asset {
         match self {
             Asset::Trx => "TRX",
             Asset::Bnb => "BNB",
+            Asset::Sol => "SOL",
             // Only USDT is known so far; when a second token is added this
             // has to carry its symbol rather than assume.
-            Asset::Trc20 { .. } | Asset::Bep20 { .. } => "USDT",
+            Asset::Trc20 { .. } | Asset::Bep20 { .. } | Asset::SplToken { .. } => "USDT",
         }
     }
 
@@ -229,7 +270,7 @@ impl Asset {
             Asset::Trx => Some(neko_tron::FEE_LIMIT_TRX),
             // A contract call with no fee limit fails for lack of energy.
             Asset::Trc20 { .. } => Some(neko_tron::FEE_LIMIT_TRC20),
-            Asset::Bnb | Asset::Bep20 { .. } => None,
+            Asset::Bnb | Asset::Bep20 { .. } | Asset::Sol | Asset::SplToken { .. } => None,
         }
     }
 
@@ -239,7 +280,7 @@ impl Asset {
     /// own coin, so the whole token balance can go, while sending the coin has
     /// to hold back enough of itself to pay for the sending.
     pub fn is_native(self) -> bool {
-        matches!(self, Asset::Trx | Asset::Bnb)
+        matches!(self, Asset::Trx | Asset::Bnb | Asset::Sol)
     }
 }
 

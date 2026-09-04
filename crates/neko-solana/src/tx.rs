@@ -84,6 +84,25 @@ pub struct CompiledInstruction {
     pub data: Vec<u8>,
 }
 
+/// Everything the cluster has to tell us before a transaction can be signed.
+///
+/// `recent_blockhash` is the reason this type exists separately from the fee
+/// quote. It is good for about a minute, so it is fetched immediately before
+/// signing - long after the screen that showed the fee. Carrying one from the
+/// quote, the way TRON's block reference is carried, would produce transactions
+/// that are simply dropped by the cluster while looking perfectly valid here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TxParams {
+    pub recent_blockhash: [u8; 32],
+    pub compute_unit_limit: u32,
+    /// Micro-lamports per compute unit. Zero is legitimate on a quiet cluster
+    /// and fatal on a busy one, which is why it comes from the chain.
+    pub compute_unit_price: u64,
+    /// Whether this transfer has to open the recipient's token account, and so
+    /// pay its rent. Decided by asking the cluster, never by assuming.
+    pub create_recipient_account: bool,
+}
+
 /// A legacy (unversioned) message. Address lookup tables buy nothing for a
 /// wallet that sends to one recipient, and every cluster still accepts this.
 #[derive(Debug, Clone, PartialEq, Eq)]

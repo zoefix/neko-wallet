@@ -527,6 +527,77 @@ fn sign_and_broadcast(app: &mut App, tx: &Sender) {
         }
     };
 
+    // Solana's blockhash is good for about a minute, and the password gate
+    // this arrives from runs Argon2id over up to a gigabyte - after a user has
+    // spent as long as they like reading the confirmation. Signing against the
+    // hash the fee quote fetched would produce a transaction that looks
+    // perfectly valid here and is silently dropped by the cluster. Fetch a new
+    // one and come back through `on_blockhash`.
+    if matches!(params, neko_core::ChainTxParams::Solana(_)) {
+        let id = app.next_req();
+        app.inflight = Some(id);
+        let client = app.chain_client(req.chain());
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            let res = crate::chain::latest_blockhash(&client).await;
+            let _ = tx.send(crate::event::AppEvent::Blockhash { req: id, res });
+        });
+        return;
+    }
+    finish_signing(app, tx, req, params);
+}
+
+/// The fresh blockhash came back. Put it in the parameters and sign.
+pub fn on_blockhash(
+    app: &mut App,
+    req: crate::event::ReqId,
+    res: Result<[u8; 32], String>,
+    tx: &Sender,
+) {
+    if app.inflight != Some(req) {
+        return;
+    }
+    app.inflight = None;
+
+    let hash = match res {
+        Ok(h) => h,
+        // Refused rather than signed against the stale one. A dropped
+        // transaction that charged nothing is recoverable; one that lands twice
+        // because the user retried is not.
+        Err(e) => {
+            fail_send(app, e);
+            return;
+        }
+    };
+
+    let Screen::Send(st) = &app.screen else {
+        return;
+    };
+    let (request, mut params) = match &st.step {
+        crate::send::SendStep::Authorize { req, params, .. } => {
+            ((**req).clone(), (**params).clone())
+        }
+        other => {
+            let name = crate::send::step_name(other);
+            fail_send(
+                app,
+                neko_i18n::tf(neko_i18n::Key::Send_CannotSign, &[("step", name)]),
+            );
+            return;
+        }
+    };
+    if let neko_core::ChainTxParams::Solana(p) = &mut params {
+        p.recent_blockhash = hash;
+    }
+    finish_signing(app, tx, request, params);
+}
+
+fn finish_signing(
+    app: &mut App,
+    tx: &Sender,
+    req: neko_core::TransferRequest,
+    params: neko_core::ChainTxParams,
+) {
     // Sign here, on the thread that owns the session.
     let signed = match app.session.as_ref().map(|s| s.sign_transfer(&req, &params)) {
         Some(Ok(s)) => s,

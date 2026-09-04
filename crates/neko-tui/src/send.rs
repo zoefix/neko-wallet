@@ -24,6 +24,11 @@ pub const CONFIRM_CHARS: usize = 6;
 pub const TRON_ADDRESS_LEN: usize = 34;
 /// `0x` plus 40 hex characters.
 pub const EVM_ADDRESS_LEN: usize = 42;
+/// Base58 of 32 bytes. The range is real rather than defensive: each leading
+/// zero byte encodes to a single `1`, so an address with several of them is
+/// genuinely shorter than one without.
+pub const SOLANA_ADDRESS_MIN_LEN: usize = 32;
+pub const SOLANA_ADDRESS_MAX_LEN: usize = 44;
 
 /// The fee, broken down.
 ///
@@ -181,10 +186,78 @@ impl BscFee {
     }
 }
 
+/// What a Solana transfer costs.
+///
+/// Two of these three numbers have no equivalent on the other chains.
+///
+/// The base fee is trivial and fixed. The *rent* is not: tokens do not go to an
+/// address, they go to an account derived from the address and the mint, and if
+/// the recipient has never held this token the sender pays about 0.002 SOL to
+/// open one - roughly forty times the fee itself. It is charged once per
+/// recipient per token, and it is the cost people are most surprised by.
+///
+/// The priority fee is what decides whether the transfer arrives at all. Solana
+/// drops rather than queues, so a transaction that bids too low during
+/// congestion is not slow; it never lands, and the blockhash expires.
+pub struct SolanaFee {
+    pub compute_units: u32,
+    /// Micro-lamports per compute unit, taken from what recent blocks accepted.
+    pub compute_unit_price: u64,
+    /// Rent for the recipient's token account, or zero when they have one.
+    pub rent: u64,
+    /// `None` when the balance could not be read. Distinct from zero: one is a
+    /// fact about the account, the other is our own failure.
+    pub sol_balance: Option<u64>,
+    /// Whether the amount and the fee come out of the same balance.
+    pub sending_native: bool,
+    pub amount: u64,
+}
+
+impl SolanaFee {
+    /// Signature plus compute, plus rent when this transfer opens an account.
+    pub fn fee_lamports(&self) -> u64 {
+        neko_solana::tx::fee_lamports(1, self.compute_units, self.compute_unit_price)
+            .saturating_add(self.rent)
+    }
+
+    pub fn fee(&self) -> Amount {
+        Amount::new(self.fee_lamports() as i128, neko_solana::SOL_DECIMALS)
+    }
+
+    /// Rent shown on its own, because it is the part nobody expects and the
+    /// part that is forty times everything else.
+    pub fn rent_amount(&self) -> Amount {
+        Amount::new(self.rent as i128, neko_solana::SOL_DECIMALS)
+    }
+
+    pub fn sol_needed(&self) -> u64 {
+        if self.sending_native {
+            self.fee_lamports().saturating_add(self.amount)
+        } else {
+            self.fee_lamports()
+        }
+    }
+
+    /// `None` while the balance is unknown - never guessed.
+    pub fn affordable(&self) -> Option<bool> {
+        self.sol_balance.map(|b| b >= self.sol_needed())
+    }
+
+    pub fn shortfall(&self) -> Option<Amount> {
+        self.sol_balance.map(|b| {
+            Amount::new(
+                self.sol_needed().saturating_sub(b) as i128,
+                neko_solana::SOL_DECIMALS,
+            )
+        })
+    }
+}
+
 /// The fee, per chain.
 pub enum FeeQuote {
     Tron(TronFee),
     Bsc(BscFee),
+    Solana(SolanaFee),
 }
 
 impl FeeQuote {
@@ -194,6 +267,7 @@ impl FeeQuote {
         match self {
             FeeQuote::Tron(t) => t.total_burn(),
             FeeQuote::Bsc(b) => b.fee(),
+            FeeQuote::Solana(s) => s.fee(),
         }
     }
 
@@ -206,6 +280,7 @@ impl FeeQuote {
         match self {
             FeeQuote::Tron(_) => None,
             FeeQuote::Bsc(b) => b.bnb_balance.map(|v| v as i128),
+            FeeQuote::Solana(s) => s.sol_balance.map(|v| v as i128),
         }
     }
 
@@ -218,6 +293,7 @@ impl FeeQuote {
             // amount to update.
             FeeQuote::Tron(_) => {}
             FeeQuote::Bsc(b) => b.amount = amount.max(0) as u128,
+            FeeQuote::Solana(s) => s.amount = amount.max(0) as u64,
         }
     }
 
@@ -226,6 +302,9 @@ impl FeeQuote {
             FeeQuote::Tron(t) => t.is_upper_bound(),
             // Gas limit times gas price, both known. Nothing is being assumed.
             FeeQuote::Bsc(_) => false,
+            // Signature fee, compute budget and rent are all exact figures the
+            // cluster gave us.
+            FeeQuote::Solana(_) => false,
         }
     }
 
@@ -234,6 +313,8 @@ impl FeeQuote {
             FeeQuote::Tron(t) => t.is_free(),
             // A BNB Chain transaction always costs gas.
             FeeQuote::Bsc(_) => false,
+            // And a Solana one always costs at least a signature.
+            FeeQuote::Solana(_) => false,
         }
     }
 }
@@ -424,11 +505,16 @@ impl SendState {
         let dest = self.to.value().trim();
         // Only once a full-length address has been typed; comparing prefixes
         // while somebody is still typing would warn on every keystroke.
-        let want = match self.chain() {
-            ChainId::Tron => TRON_ADDRESS_LEN,
-            ChainId::Bsc => EVM_ADDRESS_LEN,
+        let n = dest.chars().count();
+        let complete = match self.chain() {
+            ChainId::Tron => n == TRON_ADDRESS_LEN,
+            ChainId::Bsc => n == EVM_ADDRESS_LEN,
+            // A Solana address is 32 bytes in base58, and base58 shortens a
+            // value with leading zero bytes - so there is no single length to
+            // compare against, only a range.
+            ChainId::Solana => (SOLANA_ADDRESS_MIN_LEN..=SOLANA_ADDRESS_MAX_LEN).contains(&n),
         };
-        if dest.chars().count() != want {
+        if !complete {
             return None;
         }
         self.known

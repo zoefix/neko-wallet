@@ -1177,6 +1177,87 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                             )));
                         }
                     }
+                    crate::send::FeeQuote::Solana(s) => {
+                        lines.push(Line::from(vec![
+                            Span::styled(format!("     {}  ", t(Key::Send_Compute)), theme::hint()),
+                            Span::raw(format!(
+                                "{} units x {} micro-lamports",
+                                group(s.compute_units as i64),
+                                group(s.compute_unit_price as i64)
+                            )),
+                        ]));
+                        lines.push(Line::from(vec![
+                            Span::styled(
+                                format!("     {}   ", t(Key::Send_SolBalance)),
+                                theme::hint(),
+                            ),
+                            match s.sol_balance {
+                                Some(v) => Span::raw(format!(
+                                    "{} SOL",
+                                    neko_core::Amount::new(v as i128, neko_solana::SOL_DECIMALS)
+                                        .to_display_string_trim(crate::chain::BALANCE_FRAC)
+                                )),
+                                // A failed lookup is not zero, and must not be
+                                // rendered as though it were.
+                                None => {
+                                    Span::styled(t(Key::Common_Unknown).to_string(), theme::hint())
+                                }
+                            },
+                        ]));
+                        // The cost with no equivalent on the other two chains,
+                        // and the one people are surprised by: forty times the
+                        // fee, charged for opening an account that exists only
+                        // because tokens do not live at an address here.
+                        if s.rent > 0 {
+                            let rent = s
+                                .rent_amount()
+                                .to_display_string_trim(crate::chain::BALANCE_FRAC);
+                            lines.push(Line::from(vec![
+                                Span::styled(
+                                    format!("     {}  ", t(Key::Send_NewTokenAccount)),
+                                    theme::hint(),
+                                ),
+                                Span::styled(
+                                    format!("{rent} SOL"),
+                                    Style::default().fg(theme::WARN),
+                                ),
+                            ]));
+                            for key in [
+                                Key::Send_NewTokenAccountNote,
+                                Key::Send_NewTokenAccountNote2,
+                            ] {
+                                lines.push(Line::from(Span::styled(
+                                    format!(
+                                        "                {}",
+                                        tf(key, &[("asset", &st.asset_label), ("amount", &rent)])
+                                    ),
+                                    theme::hint(),
+                                )));
+                            }
+                        }
+                        if s.affordable() == Some(false) {
+                            let short = s
+                                .shortfall()
+                                .unwrap_or(neko_core::Amount::new(0, neko_solana::SOL_DECIMALS));
+                            lines.push(Line::from(Span::styled(
+                                format!(
+                                    "     {}",
+                                    tf(
+                                        Key::Send_NeedMoreSol,
+                                        &[
+                                            (
+                                                "amount",
+                                                &short.to_display_string_trim(
+                                                    crate::chain::BALANCE_FRAC,
+                                                ),
+                                            )
+                                        ]
+                                    )
+                                ),
+                                Style::default().fg(theme::DANGER),
+                            )));
+                        }
+                    }
                 }
 
                 let total = q.total();
@@ -1191,7 +1272,8 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                 // fact, so the word differs.
                 let verb = match q {
                     crate::send::FeeQuote::Tron(_) => " burned",
-                    crate::send::FeeQuote::Bsc(_) => "",
+                    // Both pay a validator rather than destroying anything.
+                    crate::send::FeeQuote::Bsc(_) | crate::send::FeeQuote::Solana(_) => "",
                 };
                 let mut total_line = vec![
                     Span::styled(format!("     {}      ", t(Key::Send_Total)), theme::hint()),

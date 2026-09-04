@@ -83,7 +83,10 @@ fn an_existing_wallet_survives_the_upgrade() {
     assert_eq!(neko_store::vault_row::schema_version(&conn).unwrap(), 1);
 
     neko_store::migrate::run(&conn).unwrap();
-    assert_eq!(neko_store::vault_row::schema_version(&conn).unwrap(), 2);
+    assert_eq!(
+        neko_store::vault_row::schema_version(&conn).unwrap(),
+        neko_store::vault_row::CURRENT_SCHEMA,
+    );
 
     let (addr, raw, id): (String, Vec<u8>, i64) = conn
         .query_row(
@@ -177,5 +180,83 @@ fn the_upgrade_is_idempotent() {
         .query_row("SELECT count(*) FROM addresses", [], |r| r.get(0))
         .unwrap();
     assert_eq!(before, after);
-    assert_eq!(neko_store::vault_row::schema_version(&conn).unwrap(), 2);
+    assert_eq!(
+        neko_store::vault_row::schema_version(&conn).unwrap(),
+        neko_store::vault_row::CURRENT_SCHEMA,
+    );
+}
+
+/// A Solana address is 32 bytes, which the pre-Solana CHECK constraint refused.
+///
+/// The point of this test is the *before*: without it, a migration that forgot
+/// to widen the column would still pass every other test here and only fail
+/// when somebody created their first Solana account.
+#[test]
+fn the_column_only_accepts_a_solana_address_after_the_migration() {
+    let solana_raw = vec![9u8; 32];
+    let solana_addr = "So1anaAddressPlaceholderThatIsNotParsedHere1";
+
+    let conn = v1_with_a_funded_wallet();
+
+    // Hung off the existing account, because chain 3 does not exist yet and the
+    // foreign key would fail for a reason that has nothing to do with width.
+    let insert = |conn: &Connection| {
+        conn.execute(
+            "INSERT INTO addresses (id, account_id, deriv_index, change, address, address_raw)
+             VALUES (12, 3, 1, 0, ?1, ?2)",
+            rusqlite::params![solana_addr, solana_raw],
+        )
+    };
+
+    assert!(
+        insert(&conn).is_err(),
+        "32 bytes should not fit the old constraint - this test proves nothing otherwise"
+    );
+
+    neko_store::migrate::run(&conn).unwrap();
+    insert(&conn).expect("a Solana address should fit after the migration");
+
+    // The chain the widening was for now exists, and takes one too.
+    conn.execute(
+        "INSERT INTO accounts (id, wallet_id, chain_id, account_index) VALUES (4, 7, 3, 0)",
+        [],
+    )
+    .unwrap();
+
+    // And the widening did not open the column to anything at all.
+    assert!(
+        conn.execute(
+            "INSERT INTO addresses (id, account_id, deriv_index, change, address, address_raw)
+             VALUES (13, 4, 0, 0, 'x', ?1)",
+            rusqlite::params![vec![0u8; 31]],
+        )
+        .is_err(),
+        "31 bytes is not an address on any chain this wallet knows"
+    );
+}
+
+/// The chain and its native coin have to be registered, or a Solana account
+/// has nothing to hang a balance off.
+#[test]
+fn the_migration_registers_solana_and_sol() {
+    let conn = v1_with_a_funded_wallet();
+    neko_store::migrate::run(&conn).unwrap();
+
+    let (slug, coin): (String, i64) = conn
+        .query_row("SELECT slug, coin_type FROM chains WHERE id = 3", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .expect("no solana row in chains");
+    assert_eq!(slug, "solana");
+    assert_eq!(coin, 501, "Solana has its own coin type, not Ethereum's 60");
+
+    let (sym, dec): (String, i64) = conn
+        .query_row(
+            "SELECT symbol, decimals FROM assets WHERE chain_id = 3 AND contract IS NULL",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .expect("no native asset for solana");
+    assert_eq!(sym, "SOL");
+    assert_eq!(dec, 9, "SOL is quoted in lamports: 1e9");
 }

@@ -29,6 +29,8 @@ pub enum CoreError {
     WrongChain,
     #[error("{0}")]
     Evm(#[from] neko_evm::EvmError),
+    #[error("{0}")]
+    Solana(#[from] neko_solana::SolanaError),
     #[error("insufficient {asset}: you have {have}, this needs {need}")]
     Insufficient {
         asset: String,

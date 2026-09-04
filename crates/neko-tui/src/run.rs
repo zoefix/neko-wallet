@@ -110,6 +110,7 @@ async fn main_loop(
 fn handle_event(app: &mut App, ev: AppEvent, tx: &mpsc::UnboundedSender<AppEvent>) {
     match ev {
         AppEvent::Authorized { req, ok } => crate::keys::on_authorized(app, req, ok, tx),
+        AppEvent::Blockhash { req, res } => crate::keys::on_blockhash(app, req, res, tx),
         other => app.on_app_event(other),
     }
 }

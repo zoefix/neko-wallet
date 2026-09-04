@@ -50,6 +50,17 @@ pub enum Quote {
         sending_native: bool,
         amount: u128,
     },
+    Solana {
+        params: neko_solana::tx::TxParams,
+        /// SOL pays every fee, whatever is being sent.
+        sol_balance: Option<u64>,
+        sending_native: bool,
+        amount: u64,
+        /// What opening the recipient's token account will cost, or zero when
+        /// they already have one. Charged to the sender, and about forty times
+        /// a plain fee - the single most surprising cost on this chain.
+        rent: u64,
+    },
 }
 
 impl Quote {
@@ -57,6 +68,7 @@ impl Quote {
         match self {
             Quote::Tron { .. } => neko_core::ChainId::Tron,
             Quote::Bsc { .. } => neko_core::ChainId::Bsc,
+            Quote::Solana { .. } => neko_core::ChainId::Solana,
         }
     }
 
@@ -64,6 +76,7 @@ impl Quote {
         match self {
             Quote::Tron { params, .. } => neko_core::ChainTxParams::Tron(params.clone()),
             Quote::Bsc { params, .. } => neko_core::ChainTxParams::Evm(*params),
+            Quote::Solana { params, .. } => neko_core::ChainTxParams::Solana(*params),
         }
     }
 }
@@ -106,6 +119,16 @@ pub enum AppEvent {
         /// Already normalised to `neko_core::PRICE_SCALE`.
         res: Result<i128, String>,
     },
+    /// A blockhash fetched immediately before signing.
+    ///
+    /// Solana's expire in about a minute, and the password gate that precedes
+    /// signing runs Argon2id over up to a gigabyte. Signing against the hash
+    /// the fee quote fetched would produce transactions the cluster silently
+    /// drops, so this is its own round trip at the last possible moment.
+    Blockhash {
+        req: ReqId,
+        res: Result<[u8; 32], String>,
+    },
     /// Balances for the address currently on screen, in minimal units:
     /// `(symbol, decimals, amount)`.
     ///
@@ -129,6 +152,7 @@ impl std::fmt::Debug for AppEvent {
             AppEvent::History { req, res } => ("History", req, res.is_ok()),
             AppEvent::Priced { req, res, .. } => ("Priced", req, res.is_ok()),
             AppEvent::WalletAssets { req, res, .. } => ("WalletAssets", req, res.is_ok()),
+            AppEvent::Blockhash { req, res } => ("Blockhash", req, res.is_ok()),
             AppEvent::Balances { req, res } => ("Balances", req, res.is_ok()),
         };
         f.debug_struct(name)

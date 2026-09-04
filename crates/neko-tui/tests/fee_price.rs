@@ -6,16 +6,19 @@
 //! priced.
 
 use neko_tui::app::{App, Screen};
-use neko_tui::send::{BscFee, FeeQuote, SendState, SendStep, TronFee};
+use neko_tui::send::{BscFee, FeeQuote, SendState, SendStep, SolanaFee, TronFee};
 
 const TRON_MINE: &str = "TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH";
 const TRON_TO: &str = "TNYxHL2s6Wjpx86NRwhekYzc27p3oDYrk6";
 const BSC_MINE: &str = "0x1111111111111111111111111111111111111111";
 const BSC_TO: &str = "0x2222222222222222222222222222222222222222";
+const SOL_MINE: &str = "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9";
+const SOL_TO: &str = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
 
 /// Real quotes, so the arithmetic below is the arithmetic users see.
 const TRX_PRICE: i128 = 330_325; // 1 TRX = 0.330325 USDT
 const BNB_PRICE: i128 = 722_902_400; // 1 BNB = 722.902400 USDT
+const SOL_PRICE: i128 = 103_553_245; // 1 SOL = 103.553245 USDT, read from the pool
 
 fn render(app: &App, w: u16, h: u16) -> String {
     neko_i18n::set_locale(neko_i18n::Locale::English);
@@ -41,6 +44,7 @@ fn app_at_review(chain: neko_core::ChainId, quote: FeeQuote) -> App {
     let (mine, to) = match chain {
         neko_core::ChainId::Tron => (TRON_MINE, TRON_TO),
         neko_core::ChainId::Bsc => (BSC_MINE, BSC_TO),
+        neko_core::ChainId::Solana => (SOL_MINE, SOL_TO),
     };
     let mut st = SendState::new(
         1,
@@ -67,6 +71,12 @@ fn app_at_review(chain: neko_core::ChainId, quote: FeeQuote) -> App {
             gas_price: 50_000_000,
             gas_limit: 62_395,
             chain_id: neko_evm::CHAIN_ID,
+        }),
+        neko_core::ChainId::Solana => neko_core::ChainTxParams::Solana(neko_solana::tx::TxParams {
+            recent_blockhash: [0x22; 32],
+            compute_unit_limit: neko_solana::COMPUTE_UNITS_TOKEN_WITH_ATA,
+            compute_unit_price: 10_000,
+            create_recipient_account: true,
         }),
     };
     st.step = SendStep::Review {
@@ -168,4 +178,96 @@ fn the_signed_amount_sheds_its_zeros_but_not_its_digits() {
         "eighteen zeros are still on the confirmation screen:\n{out}"
     );
     assert!(out.contains("1 USDT"), "the amount is missing:\n{out}");
+}
+
+/// Opening a recipient's token account is the cost with no equivalent on the
+/// other two chains, and it dwarfs the fee it is bundled with. Showing it as
+/// part of an undifferentiated total would hide the reason this one transfer
+/// costs forty times the last one.
+#[test]
+fn the_rent_for_a_new_token_account_is_shown_and_priced() {
+    let quote = FeeQuote::Solana(SolanaFee {
+        compute_units: neko_solana::COMPUTE_UNITS_TOKEN_WITH_ATA,
+        compute_unit_price: 10_000,
+        rent: neko_solana::TOKEN_ACCOUNT_RENT,
+        sol_balance: Some(50_000_000), // 0.05 SOL
+        sending_native: false,
+        amount: 1_000_000,
+    });
+    let mut app = app_at_review(neko_core::ChainId::Solana, quote);
+    app.prices
+        .set_native(neko_core::ChainId::Solana, SOL_PRICE, 1_756_000_000);
+    let out = render(&app, 135, 40);
+
+    // 0.00203928 SOL of rent, spelled out on its own line.
+    assert!(out.contains("0.00203928"), "the rent is not shown:\n{out}");
+    assert!(
+        out.contains("never held"),
+        "the rent is shown without saying why:\n{out}"
+    );
+
+    // Signature 5,000 + ceil(60,000 x 10,000 / 1e6) = 600, plus rent.
+    // 5,000 + 600 + 2,039,280 = 2,044,880 lamports = 0.00204488 SOL.
+    assert!(
+        out.contains("0.00204488"),
+        "the total is not the fee plus the rent:\n{out}"
+    );
+    // x 103.553245 = 0.2117 USDT.
+    assert!(out.contains("0.21 USDT"), "the total is not priced:\n{out}");
+}
+
+/// Without the rent, a Solana transfer is a fraction of a cent - and has to say
+/// so rather than rounding to zero.
+#[test]
+fn a_transfer_to_an_existing_account_is_under_a_cent() {
+    let quote = FeeQuote::Solana(SolanaFee {
+        compute_units: neko_solana::COMPUTE_UNITS_TOKEN,
+        compute_unit_price: 0,
+        rent: 0,
+        sol_balance: Some(50_000_000),
+        sending_native: false,
+        amount: 1_000_000,
+    });
+    let mut app = app_at_review(neko_core::ChainId::Solana, quote);
+    app.prices
+        .set_native(neko_core::ChainId::Solana, SOL_PRICE, 1_756_000_000);
+    let out = render(&app, 135, 40);
+
+    // 5,000 lamports = 0.000005 SOL = 0.00052 USDT.
+    assert!(out.contains("0.000005"), "the fee is not shown:\n{out}");
+    assert!(
+        out.contains("<0.01 USDT"),
+        "a sub-cent fee is not priced as one:\n{out}"
+    );
+    assert!(
+        !out.contains("never held"),
+        "rent was mentioned for an account that already exists:\n{out}"
+    );
+}
+
+/// SOL pays every fee here, so a wallet holding only USDT cannot move it - the
+/// same trap as BNB Chain's, and it has to be named rather than left as an
+/// "insufficient funds" from the cluster.
+#[test]
+fn a_wallet_with_no_sol_is_told_what_it_needs() {
+    let quote = FeeQuote::Solana(SolanaFee {
+        compute_units: neko_solana::COMPUTE_UNITS_TOKEN_WITH_ATA,
+        compute_unit_price: 0,
+        rent: neko_solana::TOKEN_ACCOUNT_RENT,
+        sol_balance: Some(0),
+        sending_native: false,
+        amount: 1_000_000,
+    });
+    let app = app_at_review(neko_core::ChainId::Solana, quote);
+    let out = render(&app, 135, 40);
+
+    assert!(
+        out.contains("not enough SOL"),
+        "the shortfall is not explained:\n{out}"
+    );
+    // 5,000 + 2,039,280 = 2,044,280 lamports short.
+    assert!(
+        out.contains("0.00204428"),
+        "the shortfall figure is wrong:\n{out}"
+    );
 }

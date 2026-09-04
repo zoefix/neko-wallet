@@ -20,7 +20,9 @@
 pub mod chain_consts;
 pub mod client;
 pub mod error;
+pub mod history;
 pub mod pda;
+pub mod price;
 pub mod shortvec;
 pub mod tx;
 

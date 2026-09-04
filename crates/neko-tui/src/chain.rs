@@ -37,6 +37,7 @@ pub enum Client {
         /// the chain.
         history_key: Option<String>,
     },
+    Solana(Box<neko_solana::client::Rpc>),
 }
 
 impl Client {
@@ -49,6 +50,7 @@ impl Client {
                 rpc: Box::new(neko_evm::client::Rpc::new(url)),
                 history_key: api_key.filter(|k| !k.is_empty()),
             },
+            ChainId::Solana => Client::Solana(Box::new(neko_solana::client::Rpc::new(url))),
         }
     }
 
@@ -56,6 +58,7 @@ impl Client {
         match self {
             Client::Tron(_) => ChainId::Tron,
             Client::Bsc { .. } => ChainId::Bsc,
+            Client::Solana(_) => ChainId::Solana,
         }
     }
 }
@@ -70,6 +73,98 @@ pub async fn quote(c: &Client, req: &TransferRequest) -> Result<Quote, String> {
     match c {
         Client::Tron(t) => tron_quote(t, req).await,
         Client::Bsc { rpc, .. } => bsc_quote(rpc, req).await,
+        Client::Solana(rpc) => solana_quote(rpc, req).await,
+    }
+}
+
+/// What a Solana transfer costs, and what it has to be told before it is built.
+///
+/// Two costs the other chains do not have:
+///
+/// * **Rent for the recipient's token account.** Tokens do not go to an
+///   address, they go to an account derived from the address and the mint. If
+///   the recipient has never held this token, that account does not exist, and
+///   the sender pays about 0.002 SOL to open it - roughly forty times the fee.
+/// * **A priority fee.** Solana drops rather than queues, so a transaction that
+///   bids too low during congestion does not arrive late; it never arrives, and
+///   the blockhash expires. The cluster is asked what recent blocks accepted.
+async fn solana_quote(
+    rpc: &neko_solana::client::Rpc,
+    req: &TransferRequest,
+) -> Result<Quote, String> {
+    let from = req.from.as_solana().map_err(|e| e.to_string())?;
+    let to = req.to.as_solana().map_err(|e| e.to_string())?;
+
+    let (compute_unit_limit, create_recipient_account, rent) = match req.asset {
+        Asset::Sol => (neko_solana::COMPUTE_UNITS_SOL, false, 0),
+        Asset::SplToken { mint, decimals } => {
+            // Same reasoning as the other two chains': ask the chain what this
+            // token is before trusting a built-in address. Here the number that
+            // matters is the precision, because the program checks it and a
+            // mismatch is a factor of a thousand or a million.
+            let chain_decimals = rpc
+                .mint_decimals(mint)
+                .await
+                .map_err(|e| format!("could not verify the mint {mint}: {e}"))?;
+            if chain_decimals != decimals {
+                return Err(format!(
+                    "mint {mint} reports {chain_decimals} decimals, expected {decimals} - refusing to send"
+                ));
+            }
+            let exists = rpc
+                .has_token_account(to, mint)
+                .await
+                .map_err(|e| e.to_string())?;
+            if exists {
+                (neko_solana::COMPUTE_UNITS_TOKEN, false, 0)
+            } else {
+                // Asked rather than assumed: it is a cluster parameter.
+                let rent = rpc
+                    .token_account_rent()
+                    .await
+                    .unwrap_or(neko_solana::TOKEN_ACCOUNT_RENT);
+                (neko_solana::COMPUTE_UNITS_TOKEN_WITH_ATA, true, rent)
+            }
+        }
+        _ => return Err("that asset is not on Solana".into()),
+    };
+
+    let compute_unit_price = rpc.priority_fee(&[from]).await.unwrap_or(0);
+    // Fetched so the quote is complete, but not the one that gets signed: see
+    // `AppEvent::Blockhash`. By the time a password has been accepted this is
+    // usually stale.
+    let recent_blockhash = rpc
+        .latest_blockhash()
+        .await
+        .map_err(|e| e.to_string())?
+        .hash;
+    let sol_balance = rpc.balance(from).await.ok();
+
+    Ok(Quote::Solana {
+        params: neko_solana::tx::TxParams {
+            recent_blockhash,
+            compute_unit_limit,
+            compute_unit_price,
+            create_recipient_account,
+        },
+        sol_balance,
+        sending_native: matches!(req.asset, Asset::Sol),
+        amount: u64::try_from(req.amount.raw).map_err(|_| "amount is too large".to_string())?,
+        rent,
+    })
+}
+
+/// A blockhash for the signature about to be taken.
+pub async fn latest_blockhash(c: &Client) -> Result<[u8; 32], String> {
+    match c {
+        Client::Solana(rpc) => rpc
+            .latest_blockhash()
+            .await
+            .map(|b| b.hash)
+            .map_err(|e| e.to_string()),
+        // Nothing on the other chains expires this fast; their parameters are
+        // taken once, at quote time, and stay good.
+        _ => Err("that chain does not use blockhashes".into()),
     }
 }
 
@@ -236,6 +331,14 @@ pub async fn native_price(c: &Client) -> Result<i128, String> {
             rpc.bnb_price_in_usdt().await.map_err(|e| e.to_string())?,
             neko_evm::USDT_DECIMALS,
         ),
+        // Already normalised by the pool reader, which is handed the scale it
+        // should answer at rather than a chain's own USDT precision.
+        Client::Solana(rpc) => (
+            neko_solana::price::sol_in_usdt(rpc, neko_core::PRICE_SCALE)
+                .await
+                .map_err(|e| e.to_string())? as u128,
+            neko_core::PRICE_SCALE,
+        ),
     };
     Ok(rescale(
         raw as i128,
@@ -259,6 +362,7 @@ pub async fn broadcast(c: &Client, raw: Vec<u8>) -> Result<String, String> {
     match c {
         Client::Tron(t) => t.broadcast(&raw).await.map_err(|e| e.to_string()),
         Client::Bsc { rpc, .. } => rpc.send_raw(&raw).await.map_err(|e| e.to_string()),
+        Client::Solana(rpc) => rpc.send(&raw).await.map_err(|e| e.to_string()),
     }
 }
 
@@ -290,6 +394,28 @@ pub async fn wallet_assets(
                 // Eighteen decimals here, six on TRON. The number travels with
                 // the balance for exactly this reason.
                 ("USDT".to_string(), 18, usdt_bal as i128),
+            ])
+        }
+        Client::Solana(rpc) => {
+            let a = addr.as_solana().map_err(|e| e.to_string())?;
+            let mint = neko_solana::usdt_mint();
+            let sol = rpc.balance(a).await.map_err(|e| e.to_string())?;
+            // An address that has never held this token has no account for it,
+            // which reads as zero here - correct, and different from a failed
+            // lookup, which also reads as zero rather than discarding the SOL
+            // figure we already have.
+            let usdt = rpc
+                .token_balance(a, mint)
+                .await
+                .ok()
+                .flatten()
+                .map(|b| b.amount)
+                .unwrap_or(0);
+            Ok(vec![
+                ("SOL".to_string(), neko_solana::SOL_DECIMALS, sol as i128),
+                // Six here, six on TRON, eighteen on BNB Chain. One token name,
+                // three precisions.
+                ("USDT".to_string(), neko_solana::USDT_DECIMALS, usdt as i128),
             ])
         }
     }
@@ -360,6 +486,37 @@ pub async fn history(
                             neko_tron::TxStatus::Failed
                         },
                     }
+                })
+                .collect())
+        }
+        Client::Solana(rpc) => {
+            // No indexer needed here: the cluster records what every account
+            // held before and after each transaction, so a transfer is a
+            // difference rather than something to be parsed out of a program's
+            // instructions.
+            let a = addr.as_solana().map_err(|e| e.to_string())?;
+            let rows = rpc
+                .transfers(a, neko_solana::usdt_mint(), limit as usize)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(rows
+                .into_iter()
+                .map(|t| neko_tron::HistoryEntry {
+                    txid: t.signature,
+                    block_ts: t.block_time * 1000,
+                    symbol: t.symbol,
+                    decimals: t.decimals,
+                    amount: t.amount,
+                    direction: match t.direction {
+                        neko_solana::history::Direction::In => neko_tron::Direction::In,
+                        neko_solana::history::Direction::Out => neko_tron::Direction::Out,
+                    },
+                    counterparty: t.counterparty,
+                    status: if t.failed {
+                        neko_tron::TxStatus::Failed
+                    } else {
+                        neko_tron::TxStatus::Success
+                    },
                 })
                 .collect())
         }

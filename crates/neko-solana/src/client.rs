@@ -54,14 +54,19 @@ impl Rpc {
         }
     }
 
-    async fn call(&self, method: &str, params: Value) -> Result<Value, SolanaError> {
-        let body = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
+    /// POST a body and hand back the parsed JSON, retrying what is worth
+    /// retrying.
+    ///
+    /// Shared by the single and batched calls. It was not, once, and history -
+    /// the only batched caller - failed outright on the 429 that the public
+    /// cluster returns as a matter of course.
+    async fn post(&self, body: &Value) -> Result<Value, SolanaError> {
         let mut last = None;
         for attempt in 0..3u32 {
             if attempt > 0 {
                 tokio::time::sleep(std::time::Duration::from_secs(1 << (attempt - 1))).await;
             }
-            let resp = match self.http.post(&self.url).json(&body).send().await {
+            let resp = match self.http.post(&self.url).json(body).send().await {
                 Ok(r) => r,
                 Err(e) => {
                     last = Some(SolanaError::Network(e.to_string()));
@@ -77,23 +82,61 @@ impl Rpc {
             if !resp.status().is_success() {
                 return Err(SolanaError::Network(format!("HTTP {}", resp.status())));
             }
-            let v: Value = resp
+            return resp
                 .json()
                 .await
-                .map_err(|e| SolanaError::BadReply(e.to_string()))?;
-            if let Some(err) = v.get("error") {
-                let msg = err
-                    .get("message")
-                    .and_then(Value::as_str)
-                    .unwrap_or("unknown error");
-                return Err(SolanaError::Rpc(msg.to_string()));
-            }
-            return v
-                .get("result")
-                .cloned()
-                .ok_or_else(|| SolanaError::BadReply("reply has no result".into()));
+                .map_err(|e| SolanaError::BadReply(e.to_string()));
         }
         Err(last.unwrap_or_else(|| SolanaError::Network("no attempt succeeded".into())))
+    }
+
+    async fn call(&self, method: &str, params: Value) -> Result<Value, SolanaError> {
+        let body = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
+        let v = self.post(&body).await?;
+        if let Some(err) = v.get("error") {
+            // The cluster decided. Trying again changes nothing.
+            let msg = err
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown error");
+            return Err(SolanaError::Rpc(msg.to_string()));
+        }
+        v.get("result")
+            .cloned()
+            .ok_or_else(|| SolanaError::BadReply("reply has no result".into()))
+    }
+
+    /// A JSON-RPC call whose result the caller parses. Exposed for the modules
+    /// that decode replies this file has no business knowing the shape of.
+    pub(crate) async fn call_public(
+        &self,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, SolanaError> {
+        self.call(method, params).await
+    }
+
+    /// Several calls in one request.
+    ///
+    /// The cluster answers a batch out of order, so the replies are sorted back
+    /// by id - reading them as they arrive would pair each transaction with
+    /// somebody else's signature.
+    pub(crate) async fn call_batch(&self, batch: Vec<Value>) -> Result<Vec<Value>, SolanaError> {
+        let n = batch.len();
+        let v = self.post(&Value::Array(batch)).await?;
+        let arr = v
+            .as_array()
+            .ok_or_else(|| SolanaError::BadReply("a batch did not return an array".into()))?;
+        let mut out = vec![Value::Null; n];
+        for e in arr {
+            let Some(i) = e.get("id").and_then(Value::as_u64) else {
+                continue;
+            };
+            if let Some(slot) = out.get_mut(i as usize) {
+                *slot = e.get("result").cloned().unwrap_or(Value::Null);
+            }
+        }
+        Ok(out)
     }
 
     /// Lamports held by an address.
@@ -170,6 +213,52 @@ impl Rpc {
             )
             .await?;
         Ok(!v.get("value").map(Value::is_null).unwrap_or(true))
+    }
+
+    /// Raw account bytes, for the accounts this wallet has to decode itself.
+    pub async fn account_data(&self, addr: SolanaAddress) -> Result<Vec<u8>, SolanaError> {
+        let v = self
+            .call(
+                "getAccountInfo",
+                json!([addr.to_string(), {"commitment": "confirmed", "encoding": "base64"}]),
+            )
+            .await?;
+        let b64 = v
+            .get("value")
+            .and_then(|v| v.get("data"))
+            .and_then(|d| d.get(0))
+            .and_then(Value::as_str)
+            .ok_or_else(|| SolanaError::BadReply(format!("{addr} has no account data")))?;
+        decode_base64(b64).ok_or_else(|| SolanaError::BadReply("account data is not base64".into()))
+    }
+
+    /// The balance of a token account named directly, rather than derived from
+    /// an owner. Pool vaults are token accounts nobody owns in the wallet sense.
+    pub async fn token_account_balance(
+        &self,
+        account: SolanaAddress,
+    ) -> Result<TokenBalance, SolanaError> {
+        let v = self
+            .call(
+                "getTokenAccountBalance",
+                json!([account.to_string(), {"commitment": "confirmed"}]),
+            )
+            .await?;
+        let val = v
+            .get("value")
+            .ok_or_else(|| SolanaError::BadReply("no value".into()))?;
+        Ok(TokenBalance {
+            amount: val
+                .get("amount")
+                .and_then(Value::as_str)
+                .and_then(|s| s.parse().ok())
+                .ok_or_else(|| SolanaError::BadReply("amount is not a number".into()))?,
+            decimals: val
+                .get("decimals")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| SolanaError::BadReply("no decimals".into()))?
+                as u8,
+        })
     }
 
     /// A mint's on-chain symbol is not in the mint account, but its precision
@@ -275,6 +364,36 @@ impl Rpc {
     }
 }
 
+fn decode_base64(s: &str) -> Option<Vec<u8>> {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut rev = [255u8; 256];
+    let mut i = 0;
+    while i < 64 {
+        rev[T[i] as usize] = i as u8;
+        i += 1;
+    }
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
+    let mut acc: u32 = 0;
+    let mut bits = 0u32;
+    for &b in bytes {
+        if b == b'=' {
+            break;
+        }
+        let v = rev[b as usize];
+        if v == 255 {
+            return None;
+        }
+        acc = (acc << 6) | v as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    Some(out)
+}
+
 /// Standard base64. Written out rather than pulled in as a dependency: it is
 /// twenty lines, and the alternative is another crate in the signing path.
 fn base64(input: &[u8]) -> String {
@@ -319,5 +438,20 @@ mod tests {
         }
         // The bytes that exercise the last two alphabet entries.
         assert_eq!(base64(&[0xfb, 0xff, 0xfe]), "+//+");
+    }
+
+    /// Decoding has to invert encoding for every length, because a pool account
+    /// arrives this way and a byte lost from it shifts every field after it.
+    #[test]
+    fn base64_round_trips() {
+        for n in 0..200usize {
+            let data: Vec<u8> = (0..n).map(|i| (i * 7 + 13) as u8).collect();
+            assert_eq!(
+                decode_base64(&base64(&data)).as_deref(),
+                Some(&data[..]),
+                "length {n}"
+            );
+        }
+        assert_eq!(decode_base64("not base64!"), None);
     }
 }

@@ -322,7 +322,7 @@ impl App {
             }
 
             AppEvent::Quoted { req, res } => self.on_quoted(req, res),
-            AppEvent::Authorized { .. } => {
+            AppEvent::Authorized { .. } | AppEvent::Blockhash { .. } => {
                 // Handled in run.rs, which owns the event sender needed to
                 // continue into the broadcast.
             }
@@ -641,11 +641,14 @@ impl App {
     pub fn chain_client(&self, chain: neko_core::ChainId) -> crate::chain::Client {
         let url = match chain {
             neko_core::ChainId::Tron => self.node_url.as_deref(),
-            neko_core::ChainId::Bsc => None,
+            neko_core::ChainId::Bsc | neko_core::ChainId::Solana => None,
         };
         let key = match chain {
             neko_core::ChainId::Tron => self.api_key.clone(),
             neko_core::ChainId::Bsc => self.bsc_api_key.clone(),
+            // Solana's public cluster needs no key. It rate-limits hard, which
+            // costs a retry rather than a screen.
+            neko_core::ChainId::Solana => None,
         };
         crate::chain::Client::for_chain(chain, url, key)
     }
@@ -736,6 +739,20 @@ impl App {
                         gas_limit: p.gas_limit,
                         gas_price: p.gas_price,
                         bnb_balance,
+                        sending_native,
+                        amount,
+                    }),
+                    crate::event::Quote::Solana {
+                        params: p,
+                        sol_balance,
+                        sending_native,
+                        amount,
+                        rent,
+                    } => crate::send::FeeQuote::Solana(crate::send::SolanaFee {
+                        compute_units: p.compute_unit_limit,
+                        compute_unit_price: p.compute_unit_price,
+                        rent,
+                        sol_balance,
                         sending_native,
                         amount,
                     }),

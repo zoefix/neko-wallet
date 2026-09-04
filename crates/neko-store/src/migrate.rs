@@ -26,10 +26,16 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: &[Migration] = &[Migration {
-    to: 2,
-    sql: include_str!("../migrations/0002_bsc.sql"),
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        to: 2,
+        sql: include_str!("../migrations/0002_bsc.sql"),
+    },
+    Migration {
+        to: 3,
+        sql: include_str!("../migrations/0003_solana.sql"),
+    },
+];
 
 /// Apply whatever this database is missing.
 pub fn run(conn: &Connection) -> Result<i32, StoreError> {

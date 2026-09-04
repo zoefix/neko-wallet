@@ -12,6 +12,7 @@ neko-store  = { path = "../neko-store" }
 neko-hd     = { path = "../neko-hd" }
 neko-tron   = { path = "../neko-tron" }
 neko-evm    = { path = "../neko-evm" }
+neko-solana = { path = "../neko-solana" }
 neko-i18n   = { path = "../neko-i18n" }
 ratatui.workspace = true
 crossterm.workspace = true
