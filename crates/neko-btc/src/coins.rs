@@ -34,6 +34,58 @@ pub const OVERHEAD_VBYTES: usize = 11;
 /// worth less than this makes it cost to spend.
 const DUST_RELAY_FEE: u64 = 3_000;
 
+/// A fee rate, in **thousandths** of a satoshi per virtual byte.
+///
+/// Not whole satoshis, and that is the whole reason this type exists. The
+/// network quotes rates like 1.12; rounding that up to 2 before multiplying
+/// makes a small transfer cost 79% more than it needs to. Rounding belongs on
+/// the total, once, after the size is known - which is what `fee_for` does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct FeeRate(u64);
+
+impl FeeRate {
+    /// The relay floor: one satoshi per virtual byte.
+    ///
+    /// Esplora will quote below this for distant targets - 0.36 at the time of
+    /// writing - and a transaction at that rate is not slow, it is not
+    /// forwarded at all.
+    pub const MIN: FeeRate = FeeRate(1_000);
+
+    pub fn from_milli(milli: u64) -> Self {
+        FeeRate(milli.max(Self::MIN.0))
+    }
+
+    /// From the fractional figure a fee estimator returns.
+    pub fn from_sat_per_vb(rate: f64) -> Self {
+        if !rate.is_finite() || rate <= 0.0 {
+            return Self::MIN;
+        }
+        Self::from_milli((rate * 1_000.0).round() as u64)
+    }
+
+    pub fn milli(self) -> u64 {
+        self.0
+    }
+
+    /// What a transaction of this size costs. Rounded up, so the fee is never
+    /// a satoshi under what the network asks.
+    pub fn fee_for(self, vbytes: usize) -> u64 {
+        (vbytes as u64).saturating_mul(self.0).div_ceil(1_000)
+    }
+
+    /// For the screen: `1.12`, not `1.120` and not `2`.
+    pub fn to_display_string(self) -> String {
+        let whole = self.0 / 1_000;
+        let frac = self.0 % 1_000;
+        if frac == 0 {
+            return whole.to_string();
+        }
+        format!("{whole}.{:03}", frac)
+            .trim_end_matches('0')
+            .to_string()
+    }
+}
+
 /// What it costs to spend an output of this kind, in virtual bytes. Used only
 /// for the dust calculation, which asks whether an output is worth its own
 /// future input.
@@ -107,7 +159,7 @@ pub fn select(
     to: &BtcAddress,
     amount: u64,
     change_to: &BtcAddress,
-    fee_rate: u64,
+    fee_rate: FeeRate,
 ) -> Result<Selection, BtcError> {
     let to_script = to.script_pubkey();
     let change_script = change_to.script_pubkey();
@@ -138,8 +190,8 @@ pub fn select(
 
         // Recomputed every round: each input just added about 68 vB to the
         // fee it is helping to cover.
-        let with_change =
-            estimate_vbytes(chosen.len(), &[&to_script, &change_script]) as u64 * fee_rate;
+        let vb_change = estimate_vbytes(chosen.len(), &[&to_script, &change_script]);
+        let with_change = fee_rate.fee_for(vb_change);
         if total < amount + with_change {
             continue;
         }
@@ -147,7 +199,7 @@ pub fn select(
         let change = total - amount - with_change;
         if change >= dust_threshold(&change_script) {
             return Ok(Selection {
-                vbytes: (with_change / fee_rate.max(1)) as usize,
+                vbytes: vb_change,
                 inputs: chosen,
                 change: Some(change),
                 fee: with_change,
@@ -158,10 +210,11 @@ pub fn select(
         // Change too small to create. Dropping the output makes the
         // transaction smaller, so the fee is recomputed - and everything left
         // over becomes fee, because there is nowhere else for it to go.
-        let without_change = estimate_vbytes(chosen.len(), &[&to_script]) as u64 * fee_rate;
+        let vb_plain = estimate_vbytes(chosen.len(), &[&to_script]);
+        let without_change = fee_rate.fee_for(vb_plain);
         if total >= amount + without_change {
             return Ok(Selection {
-                vbytes: (without_change / fee_rate.max(1)) as usize,
+                vbytes: vb_plain,
                 inputs: chosen,
                 change: None,
                 fee: total - amount,
@@ -171,7 +224,10 @@ pub fn select(
     }
 
     let needed = amount
-        + estimate_vbytes(chosen.len().max(1), &[&to_script, &change_script]) as u64 * fee_rate;
+        + fee_rate.fee_for(estimate_vbytes(
+            chosen.len().max(1),
+            &[&to_script, &change_script],
+        ));
     Err(BtcError::NotEnough { needed, available })
 }
 
@@ -183,7 +239,7 @@ pub fn select(
 pub fn select_all(
     utxos: &[Utxo],
     to: &BtcAddress,
-    fee_rate: u64,
+    fee_rate: FeeRate,
 ) -> Result<(Selection, u64), BtcError> {
     if utxos.is_empty() {
         return Err(BtcError::NotEnough {
@@ -194,7 +250,7 @@ pub fn select_all(
     let to_script = to.script_pubkey();
     let total: u64 = utxos.iter().map(|u| u.value).sum();
     let vbytes = estimate_vbytes(utxos.len(), &[&to_script]);
-    let fee = vbytes as u64 * fee_rate;
+    let fee = fee_rate.fee_for(vbytes);
 
     let amount = total.checked_sub(fee).ok_or(BtcError::NotEnough {
         needed: fee,
@@ -232,6 +288,11 @@ mod tests {
         BtcAddress::parse("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa").unwrap()
     }
 
+    /// A whole-satoshi rate, which is what most of these tests want.
+    fn rate(sat_per_vb: u64) -> FeeRate {
+        FeeRate::from_milli(sat_per_vb * 1_000)
+    }
+
     fn utxo(n: u8, value: u64) -> Utxo {
         Utxo {
             outpoint: OutPoint {
@@ -242,6 +303,52 @@ mod tests {
             script_pubkey: mine().script_pubkey(),
             block_height: Some(800_000),
         }
+    }
+
+    /// The rate is fractional, and rounding it before multiplying is most of a
+    /// small transfer's fee.
+    ///
+    /// The live estimate when this was written was 1.12 sat/vB. Rounded up to
+    /// 2 first, a 141-byte transfer costs 282 satoshis; rounded once at the
+    /// end it costs 158. That is 79% more, for nothing, on every transfer while
+    /// the mempool is quiet.
+    #[test]
+    fn a_fractional_rate_is_not_rounded_before_it_is_multiplied() {
+        let r = FeeRate::from_sat_per_vb(1.12);
+        assert_eq!(r.milli(), 1_120);
+        assert_eq!(r.fee_for(141), 158, "the rate was rounded too early");
+        assert_eq!(r.to_display_string(), "1.12");
+
+        // Whole rates still read as whole numbers.
+        assert_eq!(FeeRate::from_sat_per_vb(2.0).to_display_string(), "2");
+        assert_eq!(FeeRate::from_sat_per_vb(2.0).fee_for(141), 282);
+        assert_eq!(FeeRate::from_sat_per_vb(12.5).to_display_string(), "12.5");
+    }
+
+    /// The total rounds up, so the fee is never a satoshi under what the
+    /// network asks - which would be a transaction that does not relay.
+    #[test]
+    fn the_total_rounds_up_not_down() {
+        let r = FeeRate::from_sat_per_vb(1.001);
+        // 141 x 1.001 = 141.141, so 142.
+        assert_eq!(r.fee_for(141), 142);
+        assert_eq!(FeeRate::from_sat_per_vb(1.0).fee_for(141), 141);
+    }
+
+    /// Esplora quotes below one satoshi per byte for distant targets - 0.36 at
+    /// the time of writing. A transaction at that rate is not slow; no node
+    /// forwards it.
+    #[test]
+    fn the_relay_floor_is_never_gone_under() {
+        for quoted in [0.36, 0.5, 0.999, 0.0, -1.0, f64::NAN] {
+            assert_eq!(
+                FeeRate::from_sat_per_vb(quoted),
+                FeeRate::MIN,
+                "{quoted} was accepted as a rate"
+            );
+        }
+        assert_eq!(FeeRate::MIN.milli(), 1_000);
+        assert_eq!(FeeRate::MIN.fee_for(141), 141);
     }
 
     /// The two figures every Bitcoin wallet quotes, and this derives rather
@@ -264,7 +371,7 @@ mod tests {
     fn the_fee_covers_the_inputs_it_took_to_pay_it() {
         // Four coins that individually cannot pay, and together only just can.
         let pool: Vec<Utxo> = (0..4).map(|i| utxo(i, 30_000)).collect();
-        let s = select(&pool, &them(), 100_000, &mine(), 10).unwrap();
+        let s = select(&pool, &them(), 100_000, &mine(), rate(10)).unwrap();
 
         assert!(s.inputs.len() >= 4, "should have needed every coin");
         let out = 100_000 + s.change.unwrap_or(0);
@@ -282,7 +389,11 @@ mod tests {
             vec![&to_s]
         };
         let vb = estimate_vbytes(s.inputs.len(), &scripts);
-        assert!(s.fee >= vb as u64 * 10, "fee {} under-pays {vb} vB", s.fee);
+        assert!(
+            s.fee >= rate(10).fee_for(vb),
+            "fee {} under-pays {vb} vB",
+            s.fee
+        );
     }
 
     /// Change below dust cannot be created. It has to go to the fee, and the
@@ -295,22 +406,22 @@ mod tests {
         // under the 294 needed to create a change output.
         let to_s = them().script_pubkey();
         let change_s = mine().script_pubkey();
-        let with_change = estimate_vbytes(1, &[&to_s, &change_s]) as u64;
-        let pool = vec![utxo(1, 100_000 + with_change * 5 + 100)];
-        let s = select(&pool, &them(), 100_000, &mine(), 5).unwrap();
-        let vb = estimate_vbytes(1, &[&to_s]) as u64;
+        let with_change = rate(5).fee_for(estimate_vbytes(1, &[&to_s, &change_s]));
+        let pool = vec![utxo(1, 100_000 + with_change + 100)];
+        let s = select(&pool, &them(), 100_000, &mine(), rate(5)).unwrap();
+        let vb = rate(5).fee_for(estimate_vbytes(1, &[&to_s]));
 
         assert!(s.change.is_none(), "dust change was created");
         assert!(s.change_was_dust, "the reason was not reported");
         assert_eq!(s.fee, s.input_total() - 100_000);
-        assert!(s.fee > vb * 5, "the remainder did not go to the fee");
+        assert!(s.fee > vb, "the remainder did not go to the fee");
     }
 
     /// Every satoshi has to be accounted for. On this chain the alternative to
     /// change is not an error - it is a very large fee.
     #[test]
     fn nothing_is_ever_unaccounted_for() {
-        for (coins, amount, rate) in [
+        for (coins, amount, rate_sat) in [
             (vec![50_000u64], 10_000u64, 1u64),
             (vec![50_000], 10_000, 20),
             (vec![100_000, 100_000, 100_000], 250_000, 8),
@@ -322,11 +433,11 @@ mod tests {
                 .enumerate()
                 .map(|(i, v)| utxo(i as u8, *v))
                 .collect();
-            let s = select(&pool, &them(), amount, &mine(), rate).unwrap();
+            let s = select(&pool, &them(), amount, &mine(), rate(rate_sat)).unwrap();
             assert_eq!(
                 s.input_total(),
                 amount + s.change.unwrap_or(0) + s.fee,
-                "coins {coins:?} amount {amount} rate {rate}: satoshis went missing"
+                "coins {coins:?} amount {amount} rate {rate_sat}: satoshis went missing"
             );
         }
     }
@@ -335,7 +446,7 @@ mod tests {
     #[test]
     fn the_largest_coins_are_taken_first() {
         let pool = vec![utxo(1, 10_000), utxo(2, 500_000), utxo(3, 20_000)];
-        let s = select(&pool, &them(), 100_000, &mine(), 5).unwrap();
+        let s = select(&pool, &them(), 100_000, &mine(), rate(5)).unwrap();
         assert_eq!(s.inputs.len(), 1);
         assert_eq!(s.inputs[0].value, 500_000);
     }
@@ -353,7 +464,7 @@ mod tests {
             &them(),
             100_000,
             &mine(),
-            5,
+            rate(5),
         )
         .unwrap();
         assert_eq!(s.inputs[0], confirmed, "an unconfirmed coin was preferred");
@@ -364,7 +475,7 @@ mod tests {
     #[test]
     fn a_shortfall_names_what_was_actually_needed() {
         let pool = vec![utxo(1, 50_000)];
-        match select(&pool, &them(), 100_000, &mine(), 10) {
+        match select(&pool, &them(), 100_000, &mine(), rate(10)) {
             Err(BtcError::NotEnough { needed, available }) => {
                 assert_eq!(available, 50_000);
                 assert!(needed > 100_000, "the fee was left out of the shortfall");
@@ -376,7 +487,7 @@ mod tests {
         // has to fail rather than silently underpay.
         let pool = vec![utxo(1, 100_050)];
         assert!(matches!(
-            select(&pool, &them(), 100_000, &mine(), 50),
+            select(&pool, &them(), 100_000, &mine(), rate(50)),
             Err(BtcError::NotEnough { .. })
         ));
     }
@@ -387,15 +498,15 @@ mod tests {
     fn a_dust_payment_is_refused() {
         let pool = vec![utxo(1, 1_000_000)];
         assert!(matches!(
-            select(&pool, &them(), 293, &mine(), 5),
+            select(&pool, &them(), 293, &mine(), rate(5)),
             Err(BtcError::Dust(293, 294))
         ));
         // A legacy recipient has a higher floor, and it has to be their floor.
         assert!(matches!(
-            select(&pool, &legacy(), 400, &mine(), 5),
+            select(&pool, &legacy(), 400, &mine(), rate(5)),
             Err(BtcError::Dust(400, 546))
         ));
-        assert!(select(&pool, &them(), 294, &mine(), 5).is_ok());
+        assert!(select(&pool, &them(), 294, &mine(), rate(5)).is_ok());
     }
 
     /// Sending everything has no change: the amount is what is left after
@@ -403,12 +514,12 @@ mod tests {
     #[test]
     fn sending_everything_leaves_nothing_behind() {
         let pool: Vec<Utxo> = (0..3).map(|i| utxo(i, 100_000)).collect();
-        let (s, amount) = select_all(&pool, &them(), 12).unwrap();
+        let (s, amount) = select_all(&pool, &them(), rate(12)).unwrap();
 
         assert_eq!(s.inputs.len(), 3, "a coin was left behind");
         assert!(s.change.is_none());
         assert_eq!(amount + s.fee, 300_000, "satoshis went missing");
-        assert_eq!(s.fee, s.vbytes as u64 * 12);
+        assert_eq!(s.fee, rate(12).fee_for(s.vbytes));
     }
 
     /// A wallet whose whole balance is smaller than the fee to move it cannot
@@ -417,14 +528,14 @@ mod tests {
     fn everything_can_be_less_than_the_fee() {
         let pool = vec![utxo(1, 500)];
         assert!(matches!(
-            select_all(&pool, &them(), 100),
+            select_all(&pool, &them(), rate(100)),
             Err(BtcError::NotEnough { .. })
         ));
         // Or leave an amount too small to relay: 110 vB at 10 sat/vB is a
         // 1,100 satoshi fee, so 1,350 leaves 250 - under the 294 floor.
         let pool = vec![utxo(1, 1_350)];
         assert!(matches!(
-            select_all(&pool, &them(), 10),
+            select_all(&pool, &them(), rate(10)),
             Err(BtcError::Dust(250, 294))
         ));
     }

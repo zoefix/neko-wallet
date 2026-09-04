@@ -62,8 +62,10 @@ pub enum Quote {
         rent: u64,
     },
     Bitcoin {
-        /// Satoshis per virtual byte, from the fee estimator.
-        fee_rate: u64,
+        /// From the fee estimator, in thousandths of a satoshi per virtual
+        /// byte - the network quotes fractions, and rounding them early is
+        /// most of a small transfer's fee.
+        fee_rate: neko_btc::coins::FeeRate,
         /// The sum of every coin held, which on this chain is what a balance is.
         balance: u64,
         /// How many coins that is. Fewer, larger coins make cheaper transfers,

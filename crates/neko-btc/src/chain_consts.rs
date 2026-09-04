@@ -20,9 +20,8 @@ pub const DEFAULT_API: &str = "https://blockstream.info/api";
 /// if the mempool fills.
 pub const TARGET_BLOCKS: u32 = 3;
 
-/// The floor nodes relay at, in satoshis per virtual byte. A transaction below
-/// this is not slow - it is not forwarded at all.
-pub const MIN_FEE_RATE: u64 = 1;
+// The relay floor lives on `coins::FeeRate::MIN`, next to the arithmetic that
+// has to respect it.
 
 /// What a block explorer shows.
 pub const EXPLORER_TX: &str = "https://mempool.space/tx/";

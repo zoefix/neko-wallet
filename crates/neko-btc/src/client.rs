@@ -129,11 +129,14 @@ impl Esplora {
         Ok(out)
     }
 
-    /// Satoshis per virtual byte for confirmation within `blocks`.
+    /// The rate for confirmation within `blocks`.
     ///
-    /// Never below the relay floor: a rate under it does not make a slow
-    /// transaction, it makes one no node will forward.
-    pub async fn fee_rate(&self, blocks: u32) -> Result<u64, BtcError> {
+    /// Kept fractional. Estimators quote figures like 1.12, and rounding that
+    /// to a whole satoshi before multiplying makes a small transfer cost most
+    /// of a percent again for nothing. Never below the relay floor either: a
+    /// rate under it does not make a slow transaction, it makes one no node
+    /// will forward, and Esplora does quote below it for distant targets.
+    pub async fn fee_rate(&self, blocks: u32) -> Result<crate::coins::FeeRate, BtcError> {
         let v = self.get_json("/fee-estimates").await?;
         let obj = v
             .as_object()
@@ -155,7 +158,7 @@ impl Esplora {
             .map(|(_, r)| r)
             .or_else(|| obj.values().filter_map(Value::as_f64).next_back())
             .ok_or_else(|| BtcError::BadReply("no usable fee estimate".into()))?;
-        Ok((rate.ceil() as u64).max(chain_consts::MIN_FEE_RATE))
+        Ok(crate::coins::FeeRate::from_sat_per_vb(rate))
     }
 
     pub async fn tip_height(&self) -> Result<u64, BtcError> {

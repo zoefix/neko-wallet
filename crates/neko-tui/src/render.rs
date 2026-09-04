@@ -1260,7 +1260,11 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                     crate::send::FeeQuote::Bitcoin(b) => {
                         lines.push(Line::from(vec![
                             Span::styled(fee_label(t(Key::Send_FeeRate)), theme::hint()),
-                            Span::raw(format!("{} sat/vB x {} vB", b.fee_rate, b.vbytes)),
+                            Span::raw(format!(
+                                "{} sat/vB x {} vB",
+                                b.fee_rate.to_display_string(),
+                                b.vbytes
+                            )),
                         ]));
                         // The number that explains an otherwise inexplicable
                         // fee. On this chain the cost is a function of how many

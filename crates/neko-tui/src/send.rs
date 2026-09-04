@@ -269,8 +269,8 @@ impl SolanaFee {
 /// the other three there is no shortfall state here - only a failed quote that
 /// says how much was needed.
 pub struct BtcFee {
-    /// Satoshis per virtual byte.
-    pub fee_rate: u64,
+    /// Thousandths of a satoshi per virtual byte.
+    pub fee_rate: neko_btc::coins::FeeRate,
     pub vbytes: usize,
     pub fee: u64,
     /// Coins being spent, out of coins held.
@@ -302,7 +302,7 @@ impl BtcFee {
     /// What the rate alone would have cost, before dust was folded in. The
     /// difference is what the extra line on the screen is explaining.
     pub fn rate_only_fee(&self) -> u64 {
-        self.vbytes as u64 * self.fee_rate
+        self.fee_rate.fee_for(self.vbytes)
     }
 }
 

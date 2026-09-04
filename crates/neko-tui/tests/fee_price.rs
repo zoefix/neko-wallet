@@ -353,7 +353,7 @@ fn the_markers_sit_under_the_characters_they_point_at() {
 #[test]
 fn a_bitcoin_fee_says_how_many_coins_it_is_spending() {
     let quote = FeeQuote::Bitcoin(BtcFee {
-        fee_rate: 12,
+        fee_rate: neko_btc::coins::FeeRate::from_sat_per_vb(12.0),
         vbytes: 1_500,
         fee: 18_000,
         inputs: 21,
@@ -388,7 +388,7 @@ fn a_bitcoin_fee_says_how_many_coins_it_is_spending() {
 #[test]
 fn change_folded_into_the_fee_is_explained() {
     let quote = FeeQuote::Bitcoin(BtcFee {
-        fee_rate: 10,
+        fee_rate: neko_btc::coins::FeeRate::from_sat_per_vb(10.0),
         vbytes: 110,
         fee: 1_290, // 1,100 at the rate, plus 190 of unreturnable remainder
         inputs: 1,

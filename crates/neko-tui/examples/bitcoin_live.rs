@@ -42,8 +42,15 @@ async fn main() {
     // Coin selection and a real signature, against this address's actual coins.
     let esplora = neko_btc::client::Esplora::new(None);
     let utxos = esplora.utxos(addr).await.unwrap_or_default();
-    let rate = esplora.fee_rate(neko_btc::TARGET_BLOCKS).await.unwrap_or(1);
-    println!("\nfee rate   {rate} sat/vB   coins held: {}", utxos.len());
+    let rate = esplora
+        .fee_rate(neko_btc::TARGET_BLOCKS)
+        .await
+        .unwrap_or(neko_btc::coins::FeeRate::MIN);
+    println!(
+        "\nfee rate   {} sat/vB   coins held: {}",
+        rate.to_display_string(),
+        utxos.len()
+    );
 
     if utxos.is_empty() {
         println!("  (no coins at this address, so nothing to select)");
