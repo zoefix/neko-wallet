@@ -12,6 +12,8 @@ k256.workspace = true
 sha2.workspace = true
 sha3.workspace = true
 bs58.workspace = true
+ed25519-dalek.workspace = true
+hmac.workspace = true
 zeroize.workspace = true
 thiserror.workspace = true
 

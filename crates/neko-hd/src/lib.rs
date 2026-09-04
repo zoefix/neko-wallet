@@ -7,6 +7,10 @@
 //! The 20 bytes underneath are computed identically for both, which is why the
 //! encoders live together here rather than in the chain crates.
 //!
+//! Solana is the exception to all of that: it signs with Ed25519, derives by
+//! SLIP-0010 rather than BIP32, and its address is the bare public key. See
+//! `solana` - none of the machinery above applies to it.
+//!
 //! Verified byte-for-byte against `vectors/hd.json`, which includes the
 //! official Ledger test vector.
 
@@ -14,6 +18,7 @@ pub mod address;
 pub mod derive;
 pub mod error;
 pub mod evm;
+pub mod solana;
 
 pub use address::{Address, ADDRESS_LEN};
 pub use derive::{
@@ -23,3 +28,4 @@ pub use derive::{
 };
 pub use error::HdError;
 pub use evm::EvmAddress;
+pub use solana::{SolanaAddress, COIN_TYPE_SOLANA};

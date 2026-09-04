@@ -24,6 +24,11 @@ pub enum HdError {
     BadEip55Checksum,
     #[error("address checksum does not match")]
     BadChecksum,
+
+    // --- Solana. Its address is a bare 32-byte key in plain base58: no
+    // prefix, no checksum, nothing to say beyond the length.
+    #[error("a Solana address must be 32 bytes of base58")]
+    BadSolanaAddress,
     #[error("not valid base58")]
     BadBase58,
     #[error("mnemonic is not valid BIP39")]
