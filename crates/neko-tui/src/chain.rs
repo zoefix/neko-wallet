@@ -54,6 +54,16 @@ impl Client {
         }
     }
 
+    /// The endpoint this client will use. For the same reason as
+    /// `neko_solana::client::Rpc::url`: a setting that is saved but not passed
+    /// on is indistinguishable from one that works, until the day it matters.
+    pub fn endpoint(&self) -> Option<&str> {
+        match self {
+            Client::Solana(rpc) => Some(rpc.url()),
+            _ => None,
+        }
+    }
+
     pub fn chain(&self) -> ChainId {
         match self {
             Client::Tron(_) => ChainId::Tron,

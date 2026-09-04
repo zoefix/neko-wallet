@@ -90,6 +90,13 @@ impl Rpc {
         Err(last.unwrap_or_else(|| SolanaError::Network("no attempt succeeded".into())))
     }
 
+    /// Which cluster this will talk to. Exposed so a test can prove a
+    /// configured URL actually reaches the network layer rather than being
+    /// stored and then ignored.
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+
     async fn call(&self, method: &str, params: Value) -> Result<Value, SolanaError> {
         let body = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
         let v = self.post(&body).await?;

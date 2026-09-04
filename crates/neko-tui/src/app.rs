@@ -98,7 +98,11 @@ pub struct App {
     pub tick: u64,
     pub should_quit: bool,
     /// Which server speaks for mainnet. There is no chain to choose.
+    /// TRON's node. `None` means the built-in default.
     pub node_url: Option<String>,
+    /// Solana's cluster. `None` means the public one, which rate-limits hard
+    /// enough that history loses pages - the reason this is configurable.
+    pub solana_rpc: Option<String>,
     pub api_key: Option<String>,
     /// NodeReal key for BNB Chain history. Balances and transfers work without
     /// it; only history needs an indexer.
@@ -155,6 +159,7 @@ impl App {
             tick: 0,
             should_quit: false,
             node_url: None,
+            solana_rpc: None,
             api_key: std::env::var("TRONGRID_API_KEY").ok(),
             bsc_api_key: std::env::var("NODEREAL_API_KEY").ok(),
             balances: None,
@@ -641,7 +646,8 @@ impl App {
     pub fn chain_client(&self, chain: neko_core::ChainId) -> crate::chain::Client {
         let url = match chain {
             neko_core::ChainId::Tron => self.node_url.as_deref(),
-            neko_core::ChainId::Bsc | neko_core::ChainId::Solana => None,
+            neko_core::ChainId::Solana => self.solana_rpc.as_deref(),
+            neko_core::ChainId::Bsc => None,
         };
         let key = match chain {
             neko_core::ChainId::Tron => self.api_key.clone(),
@@ -823,6 +829,9 @@ impl App {
         if let Ok(v) = s.setting(keys::NODE_URL) {
             self.node_url = v.filter(|u| !u.is_empty());
         }
+        if let Ok(v) = s.setting(keys::SOLANA_RPC) {
+            self.solana_rpc = v.filter(|u| !u.is_empty());
+        }
         // An env var still wins, so a throwaway key can be supplied per run.
         if self.api_key.is_none() {
             if let Ok(Some(k)) = s.secret_setting(keys::API_KEY) {
@@ -899,6 +908,10 @@ impl App {
                 .node_url
                 .clone()
                 .unwrap_or_else(|| neko_tron::DEFAULT_URL.into()),
+            SettingRow::SolanaRpc => self
+                .solana_rpc
+                .clone()
+                .unwrap_or_else(|| neko_solana::DEFAULT_RPC.into()),
             SettingRow::AutoLock => neko_i18n::tf(
                 neko_i18n::Key::Settings_Minutes,
                 &[("n", &(self.autolock.as_secs() / 60).to_string())],

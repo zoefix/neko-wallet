@@ -1566,7 +1566,13 @@ fn draw_settings(f: &mut Frame, area: Rect, app: &App, st: &SettingsState) {
     }
 
     lines.push(Line::from(""));
-    if app.api_key.is_none() {
+    // Shown while the row is selected rather than always: the second line is
+    // about what a node operator can see, which is worth reading at the moment
+    // somebody is choosing one and is noise the rest of the time.
+    if matches!(st.row(), SettingRow::SolanaRpc) {
+        lines.extend(hint_lines(t(Key::Settings_SolanaRpcNote), inner.width));
+        lines.extend(hint_lines(t(Key::Settings_SolanaRpcNote2), inner.width));
+    } else if app.api_key.is_none() {
         lines.extend(hint_lines(t(Key::Settings_ApiKeyNote), inner.width));
         lines.extend(hint_lines(t(Key::Settings_ApiKeyNote2), inner.width));
     }

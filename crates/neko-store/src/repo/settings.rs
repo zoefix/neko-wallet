@@ -14,7 +14,11 @@ pub const TABLE: &str = "settings";
 
 pub mod keys {
     pub const NETWORK: &str = "network";
+    /// TRON's node. Named before there was a second chain with a node worth
+    /// configuring; kept as it is because renaming a settings key orphans the
+    /// value in every existing vault.
     pub const NODE_URL: &str = "node_url";
+    pub const SOLANA_RPC: &str = "solana_rpc";
     pub const API_KEY: &str = "trongrid_api_key";
     /// NodeReal / BSCTrace key, for BNB Chain history. A credential, so it is
     /// stored with the same field-level encryption as the TronGrid one.

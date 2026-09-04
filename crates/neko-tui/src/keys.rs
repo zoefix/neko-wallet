@@ -705,7 +705,10 @@ fn cycle_setting(app: &mut App, forward: bool, tx: &Sender) {
                 crate::theme::BorderStyle::Ascii => crate::theme::BorderStyle::Unicode,
             };
         }
-        SettingRow::ApiKey | SettingRow::BscApiKey | SettingRow::NodeUrl => begin_edit(app, tx),
+        SettingRow::ApiKey
+        | SettingRow::BscApiKey
+        | SettingRow::NodeUrl
+        | SettingRow::SolanaRpc => begin_edit(app, tx),
     }
 }
 
@@ -717,7 +720,9 @@ fn begin_edit(app: &mut App, _tx: &Sender) {
     match st.row() {
         // The API key is a credential: masked while typing, never rendered back.
         SettingRow::ApiKey | SettingRow::BscApiKey => st.editing = Some(Field::new(true)),
-        SettingRow::NodeUrl => st.editing = Some(Field::new(false)),
+        // Not credentials, so shown while typing - a mistyped node URL is
+        // easier to spot than to debug.
+        SettingRow::NodeUrl | SettingRow::SolanaRpc => st.editing = Some(Field::new(false)),
         _ => {}
     }
 }
@@ -741,20 +746,40 @@ fn apply_text_setting(app: &mut App, row: crate::nav::SettingRow, value: &str) {
                 "API key saved"
             });
         }
-        SettingRow::NodeUrl => {
-            let v = value.trim();
-            app.node_url = if v.is_empty() {
-                None
-            } else {
-                Some(v.to_string())
-            };
-            if let Some(s) = app.session.as_ref() {
-                let _ = s.set_setting(neko_store::repo::settings::keys::NODE_URL, v);
-            }
-            app.toast(neko_i18n::t(neko_i18n::Key::Settings_NodeSaved));
-        }
+        SettingRow::NodeUrl | SettingRow::SolanaRpc => set_node_url(app, row, value),
         _ => {}
     }
+}
+
+/// Save a node URL, or say why it was not saved.
+///
+/// Rejecting a URL with no scheme is not pedantry: the request layer needs one,
+/// so a typed-in `api.example.com` fails at every later call with a message
+/// about the network rather than about the address that was typed. An empty
+/// value clears the setting and returns to the built-in default.
+fn set_node_url(app: &mut App, row: crate::nav::SettingRow, value: &str) {
+    use crate::nav::SettingRow;
+    use neko_store::repo::settings::keys;
+    let (key, saved) = match row {
+        SettingRow::SolanaRpc => (keys::SOLANA_RPC, neko_i18n::Key::Settings_SolanaRpcSaved),
+        _ => (keys::NODE_URL, neko_i18n::Key::Settings_NodeSaved),
+    };
+
+    let v = value.trim();
+    if !v.is_empty() && !v.starts_with("http://") && !v.starts_with("https://") {
+        app.toast(neko_i18n::t(neko_i18n::Key::Settings_NodeUrlBad).to_string());
+        return;
+    }
+
+    let stored = (!v.is_empty()).then(|| v.to_string());
+    match row {
+        SettingRow::SolanaRpc => app.solana_rpc = stored,
+        _ => app.node_url = stored,
+    }
+    if let Some(s) = app.session.as_ref() {
+        let _ = s.set_setting(key, v);
+    }
+    app.toast(neko_i18n::t(saved).to_string());
 }
 
 /// Move from the retype gate to the password gate.
