@@ -233,6 +233,11 @@ impl Asset {
         }
     }
 
+    /// Also: whether the fee for moving this asset comes out of the asset
+    /// itself. That is the difference between "send everything" being
+    /// arithmetic and being impossible - a token's fee is paid in the chain's
+    /// own coin, so the whole token balance can go, while sending the coin has
+    /// to hold back enough of itself to pay for the sending.
     pub fn is_native(self) -> bool {
         matches!(self, Asset::Trx | Asset::Bnb)
     }

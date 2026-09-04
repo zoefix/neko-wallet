@@ -20,9 +20,11 @@ async fn main() {
         std::env::var("TRONGRID_API_KEY").ok(),
     );
 
-    match neko_tui::chain::balances(&client, addr).await {
+    match neko_tui::chain::wallet_assets(&client, addr).await {
         Ok(rows) => {
-            for (sym, bal) in rows {
+            for (sym, dec, amt) in rows {
+                let bal = neko_core::Amount::new(amt, dec)
+                    .to_display_string_trim(neko_tui::chain::BALANCE_FRAC);
                 println!("  {sym:<6} {bal:>24}");
             }
         }

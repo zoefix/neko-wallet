@@ -106,10 +106,15 @@ pub enum AppEvent {
         /// Already normalised to `neko_core::PRICE_SCALE`.
         res: Result<i128, String>,
     },
-    /// Balances for the address currently on screen.
+    /// Balances for the address currently on screen, in minimal units:
+    /// `(symbol, decimals, amount)`.
+    ///
+    /// Raw rather than formatted, because the send screen has to do arithmetic
+    /// on them - "send everything" is balance minus fee - and a string that has
+    /// already been rounded for a column cannot be subtracted from.
     Balances {
         req: ReqId,
-        res: Result<Vec<(String, String)>, String>,
+        res: Result<Vec<(String, u8, i128)>, String>,
     },
 }
 

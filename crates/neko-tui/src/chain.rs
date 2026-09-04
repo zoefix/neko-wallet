@@ -262,24 +262,6 @@ pub async fn broadcast(c: &Client, raw: Vec<u8>) -> Result<String, String> {
     }
 }
 
-/// Native and USDT balances, formatted for display.
-pub async fn balances(c: &Client, addr: ChainAddress) -> Result<Vec<(String, String)>, String> {
-    let rows = wallet_assets(c, addr).await?;
-    Ok(rows
-        .into_iter()
-        .map(|(sym, dec, amt)| {
-            // Capped and trimmed: eighteen decimals is a row of zeros nobody
-            // reads, and it pushed the column off the screen. Neither step can
-            // render a non-empty balance as zero - below the cap shows
-            // `<0.00000001` - and the send screen works from the exact figure.
-            (
-                sym,
-                neko_core::Amount::new(amt, dec).to_display_string_trim(BALANCE_FRAC),
-            )
-        })
-        .collect())
-}
-
 /// Balances in the shape the cache stores: (symbol, decimals, amount).
 pub async fn wallet_assets(
     c: &Client,

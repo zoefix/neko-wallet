@@ -103,7 +103,8 @@ pub struct App {
     /// NodeReal key for BNB Chain history. Balances and transfers work without
     /// it; only history needs an indexer.
     pub bsc_api_key: Option<String>,
-    pub balances: Option<Vec<(String, String)>>,
+    /// `(symbol, decimals, amount)` in minimal units for the address on screen.
+    pub balances: Option<Vec<(String, u8, i128)>>,
     pub balances_req: Option<ReqId>,
     /// Native-coin prices, quoted on-chain. Empty until fetched, and never
     /// guessed: an unknown price withholds a wallet's total rather than
@@ -590,7 +591,7 @@ impl App {
         let client = self.chain_client(chain);
         let tx = tx.clone();
         tokio::spawn(async move {
-            let res = crate::chain::balances(&client, addr).await;
+            let res = crate::chain::wallet_assets(&client, addr).await;
             let _ = tx.send(crate::event::AppEvent::Balances { req: id, res });
         });
     }
@@ -673,6 +674,14 @@ impl App {
             (chain.usdt(), "USDT".to_string())
         };
         let mut state = crate::send::SendState::new(*wallet_id, name.clone(), from, asset, label);
+        // Matched by symbol rather than by the row's position, so a change to
+        // the order of the assets screen cannot quietly offer the wrong
+        // balance as the maximum.
+        state.balance = self.balances.as_ref().and_then(|rows| {
+            rows.iter()
+                .find(|(sym, _, _)| sym == asset.symbol())
+                .map(|(_, _, amt)| *amt)
+        });
         // Carry the counterparties we have seen so the destination can be
         // checked against them for a crafted lookalike.
         state.known = self.known_counterparties();
@@ -696,15 +705,8 @@ impl App {
         };
         match res {
             Ok(q) => {
-                let request = match s.build_request() {
-                    Ok(r) => r,
-                    Err(e) => {
-                        s.step = crate::send::SendStep::Failed(e.to_string());
-                        return;
-                    }
-                };
                 let params = q.tx_params();
-                let fee = match *q {
+                let mut fee = match *q {
                     crate::event::Quote::Tron {
                         energy,
                         bandwidth_needed,
@@ -737,6 +739,29 @@ impl App {
                         sending_native,
                         amount,
                     }),
+                };
+
+                // "Send everything" can only be finished here. On a native
+                // transfer the fee comes out of the very balance being sent, so
+                // the maximum does not exist until the fee does - which is why
+                // the amount screen could only record the request.
+                if let Some(bal) = fee.native_balance().or(s.balance) {
+                    let held = fee.total();
+                    if let Some(max) = s.hold_back_fee(bal, held) {
+                        // The quote decides affordability from the amount it was
+                        // given, so it has to be told the amount changed.
+                        fee.set_amount(max);
+                    }
+                }
+
+                // Built after the adjustment, so the request, the review screen
+                // and what gets signed all read the one amount.
+                let request = match s.build_request() {
+                    Ok(r) => r,
+                    Err(e) => {
+                        s.step = crate::send::SendStep::Failed(e.to_string());
+                        return;
+                    }
                 };
                 s.step = crate::send::SendStep::Review {
                     req: Box::new(request),

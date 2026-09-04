@@ -424,8 +424,21 @@ pub fn on_key_send(app: &mut App, k: KeyEvent, tx: &Sender) {
                     Err(e) => st.error = Some(e.to_string()),
                 }
             }
-            KeyCode::Backspace => st.amount.backspace(),
-            KeyCode::Char(c) => st.amount.push(c),
+            // No amount contains an `m`, so this cannot swallow a keystroke
+            // somebody meant as input.
+            KeyCode::Char('m') | KeyCode::Char('M') => st.request_max(),
+            KeyCode::Backspace => {
+                // Editing by hand withdraws the request: the amount is now
+                // whatever is typed, not the balance minus a fee.
+                st.max_requested = false;
+                st.held_back = None;
+                st.amount.backspace();
+            }
+            KeyCode::Char(c) => {
+                st.max_requested = false;
+                st.held_back = None;
+                st.amount.push(c);
+            }
             _ => {}
         },
 

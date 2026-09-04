@@ -487,16 +487,17 @@ async fn stale_balance_replies_are_dropped() {
     let stale = neko_tui::event::ReqId(9999);
     app.on_app_event(neko_tui::event::AppEvent::Balances {
         req: stale,
-        res: Ok(vec![("TRX".into(), "999.000000".into())]),
+        res: Ok(vec![("TRX".into(), 6, 999_000_000)]),
     });
     assert!(app.balances.is_none(), "a stale reply was accepted");
 
     let current = app.balances_req.unwrap();
     app.on_app_event(neko_tui::event::AppEvent::Balances {
         req: current,
-        res: Ok(vec![("TRX".into(), "12.500000".into())]),
+        res: Ok(vec![("TRX".into(), 6, 12_500_000)]),
     });
-    assert_eq!(app.balances.as_ref().unwrap()[0].1, "12.500000");
+    // Stored in minimal units, so the send screen can subtract a fee from it.
+    assert_eq!(app.balances.as_ref().unwrap()[0].2, 12_500_000);
 }
 
 /// A failed lookup must say so, not silently show nothing.

@@ -94,6 +94,9 @@ pub fn draw(f: &mut Frame, app: &App) {
                 crate::send::SendStep::Authorize { .. } => t(Key::Send_HintAuthorize),
                 crate::send::SendStep::Done { .. } => t(Key::Send_HintDone),
                 crate::send::SendStep::Quoting | crate::send::SendStep::Broadcasting => "",
+                // The maximum is only offered where an amount is typed. On the
+                // recipient step `m` is a character in a base58 address.
+                crate::send::SendStep::EnterAmount => t(Key::Send_HintAmount),
                 _ => t(Key::Send_HintEntry),
             }
         }
@@ -662,7 +665,21 @@ fn draw_assets(
     // asset a user is about to send.
     let native = chain.native_symbol();
     let rows: Vec<(String, String)> = match &app.balances {
-        Some(b) => b.clone(),
+        // Capped and trimmed here rather than at the fetch: eighteen decimals
+        // is a row of zeros nobody reads and it pushed the column off the
+        // screen, but the figure the send screen does arithmetic on has to stay
+        // exact. Neither step can render a non-empty balance as zero - below
+        // the cap shows `<0.00000001`.
+        Some(b) => b
+            .iter()
+            .map(|(sym, dec, amt)| {
+                (
+                    sym.clone(),
+                    neko_core::Amount::new(*amt, *dec)
+                        .to_display_string_trim(crate::chain::BALANCE_FRAC),
+                )
+            })
+            .collect(),
         None if app.balances_error.is_some() => {
             vec![(native.into(), "?".into()), ("USDT".into(), "?".into())]
         }
@@ -936,7 +953,9 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
             }
             lines.push(Line::from(""));
             lines.push(field_line(
-                &format!("Amount ({})", st.asset_label),
+                // Every other label on this screen is translated; this one was
+                // English, right next to them.
+                &format!("{} ({})", t(Key::Send_Amount), st.asset_label),
                 st.amount.display(),
                 on_amount,
             ));
@@ -944,6 +963,29 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                 lines.push(Line::from(Span::styled(
                     format!("            ! {e}"),
                     theme::danger(),
+                )));
+            }
+            // Sending a whole balance is not something anyone can type: the fee
+            // comes out of it, and the fee is not known yet. Shown only when the
+            // balance was actually read - there is no maximum to offer
+            // otherwise, and inventing one would be worse than saying nothing.
+            if let Some(bal) = st.balance {
+                lines.push(Line::from(Span::styled(
+                    format!(
+                        "            {}",
+                        tf(
+                            Key::Send_MaxHint,
+                            &[
+                                (
+                                    "amount",
+                                    &neko_core::Amount::new(bal, st.asset.decimals())
+                                        .to_display_string_trim(crate::chain::BALANCE_FRAC)
+                                ),
+                                ("asset", &st.asset_label),
+                            ]
+                        )
+                    ),
+                    theme::hint(),
                 )));
             }
             lines.push(Line::from(""));
@@ -1025,6 +1067,27 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                         .add_modifier(Modifier::BOLD),
                 ),
             ]));
+            // The amount on this line is smaller than the one that was typed.
+            // Say why, here, rather than leaving somebody to wonder whether they
+            // mistyped it.
+            if let Some(fee) = st.held_back {
+                lines.push(Line::from(Span::styled(
+                    format!(
+                        "            {}",
+                        tf(
+                            Key::Send_HeldBack,
+                            &[
+                                (
+                                    "fee",
+                                    &fee.to_display_string_trim(crate::chain::BALANCE_FRAC)
+                                ),
+                                ("asset", &st.asset_label),
+                            ]
+                        )
+                    ),
+                    theme::hint(),
+                )));
+            }
 
             if let Some(q) = quote {
                 lines.push(Line::from(""));

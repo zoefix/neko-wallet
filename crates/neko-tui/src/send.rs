@@ -197,6 +197,30 @@ impl FeeQuote {
         }
     }
 
+    /// The native balance the chain reported while quoting, when it reported
+    /// one. Fresher than whatever the screen was opened with, so it wins.
+    ///
+    /// TRON's quote is about energy and bandwidth, not the TRX balance, so
+    /// there is nothing to offer here rather than something approximate.
+    pub fn native_balance(&self) -> Option<i128> {
+        match self {
+            FeeQuote::Tron(_) => None,
+            FeeQuote::Bsc(b) => b.bnb_balance.map(|v| v as i128),
+        }
+    }
+
+    /// Tell the quote the amount changed, so affordability is recomputed
+    /// against what is actually being sent.
+    pub fn set_amount(&mut self, amount: i128) {
+        match self {
+            // TRON's burn is a function of the transaction's size and the
+            // account's resources, not of the amount, and its quote carries no
+            // amount to update.
+            FeeQuote::Tron(_) => {}
+            FeeQuote::Bsc(b) => b.amount = amount.max(0) as u128,
+        }
+    }
+
     pub fn is_upper_bound(&self) -> bool {
         match self {
             FeeQuote::Tron(t) => t.is_upper_bound(),
@@ -257,6 +281,19 @@ pub struct SendState {
     pub amount: Field,
     pub step: SendStep,
     pub error: Option<String>,
+    /// The asset's balance in minimal units, read when this screen opened.
+    /// `None` when it could not be read - and then there is no maximum to
+    /// offer, rather than a guessed one.
+    pub balance: Option<i128>,
+    /// The user asked to send everything.
+    ///
+    /// Kept as a request rather than acted on immediately, because on a native
+    /// transfer the fee comes out of the balance being sent and the fee is not
+    /// known until the quote comes back.
+    pub max_requested: bool,
+    /// What was held back to pay the fee, once that has happened. Shown on the
+    /// review screen so a reduced amount never looks like a typo.
+    pub held_back: Option<Amount>,
 }
 
 impl SendState {
@@ -278,7 +315,60 @@ impl SendState {
             amount: Field::new(false),
             step: SendStep::Recipient,
             error: None,
+            balance: None,
+            max_requested: false,
+            held_back: None,
         }
+    }
+
+    /// Replace the amount with an exact figure.
+    ///
+    /// Written through the same field the user types into, so everything
+    /// downstream - the request, the review screen, what gets signed - reads one
+    /// value. `to_display_string_full` keeps every digit and drops only trailing
+    /// zeros, so what lands in the field parses back to exactly `raw`.
+    pub fn set_amount(&mut self, raw: i128) {
+        self.amount.clear();
+        for c in Amount::new(raw, self.asset.decimals())
+            .to_display_string_full()
+            .chars()
+        {
+            self.amount.push(c);
+        }
+    }
+
+    /// Everything.
+    ///
+    /// For a token this is the final answer: the fee is paid in the chain's own
+    /// coin, out of a different balance. For the native coin it is only the
+    /// starting point - the fee still has to come out of it, and that
+    /// subtraction waits for the quote.
+    pub fn request_max(&mut self) {
+        let Some(bal) = self.balance else {
+            return;
+        };
+        self.max_requested = true;
+        self.held_back = None;
+        self.set_amount(bal);
+    }
+
+    /// Hold back the fee from a "send everything" on the native coin.
+    ///
+    /// Returns the new amount when it changed. A fee at least as large as the
+    /// balance leaves the amount alone: the review screen already explains that
+    /// the balance cannot cover the fee, and silently rewriting the amount to
+    /// zero would replace that explanation with a puzzle.
+    pub fn hold_back_fee(&mut self, balance: i128, fee: Amount) -> Option<i128> {
+        if !self.max_requested || !self.asset.is_native() {
+            return None;
+        }
+        let max = balance.checked_sub(fee.raw)?;
+        if max <= 0 {
+            return None;
+        }
+        self.set_amount(max);
+        self.held_back = Some(fee);
+        Some(max)
     }
 
     /// Validate as the user types, so a bad address is obvious before they
