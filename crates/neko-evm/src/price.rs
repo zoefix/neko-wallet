@@ -21,6 +21,21 @@ pub const PANCAKE_ROUTER: &str = "0x10ED43C718714eb63d5aA57B78B54704E256024E";
 /// Wrapped BNB, the pair's other side.
 pub const WBNB: &str = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c";
 
+/// BTCB, Binance-pegged Bitcoin, and its precision.
+///
+/// Bitcoin has no exchange on it, so there is no pool on its own chain to ask.
+/// Rather than reach for a price service - which would be a new destination
+/// learning which addresses this wallet cares about - BTC is quoted from the
+/// deep BTCB/USDT pool on a chain we already talk to. BTCB is redeemable one
+/// for one and tracks closely, and it is not BTC; the interface says so instead
+/// of pretending otherwise.
+///
+/// **Eighteen decimals, not Bitcoin's eight.** BTCB is an ordinary BEP-20 token
+/// and follows that convention, so a quote taken from it is scaled for the
+/// token, not for the coin it represents.
+pub const BTCB: &str = "0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c";
+pub const BTCB_DECIMALS: u8 = 18;
+
 /// `keccak256("getAmountsOut(uint256,address[])")[..4]`
 pub const SEL_GET_AMOUNTS_OUT: [u8; 4] = [0xd0, 0x6c, 0xa6, 0x1f];
 
@@ -72,11 +87,37 @@ impl crate::client::Rpc {
         );
         read_last_amount(&self.eth_call(router, &data).await?)
     }
+
+    /// What one BTCB is worth, in USDT, at [`crate::USDT_DECIMALS`].
+    ///
+    /// One BTCB, not one satoshi: the caller converts. Asking for a whole unit
+    /// keeps the quote out of the part of the curve where a tiny trade prices
+    /// badly.
+    pub async fn btcb_price_in_usdt(&self) -> Result<u128, EvmError> {
+        let router = EvmAddress::parse(PANCAKE_ROUTER)?;
+        let btcb = EvmAddress::parse(BTCB)?;
+        let data = amounts_out_call(
+            10u128.pow(BTCB_DECIMALS as u32),
+            btcb,
+            crate::usdt_address(),
+        );
+        read_last_amount(&self.eth_call(router, &data).await?)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A mistyped contract address would quote something else entirely, and a
+    /// round trip through EIP-55 proves both that it is well-formed and that
+    /// no character was transposed.
+    #[test]
+    fn the_pair_addresses_are_checksummed() {
+        for s in [PANCAKE_ROUTER, WBNB, BTCB] {
+            assert_eq!(EvmAddress::parse(s).unwrap().to_string(), s);
+        }
+    }
 
     #[test]
     fn the_selector_matches_its_signature() {

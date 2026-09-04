@@ -61,6 +61,20 @@ pub enum Quote {
         /// a plain fee - the single most surprising cost on this chain.
         rent: u64,
     },
+    Bitcoin {
+        /// Satoshis per virtual byte, from the fee estimator.
+        fee_rate: u64,
+        /// The sum of every coin held, which on this chain is what a balance is.
+        balance: u64,
+        /// How many coins that is. Fewer, larger coins make cheaper transfers,
+        /// and somebody whose wallet is a hundred small ones deserves to know
+        /// why their fee is high.
+        utxo_count: usize,
+        /// Which coins will be spent, what comes back, and what it costs. One
+        /// calculation, because on this chain they are one question.
+        selection: Box<neko_btc::coins::Selection>,
+        change_to: neko_hd::BtcAddress,
+    },
 }
 
 impl Quote {
@@ -69,6 +83,7 @@ impl Quote {
             Quote::Tron { .. } => neko_core::ChainId::Tron,
             Quote::Bsc { .. } => neko_core::ChainId::Bsc,
             Quote::Solana { .. } => neko_core::ChainId::Solana,
+            Quote::Bitcoin { .. } => neko_core::ChainId::Bitcoin,
         }
     }
 
@@ -77,6 +92,16 @@ impl Quote {
             Quote::Tron { params, .. } => neko_core::ChainTxParams::Tron(params.clone()),
             Quote::Bsc { params, .. } => neko_core::ChainTxParams::Evm(*params),
             Quote::Solana { params, .. } => neko_core::ChainTxParams::Solana(*params),
+            Quote::Bitcoin {
+                selection,
+                change_to,
+                ..
+            } => neko_core::ChainTxParams::Bitcoin(Box::new(neko_core::BtcTxParams {
+                inputs: selection.inputs.clone(),
+                change: selection.change,
+                change_to: *change_to,
+                fee: selection.fee,
+            })),
         }
     }
 }

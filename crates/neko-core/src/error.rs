@@ -31,6 +31,13 @@ pub enum CoreError {
     Evm(#[from] neko_evm::EvmError),
     #[error("{0}")]
     Solana(#[from] neko_solana::SolanaError),
+    #[error("{0}")]
+    Btc(#[from] neko_btc::BtcError),
+    /// The fee a transaction would actually pay is not the one that was quoted.
+    /// On a UTXO chain the fee is implicit, so this catches the difference
+    /// between "the change output is missing" and "a miner received it".
+    #[error("this transaction would pay {actual} satoshis in fees, not the {quoted} quoted - refusing to sign")]
+    FeeMismatch { quoted: u64, actual: u64 },
     #[error("insufficient {asset}: you have {have}, this needs {need}")]
     Insufficient {
         asset: String,

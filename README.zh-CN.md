@@ -8,13 +8,13 @@
 插U盘带走、放网盘、随便拷到哪里都行。用一个邮箱加一个密码解锁，
 而这两样东西哪里都没有保存。
 
-多链架构：TRON、BNB Chain、Solana。
+多链架构：TRON、BNB Chain、Solana、Bitcoin。
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
 ![Version](https://img.shields.io/badge/VERSION-v0.1.0-8A2BE2?style=for-the-badge&labelColor=444)
 ![Platform](https://img.shields.io/badge/PLATFORM-MACOS%20%7C%20LINUX%20%7C%20WINDOWS-00B5E2?style=for-the-badge&labelColor=444)
-![Chains](https://img.shields.io/badge/CHAINS-TRON%20%7C%20BNB%20%7C%20SOLANA-1BC47D?style=for-the-badge&labelColor=444)
+![Chains](https://img.shields.io/badge/CHAINS-TRON%20%7C%20BNB%20%7C%20SOL%20%7C%20BTC-1BC47D?style=for-the-badge&labelColor=444)
 ![Rust](https://img.shields.io/badge/RUST-1.86%2B-000000?style=for-the-badge&labelColor=444)
 ![Licence](https://img.shields.io/badge/LICENCE-MIT-F5A623?style=for-the-badge&labelColor=444)
 
@@ -129,6 +129,7 @@ neko-wallet
 | TRON | 可用 | TRX、USDT (TRC20) |
 | BNB Chain | 可用 | BNB、USDT (BEP20) |
 | Solana | 可用 | SOL、USDT (SPL) |
+| Bitcoin | 可用 | BTC |
 | Bitcoin | 界面里已列出，功能还没做 | — |
 
 链相关的代码只集中在一个 crate 里。密钥派生、存储、加密和界面都是共用且与链无关的，
@@ -385,6 +386,7 @@ neko-hd       BIP39 / BIP32 / BIP44 与 SLIP-0010；TRON、EVM、Solana 地址�
 neko-tron     仅 TRON：protobuf、交易构造与签名、节点客户端
 neko-evm      BNB Chain：RLP、EIP-155 签名、ABI 编码、JSON-RPC
 neko-solana   Solana：Ed25519、交易编码、代币账户、集群 RPC
+neko-btc      Bitcoin：bech32、隔离见证签名、选币、Esplora
 neko-core     界面唯一对话的门面
 neko-i18n     编译期校验的翻译表
 neko-tui      ratatui 界面

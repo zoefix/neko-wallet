@@ -103,6 +103,12 @@ pub struct App {
     /// Solana's cluster. `None` means the public one, which rate-limits hard
     /// enough that history loses pages - the reason this is configurable.
     pub solana_rpc: Option<String>,
+    /// Bitcoin's Esplora endpoint. `None` means Blockstream's public one.
+    ///
+    /// Configurable for a sharper reason than the others: a plain Bitcoin node
+    /// cannot answer what an address holds, so this server is not an
+    /// alternative to asking the chain - it is the only one being asked.
+    pub bitcoin_api: Option<String>,
     pub api_key: Option<String>,
     /// NodeReal key for BNB Chain history. Balances and transfers work without
     /// it; only history needs an indexer.
@@ -160,6 +166,7 @@ impl App {
             should_quit: false,
             node_url: None,
             solana_rpc: None,
+            bitcoin_api: None,
             api_key: std::env::var("TRONGRID_API_KEY").ok(),
             bsc_api_key: std::env::var("NODEREAL_API_KEY").ok(),
             balances: None,
@@ -647,14 +654,15 @@ impl App {
         let url = match chain {
             neko_core::ChainId::Tron => self.node_url.as_deref(),
             neko_core::ChainId::Solana => self.solana_rpc.as_deref(),
+            neko_core::ChainId::Bitcoin => self.bitcoin_api.as_deref(),
             neko_core::ChainId::Bsc => None,
         };
         let key = match chain {
             neko_core::ChainId::Tron => self.api_key.clone(),
             neko_core::ChainId::Bsc => self.bsc_api_key.clone(),
-            // Solana's public cluster needs no key. It rate-limits hard, which
-            // costs a retry rather than a screen.
-            neko_core::ChainId::Solana => None,
+            // Neither Solana's public cluster nor Esplora needs a key. Both
+            // rate-limit, which costs a retry rather than a screen.
+            neko_core::ChainId::Solana | neko_core::ChainId::Bitcoin => None,
         };
         crate::chain::Client::for_chain(chain, url, key)
     }
@@ -677,11 +685,14 @@ impl App {
             Ok(a) => a,
             Err(_) => return,
         };
-        let (asset, label) = if *selected == 0 {
-            (chain.native(), chain.native_symbol().to_string())
-        } else {
-            (chain.usdt(), "USDT".to_string())
+        // Driven by what the chain actually carries, rather than by assuming
+        // two. Bitcoin has one asset, and a fixed pair would either hide it or
+        // invent a second.
+        let assets = chain.assets();
+        let Some(asset) = assets.get(*selected).copied() else {
+            return;
         };
+        let label = asset.symbol().to_string();
         let mut state = crate::send::SendState::new(*wallet_id, name.clone(), from, asset, label);
         // Matched by symbol rather than by the row's position, so a change to
         // the order of the assets screen cannot quietly offer the wrong
@@ -762,6 +773,22 @@ impl App {
                         sending_native,
                         amount,
                     }),
+                    crate::event::Quote::Bitcoin {
+                        fee_rate,
+                        balance,
+                        utxo_count,
+                        ref selection,
+                        ..
+                    } => crate::send::FeeQuote::Bitcoin(crate::send::BtcFee {
+                        fee_rate,
+                        vbytes: selection.vbytes,
+                        fee: selection.fee,
+                        inputs: selection.inputs.len(),
+                        utxo_count,
+                        balance,
+                        change: selection.change,
+                        change_was_dust: selection.change_was_dust,
+                    }),
                 };
 
                 // "Send everything" can only be finished here. On a native
@@ -831,6 +858,9 @@ impl App {
         }
         if let Ok(v) = s.setting(keys::SOLANA_RPC) {
             self.solana_rpc = v.filter(|u| !u.is_empty());
+        }
+        if let Ok(v) = s.setting(keys::BITCOIN_API) {
+            self.bitcoin_api = v.filter(|u| !u.is_empty());
         }
         // An env var still wins, so a throwaway key can be supplied per run.
         if self.api_key.is_none() {
@@ -912,6 +942,10 @@ impl App {
                 .solana_rpc
                 .clone()
                 .unwrap_or_else(|| neko_solana::DEFAULT_RPC.into()),
+            SettingRow::BitcoinApi => self
+                .bitcoin_api
+                .clone()
+                .unwrap_or_else(|| neko_btc::DEFAULT_API.into()),
             SettingRow::AutoLock => neko_i18n::tf(
                 neko_i18n::Key::Settings_Minutes,
                 &[("n", &(self.autolock.as_secs() / 60).to_string())],

@@ -29,6 +29,9 @@ pub const EVM_ADDRESS_LEN: usize = 42;
 /// genuinely shorter than one without.
 pub const SOLANA_ADDRESS_MIN_LEN: usize = 32;
 pub const SOLANA_ADDRESS_MAX_LEN: usize = 44;
+/// Bitcoin's range spans two encodings and five script types.
+pub const BTC_ADDRESS_MIN_LEN: usize = 26;
+pub const BTC_ADDRESS_MAX_LEN: usize = 62;
 
 /// The fee, broken down.
 ///
@@ -253,11 +256,62 @@ impl SolanaFee {
     }
 }
 
+/// What a Bitcoin transfer costs.
+///
+/// The odd one out, because on this chain the fee is not a property of the
+/// transfer - it is a property of the *coins chosen to pay for it*. Each one
+/// adds about 68 virtual bytes, so a wallet holding a hundred small outputs
+/// pays far more to move the same amount than one holding a single large one.
+/// That is worth showing, because it is otherwise inexplicable.
+///
+/// Affordability is decided before this exists: if the coins cannot cover the
+/// amount and the fee, selection fails and there is no quote to show. So unlike
+/// the other three there is no shortfall state here - only a failed quote that
+/// says how much was needed.
+pub struct BtcFee {
+    /// Satoshis per virtual byte.
+    pub fee_rate: u64,
+    pub vbytes: usize,
+    pub fee: u64,
+    /// Coins being spent, out of coins held.
+    pub inputs: usize,
+    pub utxo_count: usize,
+    pub balance: u64,
+    /// What comes back to us. `None` means the remainder was below dust.
+    pub change: Option<u64>,
+    /// The remainder was too small to create an output for, so it went to the
+    /// fee. Said out loud, because the fee is then higher than the rate
+    /// explains.
+    pub change_was_dust: bool,
+}
+
+impl BtcFee {
+    pub fn fee_amount(&self) -> Amount {
+        Amount::new(self.fee as i128, neko_btc::BTC_DECIMALS)
+    }
+
+    pub fn balance_amount(&self) -> Amount {
+        Amount::new(self.balance as i128, neko_btc::BTC_DECIMALS)
+    }
+
+    pub fn change_amount(&self) -> Option<Amount> {
+        self.change
+            .map(|c| Amount::new(c as i128, neko_btc::BTC_DECIMALS))
+    }
+
+    /// What the rate alone would have cost, before dust was folded in. The
+    /// difference is what the extra line on the screen is explaining.
+    pub fn rate_only_fee(&self) -> u64 {
+        self.vbytes as u64 * self.fee_rate
+    }
+}
+
 /// The fee, per chain.
 pub enum FeeQuote {
     Tron(TronFee),
     Bsc(BscFee),
     Solana(SolanaFee),
+    Bitcoin(BtcFee),
 }
 
 impl FeeQuote {
@@ -268,6 +322,7 @@ impl FeeQuote {
             FeeQuote::Tron(t) => t.total_burn(),
             FeeQuote::Bsc(b) => b.fee(),
             FeeQuote::Solana(s) => s.fee(),
+            FeeQuote::Bitcoin(b) => b.fee_amount(),
         }
     }
 
@@ -281,6 +336,7 @@ impl FeeQuote {
             FeeQuote::Tron(_) => None,
             FeeQuote::Bsc(b) => b.bnb_balance.map(|v| v as i128),
             FeeQuote::Solana(s) => s.sol_balance.map(|v| v as i128),
+            FeeQuote::Bitcoin(b) => Some(b.balance as i128),
         }
     }
 
@@ -294,6 +350,10 @@ impl FeeQuote {
             FeeQuote::Tron(_) => {}
             FeeQuote::Bsc(b) => b.amount = amount.max(0) as u128,
             FeeQuote::Solana(s) => s.amount = amount.max(0) as u64,
+            // The coins were chosen for a particular amount; changing it after
+            // the fact would invalidate the selection that produced this fee.
+            // "Send everything" is a different selection, not an adjustment.
+            FeeQuote::Bitcoin(_) => {}
         }
     }
 
@@ -305,6 +365,8 @@ impl FeeQuote {
             // Signature fee, compute budget and rent are all exact figures the
             // cluster gave us.
             FeeQuote::Solana(_) => false,
+            // Inputs minus outputs, both already decided.
+            FeeQuote::Bitcoin(_) => false,
         }
     }
 
@@ -315,6 +377,8 @@ impl FeeQuote {
             FeeQuote::Bsc(_) => false,
             // And a Solana one always costs at least a signature.
             FeeQuote::Solana(_) => false,
+            // Bitcoin has no free transactions at all.
+            FeeQuote::Bitcoin(_) => false,
         }
     }
 }
@@ -513,6 +577,10 @@ impl SendState {
             // value with leading zero bytes - so there is no single length to
             // compare against, only a range.
             ChainId::Solana => (SOLANA_ADDRESS_MIN_LEN..=SOLANA_ADDRESS_MAX_LEN).contains(&n),
+            // Five script types across two text encodings: a base58 P2PKH is
+            // 26 to 35 characters, a bech32 P2WPKH is 42, and a P2WSH or
+            // Taproot address is 62.
+            ChainId::Bitcoin => (BTC_ADDRESS_MIN_LEN..=BTC_ADDRESS_MAX_LEN).contains(&n),
         };
         if !complete {
             return None;

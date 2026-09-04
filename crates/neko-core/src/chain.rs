@@ -17,9 +17,15 @@ pub enum ChainId {
     Tron,
     Bsc,
     Solana,
+    Bitcoin,
 }
 
-pub const CHAINS: [ChainId; 3] = [ChainId::Tron, ChainId::Bsc, ChainId::Solana];
+pub const CHAINS: [ChainId; 4] = [
+    ChainId::Tron,
+    ChainId::Bsc,
+    ChainId::Solana,
+    ChainId::Bitcoin,
+];
 
 impl ChainId {
     /// Stored in the database and in settings; never shown to a user.
@@ -28,6 +34,7 @@ impl ChainId {
             ChainId::Tron => "tron",
             ChainId::Bsc => "bsc",
             ChainId::Solana => "solana",
+            ChainId::Bitcoin => "bitcoin",
         }
     }
 
@@ -40,6 +47,7 @@ impl ChainId {
             ChainId::Tron => "TRON",
             ChainId::Bsc => "BNB Chain",
             ChainId::Solana => "Solana",
+            ChainId::Bitcoin => "Bitcoin",
         }
     }
 
@@ -51,6 +59,7 @@ impl ChainId {
             ChainId::Tron => neko_hd::derive::COIN_TYPE,
             ChainId::Bsc => neko_hd::derive::COIN_TYPE_EVM,
             ChainId::Solana => neko_hd::COIN_TYPE_SOLANA,
+            ChainId::Bitcoin => neko_hd::COIN_TYPE_BTC,
         }
     }
 
@@ -59,6 +68,7 @@ impl ChainId {
             ChainId::Tron => "TRX",
             ChainId::Bsc => "BNB",
             ChainId::Solana => "SOL",
+            ChainId::Bitcoin => "BTC",
         }
     }
 
@@ -69,6 +79,7 @@ impl ChainId {
             ChainId::Tron => neko_tron::TRX_DECIMALS,
             ChainId::Bsc => neko_evm::BNB_DECIMALS,
             ChainId::Solana => neko_solana::SOL_DECIMALS,
+            ChainId::Bitcoin => neko_btc::BTC_DECIMALS,
         }
     }
 
@@ -77,21 +88,38 @@ impl ChainId {
     /// Same name, different precision: 6 decimals on TRON, 18 on BNB Chain.
     /// Treating one like the other is a factor of a million million, which is
     /// why the number travels with the asset rather than living in a constant.
-    pub fn usdt(self) -> Asset {
+    /// `None` on a chain with no such token.
+    ///
+    /// Bitcoin is the first: it carries one asset and no contracts, so a screen
+    /// that assumed two assets per chain would show an empty row where nothing
+    /// exists.
+    pub fn usdt(self) -> Option<Asset> {
         match self {
-            ChainId::Tron => Asset::Trc20 {
+            ChainId::Tron => Some(Asset::Trc20 {
                 contract: neko_tron::usdt_address(),
                 decimals: neko_tron::USDT_DECIMALS,
-            },
-            ChainId::Solana => Asset::SplToken {
+            }),
+            ChainId::Solana => Some(Asset::SplToken {
                 mint: neko_solana::usdt_mint(),
                 decimals: neko_solana::USDT_DECIMALS,
-            },
-            ChainId::Bsc => Asset::Bep20 {
+            }),
+            ChainId::Bitcoin => None,
+            ChainId::Bsc => Some(Asset::Bep20 {
                 contract: neko_evm::usdt_address(),
                 decimals: neko_evm::USDT_DECIMALS,
-            },
+            }),
         }
+    }
+
+    /// Everything this chain holds, native coin first.
+    ///
+    /// One list rather than a pair, because Bitcoin has one asset and the other
+    /// three have two - and a screen that assumed the count would show an empty
+    /// row, or hide a real one, the moment that stopped being true.
+    pub fn assets(self) -> Vec<Asset> {
+        let mut v = vec![self.native()];
+        v.extend(self.usdt());
+        v
     }
 
     pub fn native(self) -> Asset {
@@ -99,6 +127,7 @@ impl ChainId {
             ChainId::Tron => Asset::Trx,
             ChainId::Bsc => Asset::Bnb,
             ChainId::Solana => Asset::Sol,
+            ChainId::Bitcoin => Asset::Btc,
         }
     }
 
@@ -108,6 +137,7 @@ impl ChainId {
             ChainId::Tron => format!("https://tronscan.org/#/transaction/{id}"),
             ChainId::Bsc => format!("https://bscscan.com/tx/{id}"),
             ChainId::Solana => format!("https://solscan.io/tx/{id}"),
+            ChainId::Bitcoin => format!("{}{id}", neko_btc::EXPLORER_TX),
         }
     }
 }
@@ -118,6 +148,7 @@ pub enum ChainAddress {
     Tron(neko_hd::Address),
     Evm(neko_hd::EvmAddress),
     Solana(neko_hd::SolanaAddress),
+    Bitcoin(neko_hd::BtcAddress),
 }
 
 impl ChainAddress {
@@ -126,6 +157,7 @@ impl ChainAddress {
             ChainAddress::Tron(_) => ChainId::Tron,
             ChainAddress::Evm(_) => ChainId::Bsc,
             ChainAddress::Solana(_) => ChainId::Solana,
+            ChainAddress::Bitcoin(_) => ChainId::Bitcoin,
         }
     }
 
@@ -146,6 +178,9 @@ impl ChainAddress {
             ChainId::Solana => neko_hd::SolanaAddress::parse(s)
                 .map(ChainAddress::Solana)
                 .map_err(|_| CoreError::BadAddress),
+            ChainId::Bitcoin => neko_hd::BtcAddress::parse(s)
+                .map(ChainAddress::Bitcoin)
+                .map_err(|_| CoreError::BadAddress),
         }
     }
 
@@ -156,6 +191,10 @@ impl ChainAddress {
             ChainAddress::Tron(a) => a.as_bytes().to_vec(),
             ChainAddress::Evm(a) => a.as_bytes().to_vec(),
             ChainAddress::Solana(a) => a.as_bytes().to_vec(),
+            // The locking script, not a key hash: it is what an incoming
+            // payment is matched on, and it is what distinguishes the five
+            // address types that share the same 20 bytes.
+            ChainAddress::Bitcoin(a) => a.as_bytes(),
         }
     }
 
@@ -169,6 +208,9 @@ impl ChainAddress {
                 .map_err(|_| CoreError::BadAddress),
             ChainId::Solana => neko_hd::SolanaAddress::from_bytes(b)
                 .map(ChainAddress::Solana)
+                .map_err(|_| CoreError::BadAddress),
+            ChainId::Bitcoin => neko_hd::BtcAddress::from_bytes(b)
+                .map(ChainAddress::Bitcoin)
                 .map_err(|_| CoreError::BadAddress),
         }
     }
@@ -193,6 +235,13 @@ impl ChainAddress {
             _ => Err(CoreError::WrongChain),
         }
     }
+
+    pub fn as_bitcoin(&self) -> Result<neko_hd::BtcAddress, CoreError> {
+        match self {
+            ChainAddress::Bitcoin(a) => Ok(*a),
+            _ => Err(CoreError::WrongChain),
+        }
+    }
 }
 
 impl std::fmt::Display for ChainAddress {
@@ -201,6 +250,7 @@ impl std::fmt::Display for ChainAddress {
             ChainAddress::Tron(a) => write!(f, "{a}"),
             ChainAddress::Evm(a) => write!(f, "{a}"),
             ChainAddress::Solana(a) => write!(f, "{a}"),
+            ChainAddress::Bitcoin(a) => write!(f, "{a}"),
         }
     }
 }
@@ -225,6 +275,8 @@ pub enum Asset {
         mint: neko_hd::SolanaAddress,
         decimals: u8,
     },
+    /// The only asset on its chain: no contracts, no tokens.
+    Btc,
 }
 
 impl Asset {
@@ -233,6 +285,7 @@ impl Asset {
             Asset::Trx | Asset::Trc20 { .. } => ChainId::Tron,
             Asset::Bnb | Asset::Bep20 { .. } => ChainId::Bsc,
             Asset::Sol | Asset::SplToken { .. } => ChainId::Solana,
+            Asset::Btc => ChainId::Bitcoin,
         }
     }
 
@@ -241,6 +294,7 @@ impl Asset {
             Asset::Trx => neko_tron::TRX_DECIMALS,
             Asset::Bnb => neko_evm::BNB_DECIMALS,
             Asset::Sol => neko_solana::SOL_DECIMALS,
+            Asset::Btc => neko_btc::BTC_DECIMALS,
             Asset::Trc20 { decimals, .. }
             | Asset::Bep20 { decimals, .. }
             | Asset::SplToken { decimals, .. } => decimals,
@@ -252,6 +306,7 @@ impl Asset {
             Asset::Trx => "TRX",
             Asset::Bnb => "BNB",
             Asset::Sol => "SOL",
+            Asset::Btc => "BTC",
             // Only USDT is known so far; when a second token is added this
             // has to carry its symbol rather than assume.
             Asset::Trc20 { .. } | Asset::Bep20 { .. } | Asset::SplToken { .. } => "USDT",
@@ -270,7 +325,9 @@ impl Asset {
             Asset::Trx => Some(neko_tron::FEE_LIMIT_TRX),
             // A contract call with no fee limit fails for lack of energy.
             Asset::Trc20 { .. } => Some(neko_tron::FEE_LIMIT_TRC20),
-            Asset::Bnb | Asset::Bep20 { .. } | Asset::Sol | Asset::SplToken { .. } => None,
+            Asset::Bnb | Asset::Bep20 { .. } | Asset::Sol | Asset::SplToken { .. } | Asset::Btc => {
+                None
+            }
         }
     }
 
@@ -280,7 +337,7 @@ impl Asset {
     /// own coin, so the whole token balance can go, while sending the coin has
     /// to hold back enough of itself to pay for the sending.
     pub fn is_native(self) -> bool {
-        matches!(self, Asset::Trx | Asset::Bnb | Asset::Sol)
+        matches!(self, Asset::Trx | Asset::Bnb | Asset::Sol | Asset::Btc)
     }
 }
 
@@ -302,8 +359,8 @@ mod tests {
     /// The difference that will bite somebody if it ever regresses.
     #[test]
     fn usdt_has_a_different_precision_on_each_chain() {
-        assert_eq!(ChainId::Tron.usdt().decimals(), 6);
-        assert_eq!(ChainId::Bsc.usdt().decimals(), 18);
+        assert_eq!(ChainId::Tron.usdt().unwrap().decimals(), 6);
+        assert_eq!(ChainId::Bsc.usdt().unwrap().decimals(), 18);
         assert_eq!(ChainId::Tron.native_decimals(), 6);
         assert_eq!(ChainId::Bsc.native_decimals(), 18);
     }
@@ -343,10 +400,10 @@ mod tests {
 
     #[test]
     fn assets_know_their_chain() {
-        assert_eq!(ChainId::Tron.usdt().chain(), ChainId::Tron);
-        assert_eq!(ChainId::Bsc.usdt().chain(), ChainId::Bsc);
+        assert_eq!(ChainId::Tron.usdt().unwrap().chain(), ChainId::Tron);
+        assert_eq!(ChainId::Bsc.usdt().unwrap().chain(), ChainId::Bsc);
         assert_eq!(ChainId::Bsc.native().symbol(), "BNB");
         assert!(ChainId::Bsc.native().is_native());
-        assert!(!ChainId::Bsc.usdt().is_native());
+        assert!(!ChainId::Bsc.usdt().unwrap().is_native());
     }
 }

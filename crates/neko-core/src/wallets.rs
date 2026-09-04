@@ -204,6 +204,9 @@ impl Session {
                 ChainId::Solana => {
                     ChainAddress::Solana(neko_hd::solana::address_from_private_key(&sk)?)
                 }
+                ChainId::Bitcoin => {
+                    ChainAddress::Bitcoin(neko_hd::bitcoin::address_from_private_key(&sk)?)
+                }
             });
         }
 
@@ -214,6 +217,12 @@ impl Session {
             // SLIP-0010, hardened at every level, so the account level is what
             // varies rather than a change/index pair that cannot exist here.
             ChainId::Solana => ChainAddress::Solana(neko_hd::solana::address_at(&seed, index)?),
+            // `m/84'/0'/0'/0/{index}` - the receiving branch. Change comes back
+            // to the same address, which the one-address-per-chain model
+            // already implies.
+            ChainId::Bitcoin => {
+                ChainAddress::Bitcoin(neko_hd::bitcoin::address_at(&seed, 0, 0, index)?)
+            }
         })
     }
 
@@ -396,6 +405,9 @@ impl Session {
                 ChainId::Tron => neko_tron::usdt_address().as_bytes().to_vec(),
                 ChainId::Bsc => neko_evm::usdt_address().as_bytes().to_vec(),
                 ChainId::Solana => neko_solana::usdt_mint().as_bytes().to_vec(),
+                // Unreachable: Bitcoin has no USDT, so this closure is never
+                // reached for it.
+                ChainId::Bitcoin => Vec::new(),
             });
             let asset = balances::asset_id(conn, db_chain, symbol, contract.as_deref(), *decimals)?;
             balances::upsert(conn, address_id, asset, *amount, 0, now)?;
@@ -412,6 +424,7 @@ fn db_chain_id(c: ChainId) -> i64 {
         ChainId::Tron => neko_store::repo::addresses::TRON_CHAIN_ID,
         ChainId::Bsc => neko_store::repo::addresses::BSC_CHAIN_ID,
         ChainId::Solana => neko_store::repo::addresses::SOLANA_CHAIN_ID,
+        ChainId::Bitcoin => neko_store::repo::addresses::BITCOIN_CHAIN_ID,
     }
 }
 

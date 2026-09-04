@@ -13,16 +13,27 @@ use crate::error::StoreError;
 pub const TRON_CHAIN_ID: i64 = 1;
 pub const BSC_CHAIN_ID: i64 = 2;
 pub const SOLANA_CHAIN_ID: i64 = 3;
+pub const BITCOIN_CHAIN_ID: i64 = 4;
 
-/// Address widths this store accepts, by chain. TRON carries a `0x41` prefix
-/// and is 21 bytes; EVM chains are 20; a Solana address is a 32-byte Ed25519
-/// public key.
-fn expected_len(chain_id: i64) -> Option<usize> {
+/// Lengths Bitcoin's script column may take: 22 for P2WPKH, 23 for P2SH, 25
+/// for P2PKH, 34 for P2WSH and Taproot. Bitcoin is the only chain here whose
+/// address is not one fixed size, because what is stored is the locking script
+/// and the script *is* the address type.
+pub const BITCOIN_SCRIPT_LENS: [usize; 4] = [22, 23, 25, 34];
+
+/// Whether these bytes are a plausible address on this chain.
+///
+/// The width is the one cheap guard against a truncated or mis-encoded address
+/// reaching the column that incoming payments are matched on. TRON carries a
+/// `0x41` prefix and is 21 bytes; EVM chains are 20; a Solana address is a
+/// 32-byte Ed25519 public key; Bitcoin is one of four script lengths.
+fn width_is_plausible(chain_id: i64, len: usize) -> bool {
     match chain_id {
-        TRON_CHAIN_ID => Some(21),
-        BSC_CHAIN_ID => Some(20),
-        SOLANA_CHAIN_ID => Some(32),
-        _ => None,
+        TRON_CHAIN_ID => len == 21,
+        BSC_CHAIN_ID => len == 20,
+        SOLANA_CHAIN_ID => len == 32,
+        BITCOIN_CHAIN_ID => BITCOIN_SCRIPT_LENS.contains(&len),
+        _ => false,
     }
 }
 
@@ -51,9 +62,8 @@ pub fn ensure(
     // The width is chain-specific, and checking it here means a mis-encoded
     // address is refused before it reaches the column that incoming transfers
     // are matched on.
-    match expected_len(chain_id) {
-        Some(n) if address_raw.len() == n => {}
-        _ => return Err(StoreError::AddressDrift(wallet_id)),
+    if !width_is_plausible(chain_id, address_raw.len()) {
+        return Err(StoreError::AddressDrift(wallet_id));
     }
 
     conn.execute(

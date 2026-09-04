@@ -6,7 +6,7 @@
 //! priced.
 
 use neko_tui::app::{App, Screen};
-use neko_tui::send::{BscFee, FeeQuote, SendState, SendStep, SolanaFee, TronFee};
+use neko_tui::send::{BscFee, BtcFee, FeeQuote, SendState, SendStep, SolanaFee, TronFee};
 
 const TRON_MINE: &str = "TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH";
 const TRON_TO: &str = "TNYxHL2s6Wjpx86NRwhekYzc27p3oDYrk6";
@@ -14,6 +14,10 @@ const BSC_MINE: &str = "0x1111111111111111111111111111111111111111";
 const BSC_TO: &str = "0x2222222222222222222222222222222222222222";
 const SOL_MINE: &str = "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9";
 const SOL_TO: &str = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
+const BTC_MINE: &str = "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu";
+const BTC_TO: &str = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4";
+/// BTCB's quote, which is what BTC is priced from.
+const BTC_PRICE: i128 = 65_990_080_000; // 65,990.08 USDT
 
 /// Real quotes, so the arithmetic below is the arithmetic users see.
 const TRX_PRICE: i128 = 330_325; // 1 TRX = 0.330325 USDT
@@ -51,13 +55,16 @@ fn app_at_review(chain: neko_core::ChainId, quote: FeeQuote) -> App {
         neko_core::ChainId::Tron => (TRON_MINE, TRON_TO),
         neko_core::ChainId::Bsc => (BSC_MINE, BSC_TO),
         neko_core::ChainId::Solana => (SOL_MINE, SOL_TO),
+        neko_core::ChainId::Bitcoin => (BTC_MINE, BTC_TO),
     };
     let mut st = SendState::new(
         1,
         "w".into(),
         neko_core::ChainAddress::parse(chain, mine).unwrap(),
-        chain.usdt(),
-        "USDT".into(),
+        // The last asset each chain carries: USDT where there is one, and BTC
+        // on the chain that has only itself.
+        *chain.assets().last().unwrap(),
+        chain.assets().last().unwrap().symbol().to_string(),
     );
     to.chars().for_each(|c| st.to.push(c));
     "1".chars().for_each(|c| st.amount.push(c));
@@ -84,6 +91,16 @@ fn app_at_review(chain: neko_core::ChainId, quote: FeeQuote) -> App {
             compute_unit_price: 10_000,
             create_recipient_account: true,
         }),
+        // Unused by these tests, which render a quote rather than sign one -
+        // the fee shown comes from the FeeQuote, not from here.
+        neko_core::ChainId::Bitcoin => {
+            neko_core::ChainTxParams::Bitcoin(Box::new(neko_core::BtcTxParams {
+                inputs: Vec::new(),
+                change: None,
+                change_to: neko_hd::BtcAddress::parse(BTC_MINE).unwrap(),
+                fee: 0,
+            }))
+        }
     };
     st.step = SendStep::Review {
         req: Box::new(req),
@@ -327,4 +344,69 @@ fn the_markers_sit_under_the_characters_they_point_at() {
         );
     }
     neko_i18n::set_locale(neko_i18n::Locale::English);
+}
+
+/// On this chain the fee is a function of how many separate coins are being
+/// spent, not of the amount. A wallet that received a hundred small payments
+/// pays far more to move the same money than one holding a single large coin,
+/// and there is nothing on the screen to explain that unless it is put there.
+#[test]
+fn a_bitcoin_fee_says_how_many_coins_it_is_spending() {
+    let quote = FeeQuote::Bitcoin(BtcFee {
+        fee_rate: 12,
+        vbytes: 1_500,
+        fee: 18_000,
+        inputs: 21,
+        utxo_count: 40,
+        balance: 5_000_000,
+        change: Some(120_000),
+        change_was_dust: false,
+    });
+    let mut app = app_at_review(neko_core::ChainId::Bitcoin, quote);
+    app.prices
+        .set_native(neko_core::ChainId::Bitcoin, BTC_PRICE, 1_756_000_000);
+    let out = render(&app, 135, 40);
+
+    assert!(out.contains("12 sat/vB"), "the rate is not shown:\n{out}");
+    assert!(
+        out.contains("21 of 40"),
+        "the coin count is not shown:\n{out}"
+    );
+    assert!(
+        out.contains("68 bytes"),
+        "spending 21 coins is not explained:\n{out}"
+    );
+    // 18,000 sat = 0.00018 BTC, and 0.00018 x 65,990.08 = 11.87 USDT.
+    assert!(out.contains("0.00018"), "the fee is not shown:\n{out}");
+    assert!(out.contains("11.87 USDT"), "the fee is not priced:\n{out}");
+    // Change is money coming back, and has to be visible as such.
+    assert!(out.contains("0.0012"), "the change is not shown:\n{out}");
+}
+
+/// A remainder too small to return goes to the fee. Left unsaid, the fee is
+/// higher than the rate explains and there is no way to find out why.
+#[test]
+fn change_folded_into_the_fee_is_explained() {
+    let quote = FeeQuote::Bitcoin(BtcFee {
+        fee_rate: 10,
+        vbytes: 110,
+        fee: 1_290, // 1,100 at the rate, plus 190 of unreturnable remainder
+        inputs: 1,
+        utxo_count: 1,
+        balance: 200_000,
+        change: None,
+        change_was_dust: true,
+    });
+    let app = app_at_review(neko_core::ChainId::Bitcoin, quote);
+    let out = render(&app, 135, 40);
+
+    assert!(
+        out.contains("too small to return"),
+        "the extra fee is unexplained:\n{out}"
+    );
+    // One coin is not the many-coins case, and must not claim to be.
+    assert!(
+        !out.contains("68 bytes"),
+        "a single-coin spend was blamed on coin count:\n{out}"
+    );
 }

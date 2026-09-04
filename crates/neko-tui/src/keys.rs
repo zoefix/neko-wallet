@@ -708,7 +708,8 @@ fn cycle_setting(app: &mut App, forward: bool, tx: &Sender) {
         SettingRow::ApiKey
         | SettingRow::BscApiKey
         | SettingRow::NodeUrl
-        | SettingRow::SolanaRpc => begin_edit(app, tx),
+        | SettingRow::SolanaRpc
+        | SettingRow::BitcoinApi => begin_edit(app, tx),
     }
 }
 
@@ -722,7 +723,9 @@ fn begin_edit(app: &mut App, _tx: &Sender) {
         SettingRow::ApiKey | SettingRow::BscApiKey => st.editing = Some(Field::new(true)),
         // Not credentials, so shown while typing - a mistyped node URL is
         // easier to spot than to debug.
-        SettingRow::NodeUrl | SettingRow::SolanaRpc => st.editing = Some(Field::new(false)),
+        SettingRow::NodeUrl | SettingRow::SolanaRpc | SettingRow::BitcoinApi => {
+            st.editing = Some(Field::new(false))
+        }
         _ => {}
     }
 }
@@ -746,7 +749,9 @@ fn apply_text_setting(app: &mut App, row: crate::nav::SettingRow, value: &str) {
                 "API key saved"
             });
         }
-        SettingRow::NodeUrl | SettingRow::SolanaRpc => set_node_url(app, row, value),
+        SettingRow::NodeUrl | SettingRow::SolanaRpc | SettingRow::BitcoinApi => {
+            set_node_url(app, row, value)
+        }
         _ => {}
     }
 }
@@ -762,6 +767,7 @@ fn set_node_url(app: &mut App, row: crate::nav::SettingRow, value: &str) {
     use neko_store::repo::settings::keys;
     let (key, saved) = match row {
         SettingRow::SolanaRpc => (keys::SOLANA_RPC, neko_i18n::Key::Settings_SolanaRpcSaved),
+        SettingRow::BitcoinApi => (keys::BITCOIN_API, neko_i18n::Key::Settings_BitcoinApiSaved),
         _ => (keys::NODE_URL, neko_i18n::Key::Settings_NodeSaved),
     };
 
@@ -774,6 +780,7 @@ fn set_node_url(app: &mut App, row: crate::nav::SettingRow, value: &str) {
     let stored = (!v.is_empty()).then(|| v.to_string());
     match row {
         SettingRow::SolanaRpc => app.solana_rpc = stored,
+        SettingRow::BitcoinApi => app.bitcoin_api = stored,
         _ => app.node_url = stored,
     }
     if let Some(s) = app.session.as_ref() {

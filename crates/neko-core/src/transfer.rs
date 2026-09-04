@@ -26,6 +26,26 @@ pub enum ChainTxParams {
     Tron(Box<neko_tron::tx::TxParams>),
     Evm(neko_evm::tx::TxParams),
     Solana(neko_solana::tx::TxParams),
+    Bitcoin(Box<BtcTxParams>),
+}
+
+/// Which coins a Bitcoin transfer spends, and what comes back.
+///
+/// Unlike the other three chains' parameters, this is not just context - it is
+/// half the transaction. The coins were chosen at quote time by an algorithm
+/// that also decided the fee, and signing has to use exactly those, because the
+/// fee is inputs minus outputs and any substitution changes it silently.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BtcTxParams {
+    pub inputs: Vec<neko_btc::tx::Utxo>,
+    /// What returns to us, when it is above dust. `None` means the remainder
+    /// went to the fee because it was too small to create an output for.
+    pub change: Option<u64>,
+    pub change_to: neko_hd::BtcAddress,
+    /// What was quoted. Re-derived from the transaction before signing, and a
+    /// mismatch is refused - this is the check that a forgotten change output
+    /// cannot get past.
+    pub fee: u64,
 }
 
 /// A signed transaction, reduced to what every caller actually needs: the
@@ -84,8 +104,9 @@ impl TransferRequest {
         match self.asset {
             // Solana carries no calldata: the amount lives in the
             // instruction, which is built by the chain crate rather than
-            // encoded here.
-            Asset::Trx | Asset::Bnb | Asset::Sol | Asset::SplToken { .. } => Ok(None),
+            // encoded here. Bitcoin has no calldata at all - an amount is an
+            // output, not an argument.
+            Asset::Trx | Asset::Bnb | Asset::Sol | Asset::SplToken { .. } | Asset::Btc => Ok(None),
             Asset::Trc20 { .. } => Ok(Some(neko_tron::tx::encode_trc20_transfer(
                 self.to.as_tron()?,
                 self.amount.raw as u128,
@@ -218,6 +239,46 @@ impl Session {
                 ));
                 sign_solana(from, ixs, p, &key)
             }
+            (Asset::Btc, ChainTxParams::Bitcoin(p)) => {
+                let to = req.to.as_bitcoin()?;
+                let amount = u64::try_from(req.amount.raw)
+                    .map_err(|_| neko_btc::BtcError::AmountTooLarge)?;
+
+                let mut outputs = vec![neko_btc::tx::output(&to, amount)];
+                if let Some(change) = p.change {
+                    outputs.push(neko_btc::tx::output(&p.change_to, change));
+                }
+                let mut tx = neko_btc::tx::Tx {
+                    version: neko_btc::tx::VERSION,
+                    inputs: p.inputs.iter().map(neko_btc::tx::input).collect(),
+                    outputs,
+                    locktime: 0,
+                };
+
+                // The fee is inputs minus outputs and nothing declares it, so
+                // it is derived here and checked against what was quoted. This
+                // is the guard against the classic loss on this chain: a
+                // change output that was dropped somewhere between the quote
+                // and the signature hands its whole value to a miner, and
+                // nothing else in the flow would notice.
+                let input_total: u64 = p.inputs.iter().map(|u| u.value).sum();
+                match tx.fee(input_total) {
+                    Some(actual) if actual == p.fee => {}
+                    Some(actual) => {
+                        return Err(CoreError::FeeMismatch {
+                            quoted: p.fee,
+                            actual,
+                        })
+                    }
+                    None => return Err(CoreError::WrongChain),
+                }
+
+                neko_btc::tx::sign_p2wpkh(&mut tx, &p.inputs, &key)?;
+                Ok(SignedTransfer {
+                    id: tx.txid(),
+                    raw: tx.serialize(),
+                })
+            }
             // Unreachable through the interface, because the asset and the
             // parameters are chosen together. Refused rather than assumed.
             _ => Err(CoreError::WrongChain),
@@ -249,6 +310,10 @@ impl Session {
             // the other chains use would produce a perfectly valid key for an
             // address that holds nothing.
             ChainId::Solana => neko_hd::solana::private_key_at(&seed, index)?,
+            // BIP84, and the purpose level *is* the script type: deriving under
+            // 44' and building a segwit script produces an address that is
+            // valid, empty, and unspendable by the key that made it.
+            ChainId::Bitcoin => neko_hd::bitcoin::private_key_at(&seed, 0, 0, index)?,
             ChainId::Tron | ChainId::Bsc => {
                 neko_hd::derive::private_key_at_coin(&seed, chain.coin_type(), 0, index)?
             }

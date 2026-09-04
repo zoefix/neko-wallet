@@ -1252,6 +1252,53 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                             )));
                         }
                     }
+                    crate::send::FeeQuote::Bitcoin(b) => {
+                        lines.push(Line::from(vec![
+                            Span::styled(fee_label(t(Key::Send_FeeRate)), theme::hint()),
+                            Span::raw(format!("{} sat/vB x {} vB", b.fee_rate, b.vbytes)),
+                        ]));
+                        // The number that explains an otherwise inexplicable
+                        // fee. On this chain the cost is a function of how many
+                        // separate coins are being spent, not of the amount.
+                        lines.push(Line::from(vec![
+                            Span::styled(fee_label(t(Key::Send_Coins)), theme::hint()),
+                            Span::raw(tf(
+                                Key::Send_CoinsOf,
+                                &[
+                                    ("n", &b.inputs.to_string()),
+                                    ("total", &b.utxo_count.to_string()),
+                                ],
+                            )),
+                        ]));
+                        if let Some(change) = b.change_amount() {
+                            lines.push(Line::from(vec![
+                                Span::styled(fee_label(t(Key::Send_ChangeBack)), theme::hint()),
+                                Span::raw(format!(
+                                    "{} BTC",
+                                    change.to_display_string_trim(crate::chain::BALANCE_FRAC)
+                                )),
+                            ]));
+                        }
+                        if b.change_was_dust {
+                            lines.push(Line::from(Span::styled(
+                                format!("                {}", t(Key::Send_ChangeToFee)),
+                                theme::hint(),
+                            )));
+                        }
+                        // Spending most of a large pile is the case where the
+                        // fee looks wrong until somebody knows this.
+                        if b.inputs >= 5 {
+                            for key in [Key::Send_ManyCoins, Key::Send_ManyCoins2] {
+                                lines.push(Line::from(Span::styled(
+                                    format!(
+                                        "                {}",
+                                        tf(key, &[("n", &b.utxo_count.to_string())])
+                                    ),
+                                    theme::hint(),
+                                )));
+                            }
+                        }
+                    }
                 }
 
                 let total = q.total();
@@ -1267,7 +1314,9 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                 let verb = match q {
                     crate::send::FeeQuote::Tron(_) => " burned",
                     // Both pay a validator rather than destroying anything.
-                    crate::send::FeeQuote::Bsc(_) | crate::send::FeeQuote::Solana(_) => "",
+                    crate::send::FeeQuote::Bsc(_)
+                    | crate::send::FeeQuote::Solana(_)
+                    | crate::send::FeeQuote::Bitcoin(_) => "",
                 };
                 let mut total_line = vec![
                     Span::styled(fee_label(t(Key::Send_Total)), theme::hint()),
@@ -1566,6 +1615,9 @@ fn draw_settings(f: &mut Frame, area: Rect, app: &App, st: &SettingsState) {
     if matches!(st.row(), SettingRow::SolanaRpc) {
         lines.extend(hint_lines(t(Key::Settings_SolanaRpcNote), inner.width));
         lines.extend(hint_lines(t(Key::Settings_SolanaRpcNote2), inner.width));
+    } else if matches!(st.row(), SettingRow::BitcoinApi) {
+        lines.extend(hint_lines(t(Key::Settings_BitcoinApiNote), inner.width));
+        lines.extend(hint_lines(t(Key::Settings_BitcoinApiNote2), inner.width));
     } else if app.api_key.is_none() {
         lines.extend(hint_lines(t(Key::Settings_ApiKeyNote), inner.width));
         lines.extend(hint_lines(t(Key::Settings_ApiKeyNote2), inner.width));

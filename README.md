@@ -8,13 +8,13 @@ A self-custody encrypted crypto wallet for the terminal. Your whole wallet is
 one encrypted file — carry it on a USB stick, keep it on a network drive, copy
 it anywhere. Unlocked by an email and a password that are stored nowhere.
 
-Multi-chain by design: TRON, BNB Chain and Solana.
+Multi-chain by design: TRON, BNB Chain, Solana and Bitcoin.
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
 ![Version](https://img.shields.io/badge/VERSION-v0.1.0-8A2BE2?style=for-the-badge&labelColor=444)
 ![Platform](https://img.shields.io/badge/PLATFORM-MACOS%20%7C%20LINUX%20%7C%20WINDOWS-00B5E2?style=for-the-badge&labelColor=444)
-![Chains](https://img.shields.io/badge/CHAINS-TRON%20%7C%20BNB%20%7C%20SOLANA-1BC47D?style=for-the-badge&labelColor=444)
+![Chains](https://img.shields.io/badge/CHAINS-TRON%20%7C%20BNB%20%7C%20SOL%20%7C%20BTC-1BC47D?style=for-the-badge&labelColor=444)
 ![Rust](https://img.shields.io/badge/RUST-1.86%2B-000000?style=for-the-badge&labelColor=444)
 ![Licence](https://img.shields.io/badge/LICENCE-MIT-F5A623?style=for-the-badge&labelColor=444)
 
@@ -138,13 +138,21 @@ phrase, or a new thing to back up.
 | TRON | working | TRX, USDT (TRC20) |
 | BNB Chain | working | BNB, USDT (BEP20) |
 | Solana | working | SOL, USDT (SPL) |
-| Bitcoin | listed in the interface, not built yet | — |
+| Bitcoin | working | BTC |
 
 The same phrase gives a different address on each — that is correct and
 universal, not a bug. Solana has no agreed derivation path; this wallet uses
 `m/44'/501'/{i}'/0'`, which is Phantom's and Backpack's default. Solflare,
 Ledger Live and Trust Wallet default to `m/44'/501'/{i}'` and will show
 different addresses for the same phrase.
+
+Bitcoin derives at `m/84'/0'/0'/0/i` and gives `bc1q...` native segwit
+addresses, which is what Sparrow, BlueWallet, Ledger and Trezor default to.
+It pays any of the five script types, so an older `1...` or `3...` address
+still works. Two things are Bitcoin-only and are shown on the send screen
+rather than left to be discovered: the fee depends on how many separate
+coins are being spent, not on the amount, and a remainder too small to
+return goes to the fee instead of coming back as change.
 
 Chain-specific code is confined to one crate. Key derivation, storage,
 encryption, and the interface are shared and chain-agnostic, and the database
@@ -442,6 +450,7 @@ neko-hd       BIP39 / BIP32 / BIP44 and SLIP-0010; TRON, EVM and Solana addresse
 neko-tron     TRON only: protobuf, transaction building and signing, node client
 neko-evm      BNB Chain: RLP, EIP-155 signing, ABI encoding, JSON-RPC
 neko-solana   Solana: Ed25519, the wire format, token accounts, cluster RPC
+neko-btc      Bitcoin: bech32, segwit v0 signing, coin selection, Esplora
 neko-core     the facade the UI talks to
 neko-i18n     compile-time-checked translation tables
 neko-tui      ratatui interface

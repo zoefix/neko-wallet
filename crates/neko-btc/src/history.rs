@@ -122,9 +122,11 @@ pub fn extract(tx: &Value, ours: &BtcAddress) -> Option<Transfer> {
             recipients.first().cloned().unwrap_or_default(),
         )
     } else {
-        // Every output came back to us: a consolidation. The only thing that
-        // actually left is the fee, and reporting it as a transfer of zero
-        // would hide a real cost.
+        // Nothing was paid to anybody, so the whole difference is the fee.
+        // Two real cases land here: consolidating your own coins, and a spend
+        // whose only output is an OP_RETURN - which is what sweeping bots do
+        // to well-known addresses, handing the entire balance to a miner.
+        // Reporting either as a transfer of zero would hide a real loss.
         (Direction::Out, -delta, String::new())
     };
 
@@ -268,5 +270,35 @@ mod tests {
         let r = extract(&t, &mine()).unwrap();
         assert!(!r.confirmed);
         assert_eq!(r.block_time, 0, "an unconfirmed transaction has no time");
+    }
+}
+
+#[cfg(test)]
+mod op_return {
+    use super::*;
+    use serde_json::json;
+
+    /// A real mainnet transaction: `d141b1b0…8428` spent 14,584 satoshis from
+    /// an address, produced a single zero-value OP_RETURN, and handed the whole
+    /// amount to the miner. Sweeping bots do this to well-known addresses.
+    ///
+    /// It is a real loss with no recipient, and both halves of that have to
+    /// come out right - the amount is the full 14,584, and there is nobody to
+    /// name.
+    #[test]
+    fn a_spend_with_only_an_op_return_reports_the_whole_loss() {
+        let mine = BtcAddress::parse("bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu").unwrap();
+        let t = json!({
+            "txid": "d141b1b0379c965d817a104a451096bd22aed5975330e211cfeb89516efb8428",
+            "status": {"confirmed": true, "block_time": 1_756_000_000},
+            "vin": [{"prevout": {
+                "scriptpubkey_address": "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu",
+                "value": 14_584}}],
+            "vout": [{"value": 0, "scriptpubkey_type": "op_return"}],
+        });
+        let r = extract(&t, &mine).unwrap();
+        assert_eq!(r.direction, Direction::Out);
+        assert_eq!(r.amount, 14_584, "the loss was understated");
+        assert!(r.counterparty.is_empty(), "there was nobody to pay");
     }
 }

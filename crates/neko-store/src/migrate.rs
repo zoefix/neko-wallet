@@ -35,6 +35,10 @@ const MIGRATIONS: &[Migration] = &[
         to: 3,
         sql: include_str!("../migrations/0003_solana.sql"),
     },
+    Migration {
+        to: 4,
+        sql: include_str!("../migrations/0004_bitcoin.sql"),
+    },
 ];
 
 /// Apply whatever this database is missing.

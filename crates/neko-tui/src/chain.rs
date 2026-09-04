@@ -38,6 +38,17 @@ pub enum Client {
         history_key: Option<String>,
     },
     Solana(Box<neko_solana::client::Rpc>),
+    Bitcoin {
+        esplora: Box<neko_btc::client::Esplora>,
+        /// Only the price uses this.
+        ///
+        /// Bitcoin has no exchange on it, so there is no pool on its own chain
+        /// to ask what a coin is worth. Rather than add a price service - a new
+        /// destination that would learn which addresses this wallet cares
+        /// about - BTC is quoted from the BTCB pool on a chain we already talk
+        /// to. Balances, fees and transfers never touch this.
+        bsc: Box<neko_evm::client::Rpc>,
+    },
 }
 
 impl Client {
@@ -51,6 +62,10 @@ impl Client {
                 history_key: api_key.filter(|k| !k.is_empty()),
             },
             ChainId::Solana => Client::Solana(Box::new(neko_solana::client::Rpc::new(url))),
+            ChainId::Bitcoin => Client::Bitcoin {
+                esplora: Box::new(neko_btc::client::Esplora::new(url)),
+                bsc: Box::new(neko_evm::client::Rpc::new(None)),
+            },
         }
     }
 
@@ -60,6 +75,7 @@ impl Client {
     pub fn endpoint(&self) -> Option<&str> {
         match self {
             Client::Solana(rpc) => Some(rpc.url()),
+            Client::Bitcoin { esplora, .. } => Some(esplora.endpoint()),
             _ => None,
         }
     }
@@ -69,6 +85,7 @@ impl Client {
             Client::Tron(_) => ChainId::Tron,
             Client::Bsc { .. } => ChainId::Bsc,
             Client::Solana(_) => ChainId::Solana,
+            Client::Bitcoin { .. } => ChainId::Bitcoin,
         }
     }
 }
@@ -84,7 +101,45 @@ pub async fn quote(c: &Client, req: &TransferRequest) -> Result<Quote, String> {
         Client::Tron(t) => tron_quote(t, req).await,
         Client::Bsc { rpc, .. } => bsc_quote(rpc, req).await,
         Client::Solana(rpc) => solana_quote(rpc, req).await,
+        Client::Bitcoin { esplora, .. } => bitcoin_quote(esplora, req).await,
     }
+}
+
+/// What a Bitcoin transfer costs, and which coins it will spend.
+///
+/// This is the quote that does the most work of the four. On an account chain a
+/// fee is a property of the transaction; here it is a property of the *choice*,
+/// because each coin selected adds about 68 virtual bytes to the fee it is
+/// helping to pay. Selection and fee estimation are therefore one calculation,
+/// and its result is carried into signing unchanged - substituting a coin later
+/// would change the fee without anything saying so.
+async fn bitcoin_quote(
+    esplora: &neko_btc::client::Esplora,
+    req: &TransferRequest,
+) -> Result<Quote, String> {
+    let from = req.from.as_bitcoin().map_err(|e| e.to_string())?;
+    let to = req.to.as_bitcoin().map_err(|e| e.to_string())?;
+    let amount = u64::try_from(req.amount.raw).map_err(|_| "amount is too large".to_string())?;
+
+    let utxos = esplora.utxos(from).await.map_err(|e| e.to_string())?;
+    let fee_rate = esplora
+        .fee_rate(neko_btc::TARGET_BLOCKS)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Change returns to the same address the payment came from. That is what
+    // the one-address-per-chain model already implies - this wallet shows one
+    // receiving address per chain, so nothing is being newly linked.
+    let selection =
+        neko_btc::coins::select(&utxos, &to, amount, &from, fee_rate).map_err(|e| e.to_string())?;
+
+    Ok(Quote::Bitcoin {
+        fee_rate,
+        balance: utxos.iter().map(|u| u.value).sum(),
+        utxo_count: utxos.len(),
+        selection: Box::new(selection),
+        change_to: from,
+    })
 }
 
 /// What a Solana transfer costs, and what it has to be told before it is built.
@@ -349,6 +404,13 @@ pub async fn native_price(c: &Client) -> Result<i128, String> {
                 .map_err(|e| e.to_string())? as u128,
             neko_core::PRICE_SCALE,
         ),
+        // Read on BNB Chain, because Bitcoin has no exchange on it. The figure
+        // is BTCB's, and the interface labels it as such rather than passing it
+        // off as a spot BTC price.
+        Client::Bitcoin { bsc, .. } => (
+            bsc.btcb_price_in_usdt().await.map_err(|e| e.to_string())?,
+            neko_evm::USDT_DECIMALS,
+        ),
     };
     Ok(rescale(
         raw as i128,
@@ -373,6 +435,7 @@ pub async fn broadcast(c: &Client, raw: Vec<u8>) -> Result<String, String> {
         Client::Tron(t) => t.broadcast(&raw).await.map_err(|e| e.to_string()),
         Client::Bsc { rpc, .. } => rpc.send_raw(&raw).await.map_err(|e| e.to_string()),
         Client::Solana(rpc) => rpc.send(&raw).await.map_err(|e| e.to_string()),
+        Client::Bitcoin { esplora, .. } => esplora.broadcast(&raw).await.map_err(|e| e.to_string()),
     }
 }
 
@@ -427,6 +490,19 @@ pub async fn wallet_assets(
                 // three precisions.
                 ("USDT".to_string(), neko_solana::USDT_DECIMALS, usdt as i128),
             ])
+        }
+        Client::Bitcoin { esplora, .. } => {
+            // There is no balance to ask for. A wallet holds unspent outputs,
+            // and the balance is their sum - which is also why an address that
+            // has never been paid returns an empty list rather than a zero.
+            let a = addr.as_bitcoin().map_err(|e| e.to_string())?;
+            let utxos = esplora.utxos(a).await.map_err(|e| e.to_string())?;
+            let total: u64 = utxos.iter().map(|u| u.value).sum();
+            Ok(vec![(
+                "BTC".to_string(),
+                neko_btc::BTC_DECIMALS,
+                total as i128,
+            )])
         }
     }
 }
@@ -526,6 +602,35 @@ pub async fn history(
                         neko_tron::TxStatus::Failed
                     } else {
                         neko_tron::TxStatus::Success
+                    },
+                })
+                .collect())
+        }
+        Client::Bitcoin { esplora, .. } => {
+            let a = addr.as_bitcoin().map_err(|e| e.to_string())?;
+            let raw = esplora.address_txs(a).await.map_err(|e| e.to_string())?;
+            let rows = neko_btc::history::parse(&raw, &a).map_err(|e| e.to_string())?;
+            Ok(rows
+                .into_iter()
+                .take(limit as usize)
+                .map(|t| neko_tron::HistoryEntry {
+                    txid: t.txid,
+                    block_ts: t.block_time * 1000,
+                    symbol: "BTC".into(),
+                    decimals: neko_btc::BTC_DECIMALS,
+                    amount: t.amount,
+                    direction: match t.direction {
+                        neko_btc::history::Direction::In => neko_tron::Direction::In,
+                        neko_btc::history::Direction::Out => neko_tron::Direction::Out,
+                    },
+                    counterparty: t.counterparty,
+                    // Unconfirmed is not failed - it is still in the mempool
+                    // and can still be replaced, which the pending state says
+                    // and a success would not.
+                    status: if t.confirmed {
+                        neko_tron::TxStatus::Success
+                    } else {
+                        neko_tron::TxStatus::Pending
                     },
                 })
                 .collect())

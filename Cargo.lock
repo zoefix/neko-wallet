@@ -1660,6 +1660,7 @@ name = "neko-core"
 version = "0.1.0"
 dependencies = [
  "hex",
+ "neko-btc",
  "neko-crypto",
  "neko-evm",
  "neko-hd",
@@ -1790,6 +1791,7 @@ version = "0.1.0"
 dependencies = [
  "crossterm",
  "futures-util",
+ "neko-btc",
  "neko-core",
  "neko-evm",
  "neko-hd",

@@ -260,3 +260,80 @@ fn the_migration_registers_solana_and_sol() {
     assert_eq!(sym, "SOL");
     assert_eq!(dec, 9, "SOL is quoted in lamports: 1e9");
 }
+
+/// Bitcoin stores the locking script, and its length is the address type. Every
+/// one of the four has to fit, or four of the five address types are unusable.
+#[test]
+fn the_column_accepts_every_bitcoin_script_length() {
+    let conn = v1_with_a_funded_wallet();
+    neko_store::migrate::run(&conn).unwrap();
+    conn.execute(
+        "INSERT INTO accounts (id, wallet_id, chain_id, account_index) VALUES (5, 7, 4, 0)",
+        [],
+    )
+    .unwrap();
+
+    // P2WPKH, P2SH, P2PKH, and P2WSH/Taproot.
+    for (i, len) in neko_store::repo::addresses::BITCOIN_SCRIPT_LENS
+        .iter()
+        .enumerate()
+    {
+        conn.execute(
+            "INSERT INTO addresses (account_id, deriv_index, change, address, address_raw)
+             VALUES (5, ?1, 0, ?2, ?3)",
+            rusqlite::params![i as i64, format!("bc1-{len}"), vec![1u8; *len]],
+        )
+        .unwrap_or_else(|e| panic!("a {len}-byte script was refused: {e}"));
+    }
+
+    // And the widening did not open the column to anything at all.
+    for bad in [19usize, 21 + 1, 26, 33, 35, 64] {
+        if neko_store::repo::addresses::BITCOIN_SCRIPT_LENS.contains(&bad)
+            || [20, 21, 32].contains(&bad)
+        {
+            continue;
+        }
+        assert!(
+            conn.execute(
+                "INSERT INTO addresses (account_id, deriv_index, change, address, address_raw)
+                 VALUES (5, 900, 0, 'x', ?1)",
+                rusqlite::params![vec![0u8; bad]],
+            )
+            .is_err(),
+            "{bad} bytes is not an address on any chain this wallet knows"
+        );
+    }
+}
+
+/// Bitcoin has one asset. A second row would put an empty line on the assets
+/// screen for a token that does not exist on this chain.
+#[test]
+fn the_migration_registers_bitcoin_with_one_asset() {
+    let conn = v1_with_a_funded_wallet();
+    neko_store::migrate::run(&conn).unwrap();
+
+    let (slug, coin): (String, i64) = conn
+        .query_row("SELECT slug, coin_type FROM chains WHERE id = 4", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .expect("no bitcoin row in chains");
+    assert_eq!(slug, "bitcoin");
+    assert_eq!(coin, 0, "Bitcoin is SLIP-44 coin type 0");
+
+    let n: i64 = conn
+        .query_row("SELECT count(*) FROM assets WHERE chain_id = 4", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(n, 1, "Bitcoin carries exactly one asset");
+
+    let (sym, dec): (String, i64) = conn
+        .query_row(
+            "SELECT symbol, decimals FROM assets WHERE chain_id = 4",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(sym, "BTC");
+    assert_eq!(dec, 8, "satoshis: 1e8");
+}

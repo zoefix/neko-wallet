@@ -16,6 +16,7 @@ use neko_tui::send::{BscFee, FeeQuote, SendState, TronFee};
 const BSC_MINE: &str = "0x1111111111111111111111111111111111111111";
 const BSC_TO: &str = "0x2222222222222222222222222222222222222222";
 const SOLANA_MINE: &str = "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9";
+const BTC_MINE: &str = "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu";
 const TRON_MINE: &str = "TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH";
 
 /// The balance from the screenshot that started this: 0.00008488 BNB, and a
@@ -30,6 +31,7 @@ fn state(asset: neko_core::Asset, balance: Option<i128>) -> SendState {
         neko_core::ChainId::Tron => TRON_MINE,
         neko_core::ChainId::Bsc => BSC_MINE,
         neko_core::ChainId::Solana => SOLANA_MINE,
+        neko_core::ChainId::Bitcoin => BTC_MINE,
     };
     let mut st = SendState::new(
         1,
@@ -102,7 +104,7 @@ fn the_reduced_amount_is_affordable() {
 /// Holding any of it back would strand tokens for no reason.
 #[test]
 fn a_token_sends_its_whole_balance() {
-    let usdt = neko_core::ChainId::Bsc.usdt();
+    let usdt = neko_core::ChainId::Bsc.usdt().unwrap();
     let held = 250_000_000_000_000_000_000i128; // 250 USDT, 18 decimals
     let mut st = state(usdt, Some(held));
     st.request_max();
