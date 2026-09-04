@@ -9,13 +9,13 @@
 どこへでもコピーできます。メールアドレスとパスワードで解錠しますが、
 その 2 つはどこにも保存されていません。
 
-マルチチェーン設計。現在動作するのは TRON です。
+マルチチェーン設計：TRON、BNB Chain、Solana。
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
 ![Version](https://img.shields.io/badge/VERSION-v0.1.0-8A2BE2?style=for-the-badge&labelColor=444)
 ![Platform](https://img.shields.io/badge/PLATFORM-MACOS%20%7C%20LINUX%20%7C%20WINDOWS-00B5E2?style=for-the-badge&labelColor=444)
-![Chains](https://img.shields.io/badge/CHAINS-TRON-1BC47D?style=for-the-badge&labelColor=444)
+![Chains](https://img.shields.io/badge/CHAINS-TRON%20%7C%20BNB%20%7C%20SOLANA-1BC47D?style=for-the-badge&labelColor=444)
 ![Rust](https://img.shields.io/badge/RUST-1.86%2B-000000?style=for-the-badge&labelColor=444)
 ![Licence](https://img.shields.io/badge/LICENCE-MIT-F5A623?style=for-the-badge&labelColor=444)
 
@@ -136,6 +136,8 @@ BIP44 の導出パスはそのためのものです。チェーンを増やす�
 | チェーン | 状態 | 資産 |
 |---|---|---|
 | TRON | 動作 | TRX、USDT (TRC20) |
+| BNB Chain | 動作 | BNB、USDT (BEP20) |
+| Solana | 動作 | SOL、USDT (SPL) |
 | Bitcoin | 画面には出るが未実装 | — |
 
 チェーン固有のコードは 1 つのクレートに閉じ込めてあります。鍵導出・保存・暗号化・
@@ -370,7 +372,10 @@ curl -fsSL https://raw.githubusercontent.com/zoefix/neko-wallet/main/install.sh 
 鍵を保持している機械へのリモートコード経路を持つウォレットのことであり、
 どれだけ署名検証を重ねてもその経路は「そもそも無い」より小さくはなりません。
 CI がこれを強制します: 自己置換系のクレートが依存ツリーに戻るか、
-TRON ノード以外の通信先が増えると、ビルドが失敗します。
+許可リストにない通信先が増えると、ビルドが失敗します。
+許可リストは手で書き換えないと広がりません。現在あるのは三つのチェーンのノード、
+任意の BNB Chain 履歴インデクサ、そしてエクスプローラのリンク
+（コピーするだけで、ウォレット自身は取得しません）だけです。
 
 ---
 
@@ -412,8 +417,10 @@ cargo clippy --workspace --all-targets -- -D warnings
 neko-crypto   Argon2id / XChaCha20-Poly1305 / HKDF。IO なし、SQL なし、async なし
 neko-vault    鍵の階層、KDF プロファイル、パスワード方針、正規化
 neko-store    SQLCipher、マイグレーション、フィールド単位の封筒（鍵は導出しない）
-neko-hd       BIP39 / BIP32 / BIP44、TRON アドレスのエンコード
+neko-hd       BIP39 / BIP32 / BIP44 と SLIP-0010、TRON / EVM / Solana アドレス
 neko-tron     TRON 専用: protobuf、取引の組み立てと署名、ノードクライアント
+neko-evm      BNB Chain: RLP、EIP-155 署名、ABI エンコード、JSON-RPC
+neko-solana   Solana: Ed25519、取引エンコード、トークン口座、クラスタ RPC
 neko-core     UI が話す唯一のファサード
 neko-i18n     コンパイル時に検査される翻訳テーブル
 neko-tui      ratatui のインターフェース

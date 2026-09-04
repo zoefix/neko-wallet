@@ -8,13 +8,13 @@ A self-custody encrypted crypto wallet for the terminal. Your whole wallet is
 one encrypted file — carry it on a USB stick, keep it on a network drive, copy
 it anywhere. Unlocked by an email and a password that are stored nowhere.
 
-Multi-chain by design; TRON works today.
+Multi-chain by design: TRON, BNB Chain and Solana.
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
 ![Version](https://img.shields.io/badge/VERSION-v0.1.0-8A2BE2?style=for-the-badge&labelColor=444)
 ![Platform](https://img.shields.io/badge/PLATFORM-MACOS%20%7C%20LINUX%20%7C%20WINDOWS-00B5E2?style=for-the-badge&labelColor=444)
-![Chains](https://img.shields.io/badge/CHAINS-TRON-1BC47D?style=for-the-badge&labelColor=444)
+![Chains](https://img.shields.io/badge/CHAINS-TRON%20%7C%20BNB%20%7C%20SOLANA-1BC47D?style=for-the-badge&labelColor=444)
 ![Rust](https://img.shields.io/badge/RUST-1.86%2B-000000?style=for-the-badge&labelColor=444)
 ![Licence](https://img.shields.io/badge/LICENCE-MIT-F5A623?style=for-the-badge&labelColor=444)
 
@@ -136,7 +136,15 @@ phrase, or a new thing to back up.
 | Chain | Status | Assets |
 |---|---|---|
 | TRON | working | TRX, USDT (TRC20) |
+| BNB Chain | working | BNB, USDT (BEP20) |
+| Solana | working | SOL, USDT (SPL) |
 | Bitcoin | listed in the interface, not built yet | — |
+
+The same phrase gives a different address on each — that is correct and
+universal, not a bug. Solana has no agreed derivation path; this wallet uses
+`m/44'/501'/{i}'/0'`, which is Phantom's and Backpack's default. Solflare,
+Ledger Live and Trust Wallet default to `m/44'/501'/{i}'` and will show
+different addresses for the same phrase.
 
 Chain-specific code is confined to one crate. Key derivation, storage,
 encryption, and the interface are shared and chain-agnostic, and the database
@@ -384,7 +392,9 @@ finishes.
 executable has a remote code path into the machine holding the keys, and no
 amount of signing makes that path smaller than not having it. CI enforces this:
 the build fails if a self-replacement crate reappears in the dependency tree,
-or if the program grows a network destination other than the TRON node.
+or if the program grows a network destination outside a short list that has
+to be edited deliberately: the three chain nodes, the optional BNB Chain
+history indexer, and explorer links the wallet copies but never fetches.
 
 ---
 
@@ -428,8 +438,10 @@ changes a derived address or a transaction id fails immediately.
 neko-crypto   Argon2id / XChaCha20-Poly1305 / HKDF. No IO, no SQL, no async.
 neko-vault    key hierarchy, KDF profiles, password policy, normalization
 neko-store    SQLCipher, migrations, field-level envelopes  (never derives keys)
-neko-hd       BIP39 / BIP32 / BIP44, TRON address encoding
+neko-hd       BIP39 / BIP32 / BIP44 and SLIP-0010; TRON, EVM and Solana addresses
 neko-tron     TRON only: protobuf, transaction building and signing, node client
+neko-evm      BNB Chain: RLP, EIP-155 signing, ABI encoding, JSON-RPC
+neko-solana   Solana: Ed25519, the wire format, token accounts, cluster RPC
 neko-core     the facade the UI talks to
 neko-i18n     compile-time-checked translation tables
 neko-tui      ratatui interface

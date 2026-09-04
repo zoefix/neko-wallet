@@ -8,13 +8,13 @@
 插隨身碟帶走、放雲端硬碟、隨便拷到哪裡都行。用一個信箱加一個密碼解鎖，
 而這兩樣東西哪裡都沒有儲存。
 
-多鏈架構；TRON 已可用。
+多鏈架構：TRON、BNB Chain、Solana。
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
 ![Version](https://img.shields.io/badge/VERSION-v0.1.0-8A2BE2?style=for-the-badge&labelColor=444)
 ![Platform](https://img.shields.io/badge/PLATFORM-MACOS%20%7C%20LINUX%20%7C%20WINDOWS-00B5E2?style=for-the-badge&labelColor=444)
-![Chains](https://img.shields.io/badge/CHAINS-TRON-1BC47D?style=for-the-badge&labelColor=444)
+![Chains](https://img.shields.io/badge/CHAINS-TRON%20%7C%20BNB%20%7C%20SOLANA-1BC47D?style=for-the-badge&labelColor=444)
 ![Rust](https://img.shields.io/badge/RUST-1.86%2B-000000?style=for-the-badge&labelColor=444)
 ![Licence](https://img.shields.io/badge/LICENCE-MIT-F5A623?style=for-the-badge&labelColor=444)
 
@@ -127,6 +127,8 @@ neko-wallet
 | 鏈 | 狀態 | 資產 |
 |---|---|---|
 | TRON | 可用 | TRX、USDT (TRC20) |
+| BNB Chain | 可用 | BNB、USDT (BEP20) |
+| Solana | 可用 | SOL、USDT (SPL) |
 | Bitcoin | 介面裡已列出，功能還沒做 | — |
 
 鏈相關的程式碼只集中在一個 crate 裡。金鑰推導、儲存、加密和介面都是共用且與鏈無關的，
@@ -339,7 +341,9 @@ curl -fsSL https://raw.githubusercontent.com/zoefix/neko-wallet/main/install.sh 
 **這裡故意不做自動更新。** 一個能替換自己執行檔的錢包，就等於在保管私鑰的機器上
 開了一條遠端程式碼通道，再多的簽章驗證也不會讓這條通道比「根本沒有」更小。
 CI 會強制這一點：相依樹裡一旦重新出現自我替換相關的 crate，
-或者程式多出 TRON 節點以外的連網目標，建置就會失敗。
+或者程式多出白名單以外的連網目標，建置就會失敗。
+白名單必須手動修改才能擴大，目前只有：三條鏈的節點、可選的 BNB Chain 歷史索引服務，
+以及瀏覽器連結（只複製給你，錢包自己從不存取）。
 
 ---
 
@@ -377,8 +381,10 @@ cargo clippy --workspace --all-targets -- -D warnings
 neko-crypto   Argon2id / XChaCha20-Poly1305 / HKDF。無 IO、無 SQL、無 async
 neko-vault    金鑰階層、KDF 檔位、密碼政策、正規化
 neko-store    SQLCipher、遷移、欄位級信封（永不推導金鑰）
-neko-hd       BIP39 / BIP32 / BIP44、TRON 地址編解碼
+neko-hd       BIP39 / BIP32 / BIP44 與 SLIP-0010；TRON、EVM、Solana 地址編解碼
 neko-tron     僅 TRON：protobuf、交易組裝與簽章、節點用戶端
+neko-evm      BNB Chain：RLP、EIP-155 簽章、ABI 編碼、JSON-RPC
+neko-solana   Solana：Ed25519、交易編碼、代幣帳戶、叢集 RPC
 neko-core     介面唯一對話的門面
 neko-i18n     編譯期檢查的翻譯表
 neko-tui      ratatui 介面
