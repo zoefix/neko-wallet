@@ -35,6 +35,14 @@ pub const BTC_ADDRESS_MAX_LEN: usize = 62;
 /// A workchain byte, 32 bytes of hash and a CRC, in base64url. 36 bytes, which
 /// divides by three, so there is no padding and no variation in the length.
 pub const TON_ADDRESS_LEN: usize = 48;
+/// `0x` plus at least one hex digit, and at most 64.
+///
+/// Not a single length, unlike TON's: Aptos prints addresses with leading
+/// zeros removed, so `0x1` and a 66-character string are both complete.
+const APTOS_ADDRESS_MIN_LEN: usize = 3;
+const APTOS_ADDRESS_MAX_LEN: usize = 66;
+/// `0x` and exactly 64 hex characters.
+const SUI_ADDRESS_LEN: usize = 66;
 
 /// The fee, broken down.
 ///
@@ -436,6 +444,120 @@ pub enum FeeQuote {
     Solana(SolanaFee),
     Bitcoin(BtcFee),
     Ton(TonFee),
+    Aptos(AptosFee),
+    Sui(SuiFee),
+}
+
+/// What a Sui transfer costs.
+///
+/// The chain charges computation plus storage and then *refunds* part of the
+/// storage. Consolidating coin objects frees storage, so a transfer that folds
+/// thirty objects into one can earn back more than it costs - the net figure
+/// here is genuinely zero sometimes, and that is a fact about the chain rather
+/// than a reading that failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SuiFee {
+    /// Net cost in MIST, after the rebate.
+    pub fee: u64,
+    /// The ceiling, which has to be available in the gas coins whatever the
+    /// transfer ends up costing.
+    pub budget: u64,
+    pub sui_balance: Option<u128>,
+    pub sending_native: bool,
+    pub amount: u128,
+    pub coins_spent: usize,
+}
+
+impl SuiFee {
+    pub fn fee_amount(&self) -> Amount {
+        Amount::new(self.fee as i128, neko_sui::SUI_DECIMALS)
+    }
+
+    pub fn budget_amount(&self) -> Amount {
+        Amount::new(self.budget as i128, neko_sui::SUI_DECIMALS)
+    }
+
+    /// What the balance has to cover: the whole budget, plus the amount when
+    /// SUI is what is being sent. The budget rather than the fee, because the
+    /// chain will not run a transaction whose gas coins cannot cover it.
+    pub fn sui_needed(&self) -> u128 {
+        if self.sending_native {
+            (self.budget as u128).saturating_add(self.amount)
+        } else {
+            self.budget as u128
+        }
+    }
+
+    pub fn affordable(&self) -> Option<bool> {
+        self.sui_balance.map(|b| b >= self.sui_needed())
+    }
+
+    pub fn shortfall(&self) -> Option<Amount> {
+        self.sui_balance.map(|b| {
+            Amount::new(
+                self.sui_needed().saturating_sub(b) as i128,
+                neko_sui::SUI_DECIMALS,
+            )
+        })
+    }
+}
+
+/// What an Aptos transfer costs.
+///
+/// Gas units times a price in octas, which is the same shape as an EVM fee.
+///
+/// A **ceiling**, not an estimate. Aptos will price a transaction exactly, but
+/// only when shown the sender's real public key, which this wallet does not
+/// have while quoting - see `chain::aptos_quote`. So the figure here is the
+/// allowance, which is what the balance is checked against and what is held
+/// back from a "send everything"; unused units are not charged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AptosFee {
+    pub max_gas_amount: u64,
+    pub gas_unit_price: u64,
+    /// `None` when the balance could not be read. Distinct from zero.
+    pub apt_balance: Option<u128>,
+    pub sending_native: bool,
+    pub amount: u128,
+}
+
+impl AptosFee {
+    /// The ceiling, which is both what is shown and what is reserved.
+    pub fn max_fee_octas(&self) -> u128 {
+        self.max_gas_amount as u128 * self.gas_unit_price as u128
+    }
+
+    pub fn fee_amount(&self) -> Amount {
+        Amount::new(self.max_fee_octas() as i128, neko_aptos::APT_DECIMALS)
+    }
+
+    pub fn max_fee_amount(&self) -> Amount {
+        self.fee_amount()
+    }
+
+    /// APT pays the fee whatever is being sent, so a wallet holding only USDT
+    /// cannot move it.
+    pub fn apt_needed(&self) -> u128 {
+        if self.sending_native {
+            self.max_fee_octas().saturating_add(self.amount)
+        } else {
+            self.max_fee_octas()
+        }
+    }
+
+    /// `None` while the balance is unknown - never guessed.
+    pub fn affordable(&self) -> Option<bool> {
+        self.apt_balance.map(|b| b >= self.apt_needed())
+    }
+
+    pub fn shortfall(&self) -> Option<Amount> {
+        self.apt_balance.map(|b| {
+            Amount::new(
+                self.apt_needed().saturating_sub(b) as i128,
+                neko_aptos::APT_DECIMALS,
+            )
+        })
+    }
 }
 
 impl FeeQuote {
@@ -462,6 +584,12 @@ impl FeeQuote {
                 t.fee.saturating_add(t.attached) as i128,
                 neko_ton::GRAM_DECIMALS,
             ),
+            // The gas ceiling, not the simulated cost - the same trap as
+            // EIP-1559's, and for the same reason: the chain checks the
+            // balance against `max_gas_amount x price`.
+            FeeQuote::Aptos(a) => a.max_fee_amount(),
+            // The whole budget, for the same reason.
+            FeeQuote::Sui(s) => s.budget_amount(),
             other => other.total(),
         }
     }
@@ -476,6 +604,8 @@ impl FeeQuote {
             // The fee alone. The attached coin is shown beside it rather than
             // added into it, because it comes back.
             FeeQuote::Ton(t) => t.fee_amount(),
+            FeeQuote::Aptos(a) => a.fee_amount(),
+            FeeQuote::Sui(s) => s.fee_amount(),
         }
     }
 
@@ -491,6 +621,8 @@ impl FeeQuote {
             FeeQuote::Solana(s) => s.sol_balance.map(|v| v as i128),
             FeeQuote::Bitcoin(b) => Some(b.balance as i128),
             FeeQuote::Ton(t) => t.gram_balance.map(|v| v as i128),
+            FeeQuote::Aptos(a) => a.apt_balance.map(|v| v as i128),
+            FeeQuote::Sui(s) => s.sui_balance.map(|v| v as i128),
         }
     }
 
@@ -509,6 +641,10 @@ impl FeeQuote {
             // "Send everything" is a different selection, not an adjustment.
             FeeQuote::Bitcoin(_) => {}
             FeeQuote::Ton(t) => t.amount = amount.max(0) as u128,
+            FeeQuote::Aptos(a) => a.amount = amount.max(0) as u128,
+            // The coin objects were chosen for a particular amount, as on
+            // Bitcoin. Changing it is a new selection, not an adjustment.
+            FeeQuote::Sui(_) => {}
         }
     }
 
@@ -528,6 +664,12 @@ impl FeeQuote {
             // fixed in shape, and this is deliberately generous. It is the one
             // figure here that really is a ceiling.
             FeeQuote::Ton(_) => true,
+            // An allowance rather than a quote - the chain will not price
+            // this without a key the wallet does not have yet. The one figure
+            // shown really is a ceiling, as TON's is.
+            FeeQuote::Aptos(_) => true,
+            // A dry run of this exact transaction.
+            FeeQuote::Sui(_) => false,
         }
     }
 
@@ -549,6 +691,8 @@ impl FeeQuote {
             // the amount and the fee, selection failed and there is no quote.
             FeeQuote::Bitcoin(_) => Some(true),
             FeeQuote::Ton(t) => t.affordable(),
+            FeeQuote::Aptos(a) => a.affordable(),
+            FeeQuote::Sui(s) => s.affordable(),
         }
     }
 
@@ -559,6 +703,8 @@ impl FeeQuote {
             FeeQuote::Evm(e) => e.shortfall(),
             FeeQuote::Solana(s) => s.shortfall(),
             FeeQuote::Ton(t) => t.shortfall(),
+            FeeQuote::Aptos(a) => a.shortfall(),
+            FeeQuote::Sui(s) => s.shortfall(),
         }
     }
 
@@ -576,9 +722,14 @@ impl FeeQuote {
     pub fn resources_unreadable(&self) -> bool {
         match self {
             FeeQuote::Tron(t) => t.is_upper_bound(),
-            FeeQuote::Evm(_) | FeeQuote::Solana(_) | FeeQuote::Bitcoin(_) | FeeQuote::Ton(_) => {
-                false
-            }
+            FeeQuote::Evm(_)
+            | FeeQuote::Solana(_)
+            | FeeQuote::Bitcoin(_)
+            | FeeQuote::Ton(_)
+            // Aptos simulates the real transaction, so nothing here is a
+            // ceiling standing in for a reading that failed.
+            | FeeQuote::Aptos(_)
+            | FeeQuote::Sui(_) => false,
         }
     }
 
@@ -594,6 +745,11 @@ impl FeeQuote {
             // And a TON message is charged gas and storage by the contract it
             // runs.
             FeeQuote::Ton(_) => false,
+            // Aptos charges gas units times a price, always at least one unit.
+            FeeQuote::Aptos(_) => false,
+            // And a Sui one can genuinely net to zero, when the storage
+            // rebate from consolidating coin objects exceeds the cost.
+            FeeQuote::Sui(s) => s.fee == 0,
         }
     }
 }
@@ -817,6 +973,13 @@ impl SendState {
             // A TON address is a workchain byte and 32 bytes of hash with a
             // checksum, base64url'd - always the same length, unlike base58.
             ChainId::Ton => n == TON_ADDRESS_LEN,
+            // 0x and 64 hex characters. Aptos itself prints shortened
+            // addresses with the leading zeros dropped, so anything from a
+            // few characters up to the full width is a complete address here.
+            ChainId::Aptos => (APTOS_ADDRESS_MIN_LEN..=APTOS_ADDRESS_MAX_LEN).contains(&n),
+            // Always the full width. Sui does not print shortened addresses,
+            // so accepting one would only widen what a typo can be.
+            ChainId::Sui => n == SUI_ADDRESS_LEN,
         };
         if !complete {
             return None;

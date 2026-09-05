@@ -35,6 +35,10 @@ pub enum CoreError {
     Btc(#[from] neko_btc::BtcError),
     #[error("{0}")]
     Ton(#[from] neko_ton::TonError),
+    #[error("{0}")]
+    Aptos(#[from] neko_aptos::AptosError),
+    #[error("{0}")]
+    Sui(#[from] neko_sui::SuiError),
     /// The fee a transaction would actually pay is not the one that was quoted.
     /// On a UTXO chain the fee is implicit, so this catches the difference
     /// between "the change output is missing" and "a miner received it".

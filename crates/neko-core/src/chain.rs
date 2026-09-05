@@ -30,9 +30,11 @@ pub enum ChainId {
     Linea,
     ZkSyncEra,
     Scroll,
+    Aptos,
+    Sui,
 }
 
-pub const CHAINS: [ChainId; 16] = [
+pub const CHAINS: [ChainId; 18] = [
     ChainId::Tron,
     ChainId::Bsc,
     ChainId::Solana,
@@ -49,6 +51,8 @@ pub const CHAINS: [ChainId; 16] = [
     ChainId::Linea,
     ChainId::ZkSyncEra,
     ChainId::Scroll,
+    ChainId::Aptos,
+    ChainId::Sui,
 ];
 
 impl ChainId {
@@ -71,6 +75,8 @@ impl ChainId {
             ChainId::Linea => "linea",
             ChainId::ZkSyncEra => "zksync_era",
             ChainId::Scroll => "scroll",
+            ChainId::Aptos => "aptos",
+            ChainId::Sui => "sui",
         }
     }
 
@@ -97,6 +103,8 @@ impl ChainId {
             ChainId::Linea => "Linea",
             ChainId::ZkSyncEra => "zkSync Era",
             ChainId::Scroll => "Scroll",
+            ChainId::Aptos => "Aptos",
+            ChainId::Sui => "Sui",
         }
     }
 
@@ -123,6 +131,8 @@ impl ChainId {
             | ChainId::ZkSyncEra
             | ChainId::Scroll => neko_hd::derive::COIN_TYPE_EVM,
             ChainId::Ton => neko_hd::COIN_TYPE_TON,
+            ChainId::Aptos => neko_hd::COIN_TYPE_APTOS,
+            ChainId::Sui => neko_hd::COIN_TYPE_SUI,
         }
     }
 
@@ -152,6 +162,8 @@ impl ChainId {
             ChainId::Linea => neko_evm::LINEA.native_symbol,
             ChainId::ZkSyncEra => neko_evm::ZKSYNC_ERA.native_symbol,
             ChainId::Scroll => neko_evm::SCROLL.native_symbol,
+            ChainId::Aptos => "APT",
+            ChainId::Sui => "SUI",
         }
     }
 
@@ -172,6 +184,8 @@ impl ChainId {
             ChainId::Linea => neko_evm::LINEA.native_decimals,
             ChainId::ZkSyncEra => neko_evm::ZKSYNC_ERA.native_decimals,
             ChainId::Scroll => neko_evm::SCROLL.native_decimals,
+            ChainId::Aptos => neko_aptos::APT_DECIMALS,
+            ChainId::Sui => neko_sui::SUI_DECIMALS,
             ChainId::Ton => neko_ton::GRAM_DECIMALS,
             ChainId::Solana => neko_solana::SOL_DECIMALS,
             ChainId::Bitcoin => neko_btc::BTC_DECIMALS,
@@ -264,6 +278,19 @@ impl ChainId {
                 master: neko_ton::usdt_master(),
                 decimals: neko_ton::USDT_DECIMALS,
             }),
+            // A *fungible asset*, not a coin. Aptos has both systems and the
+            // two have different entry points; sending one as the other does
+            // not move a wrong amount, it aborts.
+            ChainId::Aptos => Some(Asset::AptosFa {
+                metadata: neko_aptos::usdt_metadata(),
+                decimals: neko_aptos::USDT_DECIMALS,
+            }),
+            // Circle's dollar, and named by a Move *type* rather than by an
+            // address. Binance sends USDC here and no USDT at all.
+            ChainId::Sui => Some(Asset::SuiCoin {
+                coin_type: neko_sui::USDC_TYPE,
+                decimals: neko_sui::USDC_DECIMALS,
+            }),
         }
     }
 
@@ -296,7 +323,12 @@ impl ChainId {
             ChainId::Linea => Some(neko_evm::LINEA),
             ChainId::ZkSyncEra => Some(neko_evm::ZKSYNC_ERA),
             ChainId::Scroll => Some(neko_evm::SCROLL),
-            ChainId::Tron | ChainId::Solana | ChainId::Bitcoin | ChainId::Ton => None,
+            ChainId::Tron
+            | ChainId::Solana
+            | ChainId::Bitcoin
+            | ChainId::Ton
+            | ChainId::Aptos
+            | ChainId::Sui => None,
         }
     }
 
@@ -330,6 +362,8 @@ impl ChainId {
             ChainId::ZkSyncEra => Asset::ZkSyncEraNative,
             ChainId::Scroll => Asset::ScrollNative,
             ChainId::Ton => Asset::Gram,
+            ChainId::Aptos => Asset::Apt,
+            ChainId::Sui => Asset::Sui,
         }
     }
 
@@ -352,6 +386,8 @@ impl ChainId {
             ChainId::ZkSyncEra => format!("{}{id}", neko_evm::ZKSYNC_ERA.explorer_tx),
             ChainId::Scroll => format!("{}{id}", neko_evm::SCROLL.explorer_tx),
             ChainId::Ton => format!("{}{id}", neko_ton::EXPLORER_TX),
+            ChainId::Aptos => format!("{}{id}", neko_aptos::EXPLORER_TX),
+            ChainId::Sui => format!("{}{id}", neko_sui::EXPLORER_TX),
         }
     }
 }
@@ -383,6 +419,8 @@ pub enum ChainAddress {
     ZkSyncEra(neko_hd::EvmAddress),
     Scroll(neko_hd::EvmAddress),
     Ton(neko_ton::TonAddress),
+    Aptos(neko_aptos::AptosAddress),
+    Sui(neko_sui::SuiAddress),
 }
 
 impl ChainAddress {
@@ -404,6 +442,8 @@ impl ChainAddress {
             ChainAddress::ZkSyncEra(_) => ChainId::ZkSyncEra,
             ChainAddress::Scroll(_) => ChainId::Scroll,
             ChainAddress::Ton(_) => ChainId::Ton,
+            ChainAddress::Aptos(_) => ChainId::Aptos,
+            ChainAddress::Sui(_) => ChainId::Sui,
         }
     }
 
@@ -463,6 +503,12 @@ impl ChainAddress {
             ChainId::Ton => neko_ton::TonAddress::parse(s)
                 .map(ChainAddress::Ton)
                 .map_err(|_| CoreError::BadAddress),
+            ChainId::Aptos => neko_aptos::AptosAddress::parse(s)
+                .map(ChainAddress::Aptos)
+                .map_err(|_| CoreError::BadAddress),
+            ChainId::Sui => neko_sui::SuiAddress::parse(s)
+                .map(ChainAddress::Sui)
+                .map_err(|_| CoreError::BadAddress),
         }
     }
 
@@ -489,6 +535,8 @@ impl ChainAddress {
             ChainAddress::ZkSyncEra(a) => a.as_bytes().to_vec(),
             ChainAddress::Scroll(a) => a.as_bytes().to_vec(),
             ChainAddress::Ton(a) => a.as_bytes(),
+            ChainAddress::Aptos(a) => a.as_bytes().to_vec(),
+            ChainAddress::Sui(a) => a.as_bytes().to_vec(),
         }
     }
 
@@ -542,6 +590,12 @@ impl ChainAddress {
             ChainId::Ton => neko_ton::TonAddress::from_bytes(b)
                 .map(ChainAddress::Ton)
                 .map_err(|_| CoreError::BadAddress),
+            ChainId::Aptos => neko_aptos::AptosAddress::from_bytes(b)
+                .map(ChainAddress::Aptos)
+                .map_err(|_| CoreError::BadAddress),
+            ChainId::Sui => neko_sui::SuiAddress::from_bytes(b)
+                .map(ChainAddress::Sui)
+                .map_err(|_| CoreError::BadAddress),
         }
     }
 
@@ -580,6 +634,20 @@ impl ChainAddress {
         }
     }
 
+    pub fn as_aptos(&self) -> Result<neko_aptos::AptosAddress, CoreError> {
+        match self {
+            ChainAddress::Aptos(a) => Ok(*a),
+            _ => Err(CoreError::WrongChain),
+        }
+    }
+
+    pub fn as_sui(&self) -> Result<neko_sui::SuiAddress, CoreError> {
+        match self {
+            ChainAddress::Sui(a) => Ok(*a),
+            _ => Err(CoreError::WrongChain),
+        }
+    }
+
     pub fn as_ton(&self) -> Result<neko_ton::TonAddress, CoreError> {
         match self {
             ChainAddress::Ton(a) => Ok(*a),
@@ -614,6 +682,8 @@ impl std::fmt::Display for ChainAddress {
             ChainAddress::Scroll(a) => write!(f, "{a}"),
             ChainAddress::Ethereum(a) => write!(f, "{a}"),
             ChainAddress::Ton(a) => write!(f, "{a}"),
+            ChainAddress::Aptos(a) => write!(f, "{a}"),
+            ChainAddress::Sui(a) => write!(f, "{a}"),
         }
     }
 }
@@ -722,6 +792,22 @@ pub enum Asset {
         contract: neko_hd::EvmAddress,
         decimals: u8,
     },
+    /// Aptos's coin.
+    Apt,
+    /// A fungible asset on Aptos. `metadata` is the object that identifies the
+    /// asset - not a coin type, and not an ERC-20-style contract.
+    AptosFa {
+        metadata: neko_aptos::AptosAddress,
+        decimals: u8,
+    },
+    /// Sui's coin.
+    Sui,
+    /// A coin on Sui, named by the Move type its objects hold rather than by
+    /// an address.
+    SuiCoin {
+        coin_type: &'static str,
+        decimals: u8,
+    },
     /// A jetton. `master` is the token's own contract; the balance lives in a
     /// separate per-holder wallet contract derived from both.
     Jetton {
@@ -749,6 +835,8 @@ impl Asset {
             Asset::ZkSyncEraNative | Asset::ZkSyncEraErc20 { .. } => ChainId::ZkSyncEra,
             Asset::ScrollNative | Asset::ScrollErc20 { .. } => ChainId::Scroll,
             Asset::Gram | Asset::Jetton { .. } => ChainId::Ton,
+            Asset::Apt | Asset::AptosFa { .. } => ChainId::Aptos,
+            Asset::Sui | Asset::SuiCoin { .. } => ChainId::Sui,
         }
     }
 
@@ -768,6 +856,8 @@ impl Asset {
             Asset::ZkSyncEraNative => neko_evm::ZKSYNC_ERA.native_decimals,
             Asset::ScrollNative => neko_evm::SCROLL.native_decimals,
             Asset::Gram => neko_ton::GRAM_DECIMALS,
+            Asset::Apt => neko_aptos::APT_DECIMALS,
+            Asset::Sui => neko_sui::SUI_DECIMALS,
             Asset::Sol => neko_solana::SOL_DECIMALS,
             Asset::Btc => neko_btc::BTC_DECIMALS,
             Asset::Trc20 { decimals, .. }
@@ -784,6 +874,8 @@ impl Asset {
             | Asset::LineaErc20 { decimals, .. }
             | Asset::ZkSyncEraErc20 { decimals, .. }
             | Asset::ScrollErc20 { decimals, .. }
+            | Asset::AptosFa { decimals, .. }
+            | Asset::SuiCoin { decimals, .. }
             | Asset::Jetton { decimals, .. } => decimals,
         }
     }
@@ -806,6 +898,10 @@ impl Asset {
             Asset::ZkSyncEraNative => "ETH",
             Asset::ScrollNative => "ETH",
             Asset::Gram => "GRAM",
+            Asset::Apt => "APT",
+            Asset::Sui => "SUI",
+            // Circle's dollar, like Base's and three others'.
+            Asset::SuiCoin { .. } => neko_sui::USDC_SYMBOL,
             // Base's stablecoin is a different token, not a differently named
             // one - see `ChainId::stable`.
             Asset::BaseErc20 { .. } => neko_evm::BASE.stable_label,
@@ -828,6 +924,8 @@ impl Asset {
             | Asset::AvalancheErc20 { .. }
             | Asset::HyperEvmErc20 { .. }
             | Asset::ScrollErc20 { .. }
+            // Aptos's contract calls itself `USDt`, with a lowercase t.
+            | Asset::AptosFa { .. }
             | Asset::Jetton { .. } => "USDT",
         }
     }
@@ -865,6 +963,10 @@ impl Asset {
             | Asset::Pol
             | Asset::BaseEth
             | Asset::ArbitrumEth
+            | Asset::Apt
+            | Asset::AptosFa { .. }
+            | Asset::Sui
+            | Asset::SuiCoin { .. }
             | Asset::OptimismEth
             | Asset::AvalancheNative
             | Asset::HyperEvmNative
@@ -916,6 +1018,10 @@ impl Asset {
             | Asset::OptimismEth
             | Asset::OptimismErc20 { .. }
             | Asset::Gram
+            | Asset::Apt
+            | Asset::AptosFa { .. }
+            | Asset::Sui
+            | Asset::SuiCoin { .. }
             | Asset::Jetton { .. } => None,
         }
     }

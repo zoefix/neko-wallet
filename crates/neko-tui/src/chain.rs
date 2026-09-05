@@ -70,6 +70,14 @@ pub enum Client {
         /// to. Balances, fees and transfers never touch this.
         bsc: Box<neko_evm::client::Rpc>,
     },
+    Sui(Box<neko_sui::client::Rpc>),
+    Aptos {
+        rest: Box<neko_aptos::client::Rest>,
+        /// A second host, and a different service: balances come from a
+        /// fullnode and history only from the indexer, because a fullnode
+        /// cannot say what an account *received*.
+        indexer: Box<neko_aptos::history::Indexer>,
+    },
 }
 
 impl Client {
@@ -127,6 +135,11 @@ impl Client {
                 esplora: Box::new(neko_btc::client::Esplora::new(url)),
                 bsc: Box::new(neko_evm::client::Rpc::new(neko_evm::BSC, None)),
             },
+            ChainId::Aptos => Client::Aptos {
+                rest: Box::new(neko_aptos::client::Rest::new(url)),
+                indexer: Box::new(neko_aptos::history::Indexer::new(None)),
+            },
+            ChainId::Sui => Client::Sui(Box::new(neko_sui::client::Rpc::new(url))),
         }
     }
 
@@ -138,6 +151,8 @@ impl Client {
             Client::Solana(rpc) => Some(rpc.url()),
             Client::Bitcoin { esplora, .. } => Some(esplora.endpoint()),
             Client::Ton(api) => Some(api.endpoint()),
+            Client::Aptos { rest, .. } => Some(rest.endpoint()),
+            Client::Sui(rpc) => Some(rpc.endpoint()),
             _ => None,
         }
     }
@@ -153,6 +168,8 @@ impl Client {
             Client::Solana(_) => ChainId::Solana,
             Client::Bitcoin { .. } => ChainId::Bitcoin,
             Client::Ton(_) => ChainId::Ton,
+            Client::Aptos { .. } => ChainId::Aptos,
+            Client::Sui(_) => ChainId::Sui,
         }
     }
 }
@@ -170,6 +187,8 @@ pub async fn quote(c: &Client, req: &TransferRequest) -> Result<Quote, String> {
         Client::Solana(rpc) => solana_quote(rpc, req).await,
         Client::Bitcoin { esplora, .. } => bitcoin_quote(esplora, req).await,
         Client::Ton(api) => ton_quote(api, req).await,
+        Client::Aptos { rest, .. } => aptos_quote(rest, req).await,
+        Client::Sui(rpc) => sui_quote(rpc, req).await,
     }
 }
 
@@ -284,6 +303,213 @@ async fn solana_quote(
         sending_native: req.asset.is_native(),
         amount: u64::try_from(req.amount.raw).map_err(|_| "amount is too large".to_string())?,
         rent,
+    })
+}
+
+/// What a Sui transfer will cost, asked of the chain.
+///
+/// Two things here are unlike every other account chain. The fee comes from a
+/// *dry run* of the exact transaction, which is also what proves the bytes are
+/// right - the chain's own decoder has to parse them to price them. And the
+/// coin objects being spent are chosen here and carried into signing
+/// unchanged, because their versions are signed over: a selection made twice
+/// is two different transactions, and one of them is invalid.
+async fn sui_quote(rpc: &neko_sui::client::Rpc, req: &TransferRequest) -> Result<Quote, String> {
+    let from = req.from.as_sui().map_err(|e| e.to_string())?;
+    let to = req.to.as_sui().map_err(|e| e.to_string())?;
+    let amount = u64::try_from(req.amount.raw).map_err(|_| "that amount is too large")?;
+
+    let (price, gas_coins) = tokio::try_join!(
+        rpc.reference_gas_price(),
+        rpc.coins(from, neko_sui::SUI_TYPE)
+    )
+    .map_err(|e| e.to_string())?;
+    if gas_coins.is_empty() {
+        return Err("there is no SUI here to pay the fee with".into());
+    }
+    let sui_balance: u128 = gas_coins.iter().map(|c| c.balance).sum();
+
+    // One gas object is enough unless the transfer is being paid for out of
+    // several. Taking them all would spend objects the transfer does not need.
+    let gas: Vec<_> = gas_coins.iter().map(|c| c.object).collect();
+
+    let (coins, data) = match req.asset {
+        Asset::Sui => (
+            Vec::new(),
+            neko_sui::tx::pay_sui(
+                from,
+                to,
+                amount,
+                neko_sui::tx::GasData {
+                    payment: gas.clone(),
+                    owner: from,
+                    price,
+                    budget: neko_sui::GAS_BUDGET_TRANSFER,
+                },
+            ),
+        ),
+        Asset::SuiCoin { coin_type, .. } => {
+            let owned = rpc
+                .coins(from, coin_type)
+                .await
+                .map_err(|e| e.to_string())?;
+            if owned.is_empty() {
+                return Err(format!("there is none of {coin_type} at this address"));
+            }
+            // Enough objects to cover the amount, largest first, so the fewest
+            // are spent. A balance here is a set of objects and this is the
+            // same selection problem Bitcoin has.
+            let mut sorted = owned.clone();
+            sorted.sort_by_key(|c| std::cmp::Reverse(c.balance));
+            let mut chosen = Vec::new();
+            let mut have: u128 = 0;
+            for c in sorted {
+                if have >= amount as u128 {
+                    break;
+                }
+                have += c.balance;
+                chosen.push(c.object);
+            }
+            if have < amount as u128 {
+                return Err(format!(
+                    "that is more than this address holds, or it is spread over more than {} objects",
+                    neko_sui::MAX_COINS_PER_TRANSFER
+                ));
+            }
+            let data = neko_sui::tx::pay_token(
+                from,
+                to,
+                amount,
+                &chosen,
+                neko_sui::tx::GasData {
+                    payment: gas.clone(),
+                    owner: from,
+                    price,
+                    budget: neko_sui::GAS_BUDGET_TRANSFER,
+                },
+            )
+            .map_err(|e| e.to_string())?;
+            (chosen, data)
+        }
+        _ => return Err("that asset is not on Sui".into()),
+    };
+
+    // The dry run is both the fee and the proof that these bytes decode.
+    let fee = rpc
+        .dry_run(&data.to_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let coins_spent = if coins.is_empty() { gas.len() } else { coins.len() };
+    Ok(Quote::Sui {
+        params: Box::new(neko_core::SuiTxParams {
+            gas,
+            coins,
+            price,
+            budget: neko_sui::GAS_BUDGET_TRANSFER,
+        }),
+        sui_balance: Some(sui_balance),
+        sending_native: req.asset.is_native(),
+        amount: req.amount.raw as u128,
+        fee: fee.net,
+        coins_spent,
+    })
+}
+
+/// What an Aptos transfer will cost, asked of the chain.
+///
+/// The fee here is an **allowance**, not a quote, and the screen says so.
+///
+/// Aptos will simulate a transaction and report exactly what it costs - but
+/// only against the sender's real public key, which it checks against the
+/// account's authentication key and refuses with `INVALID_AUTH_KEY` otherwise.
+/// This wallet does not have that key while quoting: the account is unlocked
+/// but the signing key is derived only at the last step, and the public key
+/// cannot be recovered from the address, which is a hash of it. Reading it out
+/// of an earlier transaction fails too, because a fullnode prunes them - the
+/// reference account here has eleven and the node lists none.
+///
+/// So the gas ceiling is what is shown and what is reserved, and it is
+/// deliberately generous: 2,000 units against the 150 a measured transfer
+/// actually used. Unused units are not charged. This is the same trade TON
+/// makes, for a different reason.
+async fn aptos_quote(
+    rest: &neko_aptos::client::Rest,
+    req: &TransferRequest,
+) -> Result<Quote, String> {
+    let from = req.from.as_aptos().map_err(|e| e.to_string())?;
+    let to = req.to.as_aptos().map_err(|e| e.to_string())?;
+
+    let payload = match req.asset {
+        Asset::Apt => {
+            let octas = u64::try_from(req.amount.raw).map_err(|_| "that amount is too large")?;
+            neko_aptos::tx::transfer_apt(to, octas)
+        }
+        Asset::AptosFa { metadata, decimals } => {
+            // Ask the asset what it is before trusting a built-in address, as
+            // on every other chain. Both answers matter: a wrong precision is
+            // a factor of a million, and a wrong symbol means a different
+            // token entirely.
+            let symbol = rest
+                .fa_symbol(metadata)
+                .await
+                .map_err(|e| format!("could not verify the token {metadata}: {e}"))?;
+            if symbol != neko_aptos::USDT_SYMBOL {
+                return Err(format!(
+                    "the asset at {metadata} calls itself {symbol:?}, not {:?} - refusing to send",
+                    neko_aptos::USDT_SYMBOL
+                ));
+            }
+            let chain_decimals = rest
+                .fa_decimals(metadata)
+                .await
+                .map_err(|e| format!("could not read the token's precision: {e}"))?;
+            if chain_decimals != decimals {
+                return Err(format!(
+                    "the asset at {metadata} reports {chain_decimals} decimals, expected {decimals} - refusing to send"
+                ));
+            }
+            let amount = u64::try_from(req.amount.raw).map_err(|_| "that amount is too large")?;
+            neko_aptos::tx::transfer_fungible_asset(metadata, to, amount)
+        }
+        _ => return Err("that asset is not on Aptos".into()),
+    };
+
+    let (sequence_number, gas_unit_price, chain_id, now) = tokio::try_join!(
+        rest.sequence_number(from),
+        rest.gas_unit_price(),
+        rest.chain_id(),
+        rest.ledger_time_secs(),
+    )
+    .map_err(|e| e.to_string())?;
+
+    // The chain's clock, not this machine's. Aptos expires by wall time, so a
+    // laptop a few minutes fast would build transactions already dead on
+    // arrival.
+    let params = neko_aptos::tx::TxParams {
+        sequence_number,
+        max_gas_amount: neko_aptos::MAX_GAS_TRANSFER,
+        gas_unit_price,
+        expiration_timestamp_secs: now + neko_aptos::EXPIRY_SECS,
+        chain_id,
+    };
+
+    let raw = neko_aptos::tx::RawTransaction {
+        sender: from,
+        payload,
+        params,
+    };
+    // Built and then not sent anywhere: constructing it here is what proves
+    // the payload and the parameters agree before the password is asked for.
+    let _ = raw.to_bytes();
+
+    let apt_balance = rest.apt_balance(from).await.ok();
+
+    Ok(Quote::Aptos {
+        params,
+        apt_balance,
+        sending_native: req.asset.is_native(),
+        amount: req.amount.raw as u128,
     })
 }
 
@@ -611,6 +837,19 @@ async fn evm_quote(rpc: &neko_evm::client::Rpc, req: &TransferRequest) -> Result
 /// the reason the scale is normalised here, once, rather than at each use.
 pub async fn native_price(c: &Client) -> Result<i128, String> {
     let (raw, quoted_decimals) = match c {
+        // APT trades on exchanges and in no pool on any chain this wallet is
+        // connected to. Rather than add a price service - a new destination
+        // that would learn which addresses this wallet cares about - the value
+        // column says it does not know. The same answer HYPE and MNT get, for
+        // the same reason.
+        Client::Aptos { .. } => {
+            return Err("this wallet has no pool it can quote APT from".to_string())
+        }
+        // The same answer for the same reason: SUI trades on exchanges and in
+        // no pool on any chain this wallet is connected to.
+        Client::Sui(_) => {
+            return Err("this wallet has no pool it can quote SUI from".to_string())
+        }
         Client::Tron(t) => (
             t.trx_price_in_usdt().await.map_err(|e| e.to_string())?,
             neko_tron::USDT_DECIMALS,
@@ -685,6 +924,16 @@ pub async fn broadcast(c: &Client, raw: Vec<u8>, local_id: String) -> Result<Str
         Client::Evm { rpc, .. } => rpc.send_raw(&raw).await.map_err(|e| e.to_string()),
         Client::Solana(rpc) => rpc.send(&raw).await.map_err(|e| e.to_string()),
         Client::Bitcoin { esplora, .. } => esplora.broadcast(&raw).await.map_err(|e| e.to_string()),
+        // The node answers with the hash it computed, which is preferred over
+        // the one worked out locally - if the two ever disagree, the chain's
+        // is the name an explorer will know.
+        Client::Aptos { rest, .. } => rest.submit(&raw).await.map_err(|e| e.to_string()),
+        // Sui needs the signature alongside the bytes rather than inside
+        // them, so the two travel together and `local_id` carries it.
+        Client::Sui(rpc) => {
+            let (data, sig) = raw.split_at(raw.len().saturating_sub(neko_sui::SIGNATURE_BYTES));
+            rpc.execute(data, sig).await.map_err(|e| e.to_string())
+        }
         Client::Ton(api) => api
             .send(&raw)
             .await
@@ -793,6 +1042,37 @@ pub async fn wallet_assets(
                 total as i128,
             )])
         }
+        Client::Sui(rpc) => {
+            let a = addr.as_sui().map_err(|e| e.to_string())?;
+            let sui = rpc
+                .balance(a, neko_sui::SUI_TYPE)
+                .await
+                .map_err(|e| e.to_string())?;
+            // A token lookup failing must not discard the coin figure.
+            let usdc = rpc.balance(a, neko_sui::USDC_TYPE).await.unwrap_or(0);
+            Ok(vec![
+                ("SUI".to_string(), neko_sui::SUI_DECIMALS, sui as i128),
+                (
+                    neko_sui::USDC_SYMBOL.to_string(),
+                    neko_sui::USDC_DECIMALS,
+                    usdc as i128,
+                ),
+            ])
+        }
+        Client::Aptos { rest, .. } => {
+            let a = addr.as_aptos().map_err(|e| e.to_string())?;
+            let apt = rest.apt_balance(a).await.map_err(|e| e.to_string())?;
+            // A token lookup failing must not discard the coin figure we
+            // already have.
+            let usdt = rest
+                .fa_balance(a, neko_aptos::usdt_metadata())
+                .await
+                .unwrap_or(0);
+            Ok(vec![
+                ("APT".to_string(), neko_aptos::APT_DECIMALS, apt as i128),
+                ("USDT".to_string(), neko_aptos::USDT_DECIMALS, usdt as i128),
+            ])
+        }
     }
 }
 
@@ -803,6 +1083,55 @@ pub async fn history(
     limit: u32,
 ) -> Result<Vec<neko_tron::HistoryEntry>, String> {
     match c {
+        // Only the indexer, never the fullnode. A node can list what an
+        // account signed and nothing it received, and half a history is the
+        // failure this wallet already shipped once on TON.
+        Client::Sui(rpc) => {
+            let a = addr.as_sui().map_err(|e| e.to_string())?;
+            let rows = rpc
+                .transfers(a, limit as usize)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(rows
+                .into_iter()
+                .map(|t| neko_tron::HistoryEntry {
+                    txid: t.id,
+                    block_ts: t.block_ts,
+                    symbol: t.symbol,
+                    decimals: t.decimals,
+                    amount: t.amount,
+                    direction: match t.direction {
+                        neko_sui::history::Direction::In => neko_tron::history::Direction::In,
+                        neko_sui::history::Direction::Out => neko_tron::history::Direction::Out,
+                    },
+                    counterparty: t.counterparty,
+                    status: neko_tron::history::TxStatus::Success,
+                })
+                .collect())
+        }
+        Client::Aptos { indexer, .. } => {
+            let a = addr.as_aptos().map_err(|e| e.to_string())?;
+            let rows = indexer
+                .transfers(a, limit as usize)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(rows
+                .into_iter()
+                .map(|t| neko_tron::HistoryEntry {
+                    txid: t.id,
+                    block_ts: t.block_ts,
+                    symbol: t.symbol,
+                    decimals: t.decimals,
+                    amount: t.amount,
+                    direction: match t.direction {
+                        neko_aptos::history::Direction::In => neko_tron::history::Direction::In,
+                        neko_aptos::history::Direction::Out => neko_tron::history::Direction::Out,
+                    },
+                    counterparty: t.counterparty,
+                    status: neko_tron::history::TxStatus::Success,
+                })
+                .collect())
+        }
         Client::Tron(t) => {
             let a = addr.as_tron().map_err(|e| e.to_string())?;
             let usdt = neko_tron::usdt_address();

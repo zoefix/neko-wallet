@@ -96,5 +96,7 @@ fn db_row(c: neko_core::ChainId) -> i64 {
         neko_core::ChainId::Linea => a::LINEA_CHAIN_ID,
         neko_core::ChainId::ZkSyncEra => a::ZKSYNC_ERA_CHAIN_ID,
         neko_core::ChainId::Scroll => a::SCROLL_CHAIN_ID,
+        neko_core::ChainId::Aptos => a::APTOS_CHAIN_ID,
+        neko_core::ChainId::Sui => a::SUI_CHAIN_ID,
     }
 }

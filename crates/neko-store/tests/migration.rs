@@ -426,6 +426,8 @@ fn a_database_one_version_behind_catches_up_with_its_data() {
         include_str!("../migrations/0013_mantle.sql"),
         include_str!("../migrations/0014_linea.sql"),
         include_str!("../migrations/0015_zksync_era.sql"),
+        include_str!("../migrations/0016_scroll.sql"),
+        include_str!("../migrations/0017_aptos.sql"),
     ] {
         conn.execute_batch(sql).unwrap();
     }
@@ -489,7 +491,7 @@ fn a_database_one_version_behind_catches_up_with_its_data() {
     // The one line here that is meant to be edited per chain: it names what
     // the newest migration was for, so a migration that runs but registers
     // nothing is caught rather than passing as "the version went up".
-    assert_eq!(slug, "scroll");
+    assert_eq!(slug, "sui");
 }
 
 /// Polygon is the third chain to share Ethereum's coin type, and the first

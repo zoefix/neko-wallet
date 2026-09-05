@@ -15,6 +15,7 @@
 //! official Ledger test vector.
 
 pub mod address;
+pub mod aptos;
 pub mod bech32;
 pub mod bitcoin;
 pub mod derive;
@@ -22,6 +23,7 @@ pub mod error;
 pub mod evm;
 pub mod slip10;
 pub mod solana;
+pub mod sui;
 pub mod ton;
 
 pub use address::{Address, ADDRESS_LEN};
@@ -35,3 +37,8 @@ pub use error::HdError;
 pub use evm::EvmAddress;
 pub use solana::{SolanaAddress, COIN_TYPE_SOLANA};
 pub use ton::COIN_TYPE_TON;
+
+/// SLIP-0010 coin type for Aptos.
+pub const COIN_TYPE_APTOS: u32 = 637;
+/// SLIP-0010 coin type for Sui.
+pub const COIN_TYPE_SUI: u32 = 784;

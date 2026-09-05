@@ -118,6 +118,8 @@ pub struct App {
     /// Arbitrum's node. `None` means the public one.
     pub arbitrum_rpc: Option<String>,
     pub optimism_rpc: Option<String>,
+    pub aptos_api: Option<String>,
+    pub sui_api: Option<String>,
     pub avalanche_rpc: Option<String>,
     pub hyperevm_rpc: Option<String>,
     pub mantle_rpc: Option<String>,
@@ -199,6 +201,8 @@ impl App {
             base_rpc: None,
             arbitrum_rpc: None,
             optimism_rpc: None,
+            aptos_api: None,
+            sui_api: None,
             avalanche_rpc: None,
             hyperevm_rpc: None,
             mantle_rpc: None,
@@ -708,6 +712,8 @@ impl App {
             neko_core::ChainId::ZkSyncEra => self.zksync_era_rpc.as_deref(),
             neko_core::ChainId::Scroll => self.scroll_rpc.as_deref(),
             neko_core::ChainId::Ton => self.ton_api.as_deref(),
+            neko_core::ChainId::Aptos => self.aptos_api.as_deref(),
+            neko_core::ChainId::Sui => self.sui_api.as_deref(),
             neko_core::ChainId::Bsc => None,
         };
         let key = match chain {
@@ -735,6 +741,10 @@ impl App {
             // toncenter's public limit is low enough that a balance refresh
             // can hit it; a key raises it. Optional, like the others.
             neko_core::ChainId::Ton => self.ton_api_key.clone(),
+            // The Aptos indexer is keyless and rate-limits by IP instead.
+            neko_core::ChainId::Aptos => None,
+            // Sui's JSON-RPC needs no key either.
+            neko_core::ChainId::Sui => None,
         };
         crate::chain::Client::for_chain_with(chain, url, key, self.etherscan_key.clone())
     }
@@ -834,6 +844,33 @@ impl App {
                         sending_native,
                         amount,
                         l1_fee,
+                    }),
+                    crate::event::Quote::Sui {
+                        params: p,
+                        sui_balance,
+                        sending_native,
+                        amount,
+                        fee,
+                        coins_spent,
+                    } => crate::send::FeeQuote::Sui(crate::send::SuiFee {
+                        fee,
+                        budget: p.budget,
+                        sui_balance,
+                        sending_native,
+                        amount,
+                        coins_spent,
+                    }),
+                    crate::event::Quote::Aptos {
+                        params: p,
+                        apt_balance,
+                        sending_native,
+                        amount,
+                    } => crate::send::FeeQuote::Aptos(crate::send::AptosFee {
+                        max_gas_amount: p.max_gas_amount,
+                        gas_unit_price: p.gas_unit_price,
+                        apt_balance,
+                        sending_native,
+                        amount,
                     }),
                     crate::event::Quote::Solana {
                         params: p,
@@ -975,6 +1012,12 @@ impl App {
         }
         if let Ok(v) = s.setting(keys::OPTIMISM_RPC) {
             self.optimism_rpc = v.filter(|u| !u.is_empty());
+        }
+        if let Ok(v) = s.setting(keys::APTOS_API) {
+            self.aptos_api = v.filter(|u| !u.is_empty());
+        }
+        if let Ok(v) = s.setting(keys::SUI_API) {
+            self.sui_api = v.filter(|u| !u.is_empty());
         }
         if let Ok(v) = s.setting(keys::AVALANCHE_RPC) {
             self.avalanche_rpc = v.filter(|u| !u.is_empty());
@@ -1141,6 +1184,14 @@ impl App {
                 .optimism_rpc
                 .clone()
                 .unwrap_or_else(|| neko_evm::OPTIMISM.default_rpc.into()),
+            SettingRow::AptosApi => self
+                .aptos_api
+                .clone()
+                .unwrap_or_else(|| neko_aptos::DEFAULT_API.into()),
+            SettingRow::SuiApi => self
+                .sui_api
+                .clone()
+                .unwrap_or_else(|| neko_sui::DEFAULT_API.into()),
             SettingRow::AvalancheRpc => self
                 .avalanche_rpc
                 .clone()

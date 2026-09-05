@@ -101,22 +101,47 @@ pub enum Quote {
         fee: u128,
         attached: u128,
     },
+    Aptos {
+        params: neko_aptos::tx::TxParams,
+        /// APT pays every fee, whatever is being sent. `None` means the
+        /// balance could not be read, not that it is zero.
+        apt_balance: Option<u128>,
+        sending_native: bool,
+        amount: u128,
+    },
+    Sui {
+        /// Boxed: it carries the coin objects being spent.
+        params: Box<neko_core::SuiTxParams>,
+        /// SUI pays every fee. `None` means the balance could not be read.
+        sui_balance: Option<u128>,
+        sending_native: bool,
+        amount: u128,
+        /// What a dry run said this costs, in MIST, after the storage rebate.
+        /// Consolidating coin objects can make that rebate exceed the fee, so
+        /// this is sometimes zero and that is real rather than a failure.
+        fee: u64,
+        /// How many coin objects the transfer will spend. A balance here is a
+        /// set of objects, and somebody whose USDC is spread over thirty of
+        /// them deserves to know that is why the transaction is large.
+        coins_spent: usize,
+    },
 }
 
 impl Quote {
     pub fn chain(&self) -> neko_core::ChainId {
         match self {
             Quote::Tron { .. } => neko_core::ChainId::Tron,
-            Quote::Evm { chain, .. } => {
-                if chain.chain_id == neko_evm::ETHEREUM.chain_id {
-                    neko_core::ChainId::Ethereum
-                } else {
-                    neko_core::ChainId::Bsc
-                }
-            }
+            // Looked up rather than guessed. This was an if/else that
+            // answered BNB Chain for anything that was not Ethereum, which
+            // was right when there were two EVM chains and has been wrong
+            // for every one added since.
+            Quote::Evm { chain, .. } => neko_core::ChainId::from_evm_chain_id(chain.chain_id)
+                .expect("this quote was built from a ChainId"),
             Quote::Solana { .. } => neko_core::ChainId::Solana,
             Quote::Bitcoin { .. } => neko_core::ChainId::Bitcoin,
             Quote::Ton { .. } => neko_core::ChainId::Ton,
+            Quote::Aptos { .. } => neko_core::ChainId::Aptos,
+            Quote::Sui { .. } => neko_core::ChainId::Sui,
         }
     }
 
@@ -125,6 +150,8 @@ impl Quote {
             Quote::Tron { params, .. } => neko_core::ChainTxParams::Tron(params.clone()),
             Quote::Evm { params, .. } => neko_core::ChainTxParams::Evm(*params),
             Quote::Solana { params, .. } => neko_core::ChainTxParams::Solana(*params),
+            Quote::Aptos { params, .. } => neko_core::ChainTxParams::Aptos(*params),
+            Quote::Sui { params, .. } => neko_core::ChainTxParams::Sui(params.clone()),
             Quote::Bitcoin {
                 selection,
                 change_to,

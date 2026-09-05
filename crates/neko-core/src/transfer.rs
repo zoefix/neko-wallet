@@ -28,6 +28,29 @@ pub enum ChainTxParams {
     Evm(neko_evm::tx::TxParams),
     Solana(neko_solana::tx::TxParams),
     Bitcoin(Box<BtcTxParams>),
+    Aptos(neko_aptos::tx::TxParams),
+    /// Boxed: it carries the coin objects being spent, which on this chain is
+    /// a list rather than a number.
+    Sui(Box<SuiTxParams>),
+}
+
+/// What Sui needs told before a transfer can be built.
+///
+/// A balance here is a set of objects, so the *objects* are part of the
+/// parameters: their versions are signed over, and a version that moved
+/// between the quote and the signature makes the transaction invalid rather
+/// than merely stale. That is the same property Bitcoin's chosen coins have,
+/// and for the same reason it is carried from the quote into signing
+/// unchanged.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SuiTxParams {
+    /// The SUI objects paying for gas.
+    pub gas: Vec<neko_sui::tx::ObjectRef>,
+    /// The objects being spent, when a token is being sent. Empty for SUI,
+    /// which is split out of the gas coin.
+    pub coins: Vec<neko_sui::tx::ObjectRef>,
+    pub price: u64,
+    pub budget: u64,
 }
 
 /// What TON needs told before a message can be built.
@@ -147,6 +170,14 @@ impl TransferRequest {
             | Asset::Pol
             | Asset::BaseEth
             | Asset::ArbitrumEth
+            // Aptos carries no calldata either: an entry-function call is
+            // built by the chain crate, in BCS rather than ABI.
+            | Asset::Apt
+            | Asset::AptosFa { .. }
+            // Sui carries no calldata: a transaction is a list of commands,
+            // built by the chain crate.
+            | Asset::Sui
+            | Asset::SuiCoin { .. }
             | Asset::OptimismEth
             | Asset::AvalancheNative
             | Asset::HyperEvmNative
@@ -283,6 +314,77 @@ impl Session {
                 Ok(SignedTransfer {
                     raw: signed.raw,
                     id,
+                })
+            }
+            (Asset::Apt, ChainTxParams::Aptos(p)) => {
+                let from = req.from.as_aptos()?;
+                let octas = u64::try_from(req.amount.raw)
+                    .map_err(|_| neko_aptos::AptosError::AmountTooLarge)?;
+                let raw = neko_aptos::tx::RawTransaction {
+                    sender: from,
+                    payload: neko_aptos::tx::transfer_apt(req.to.as_aptos()?, octas),
+                    params: *p,
+                };
+                let signed = neko_aptos::tx::sign(&raw, &key)?;
+                Ok(SignedTransfer {
+                    raw: signed.raw,
+                    id: signed.hash,
+                })
+            }
+            (Asset::AptosFa { metadata, .. }, ChainTxParams::Aptos(p)) => {
+                let from = req.from.as_aptos()?;
+                let amount = u64::try_from(req.amount.raw)
+                    .map_err(|_| neko_aptos::AptosError::AmountTooLarge)?;
+                // The metadata object decides which asset moves. It comes from
+                // the asset being sent rather than from a constant, so a
+                // request built for one token cannot be signed against
+                // another.
+                let raw = neko_aptos::tx::RawTransaction {
+                    sender: from,
+                    payload: neko_aptos::tx::transfer_fungible_asset(
+                        metadata,
+                        req.to.as_aptos()?,
+                        amount,
+                    ),
+                    params: *p,
+                };
+                let signed = neko_aptos::tx::sign(&raw, &key)?;
+                Ok(SignedTransfer {
+                    raw: signed.raw,
+                    id: signed.hash,
+                })
+            }
+            (Asset::Sui, ChainTxParams::Sui(p)) => {
+                let from = req.from.as_sui()?;
+                let amount = u64::try_from(req.amount.raw)
+                    .map_err(|_| neko_sui::SuiError::AmountTooLarge)?;
+                let data = neko_sui::tx::pay_sui(
+                    from,
+                    req.to.as_sui()?,
+                    amount,
+                    gas_data(from, p),
+                );
+                let signed = neko_sui::tx::sign(&data, &key)?;
+                Ok(SignedTransfer {
+                    raw: sui_raw(&signed),
+                    id: signed.digest,
+                })
+            }
+            (Asset::SuiCoin { .. }, ChainTxParams::Sui(p)) => {
+                let from = req.from.as_sui()?;
+                let amount = u64::try_from(req.amount.raw)
+                    .map_err(|_| neko_sui::SuiError::AmountTooLarge)?;
+                let data = neko_sui::tx::pay_token(
+                    from,
+                    req.to.as_sui()?,
+                    amount,
+                    &p.coins,
+                    gas_data(from, p),
+                )?;
+                let signed = neko_sui::tx::sign(&data, &key)?;
+                Ok(SignedTransfer {
+                    raw: sui_raw(&signed),
+                    id: signed.digest,
                 })
             }
             (Asset::Sol, ChainTxParams::Solana(p)) => {
@@ -462,6 +564,10 @@ impl Session {
                 | Asset::ZkSyncEraErc20 { .. }
                 | Asset::ScrollNative
                 | Asset::ScrollErc20 { .. }
+                | Asset::Apt
+                | Asset::AptosFa { .. }
+                | Asset::Sui
+                | Asset::SuiCoin { .. }
                 | Asset::Jetton { .. },
                 _,
             ) => Err(CoreError::WrongChain),
@@ -496,6 +602,11 @@ impl Session {
             // SLIP-0010 at m/44'/607'/0'. TON's own wallets use a different
             // scheme entirely - see `neko_hd::ton`.
             ChainId::Ton => neko_hd::ton::private_key_at(&seed, index)?,
+            // SLIP-0010 at m/44'/637'/i'/0'/0' - five levels, and a wallet
+            // deriving at four shows a different, empty account.
+            ChainId::Aptos => neko_hd::aptos::private_key_at(&seed, index)?,
+            // The same shape at coin type 784.
+            ChainId::Sui => neko_hd::sui::private_key_at(&seed, index)?,
             // BIP84, and the purpose level *is* the script type: deriving under
             // 44' and building a segwit script produces an address that is
             // valid, empty, and unspendable by the key that made it.
@@ -615,4 +726,29 @@ fn sign_ton(
         id: hex::encode(ext.hash()),
         raw: neko_ton::boc::serialize(&ext)?,
     })
+}
+
+
+/// Assemble Sui's gas data from the quote's parameters.
+fn gas_data(owner: neko_sui::SuiAddress, p: &SuiTxParams) -> neko_sui::tx::GasData {
+    neko_sui::tx::GasData {
+        payment: p.gas.clone(),
+        owner,
+        price: p.price,
+        budget: p.budget,
+    }
+}
+
+
+/// Sui's transaction and its signature, concatenated.
+///
+/// Every other chain here puts the signature inside the transaction; Sui takes
+/// the two separately over the wire. Rather than widen `SignedTransfer` for
+/// one chain, they travel joined and are split again at broadcast - which is
+/// safe only because the signature is a fixed 97 bytes.
+fn sui_raw(signed: &neko_sui::tx::SignedTransaction) -> Vec<u8> {
+    let mut v = signed.data.clone();
+    v.extend_from_slice(&signed.signature);
+    debug_assert_eq!(signed.signature.len(), neko_sui::SIGNATURE_BYTES);
+    v
 }

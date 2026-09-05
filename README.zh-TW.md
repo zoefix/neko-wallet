@@ -8,7 +8,7 @@
 插隨身碟帶走、放雲端硬碟、隨便拷到哪裡都行。用一個信箱加一個密碼解鎖，
 而這兩樣東西哪裡都沒有儲存。
 
-多鏈架構：TRON、Ethereum、BNB Chain、Polygon、Base、Arbitrum、Optimism、Avalanche、HyperEVM、Mantle、Linea、zkSync Era、Scroll、Solana、Bitcoin、TON。
+多鏈架構：TRON、Ethereum、BNB Chain、Polygon、Base、Arbitrum、Optimism、Avalanche、HyperEVM、Mantle、Linea、zkSync Era、Scroll、Aptos、Sui、Solana、Bitcoin、TON。
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
@@ -141,6 +141,8 @@ neko-wallet
 | Linea | 可用 | ETH、USDC (ERC20) |
 | zkSync Era | 可用 | ETH、USDC (ERC20) |
 | Scroll | 可用 | ETH、USDT (ERC20) |
+| Aptos | 可用 | APT、USDT (fungible asset) |
+| Sui | 可用 | SUI、USDC (coin objects) |
 | TON | 可用 | GRAM、USDT (jetton) |
 
 Polygon 也用同一個幣種編號，所以同一句助記詞在三條 EVM 鏈上是**同一個位址**。
@@ -228,6 +230,39 @@ ETH 價是 7.55 和 264。歷史紀錄走 Blockscout，只是這家開在自己�
 在 Polygon 上是 `USDT0`，在 Arbitrum 和 HyperEVM 上是帶圖格里克符號的 `USD₮0`，
 在 Avalanche 上是小寫 t 的 `USDt`。每一個都會在簽名前跟鏈核對，而且一個都不會顯示到
 螢幕上。
+
+這裡有兩條鏈既不是 EVM，彼此也完全不一樣。
+
+**Aptos** 把 coin 和 *fungible asset* 分成兩套東西，而它的 USDT 屬於後者。兩者的入口
+函式不同、查餘額的方法也不同，拿一套去操作另一套不會轉錯金額——交易直接 abort。它的
+位址是 `sha3_256(公钥 || scheme)`，所以同一把鑰匙換個簽章方案就是另一個帳戶。
+
+交易編碼不是照著文件寫的，是跟鏈自己的編碼器對過的：Aptos 提供
+`/transactions/encode_submission`，把交易交給它、它回傳簽章要涵蓋的位元組。這個錢包
+產生的位元組跟它**逐位元組相同**，兩種轉帳分別 197 和 297 位元組。這件事很要緊，因為 BCS
+不帶型別——長度位元組放錯位置不會得到一個損壞的交易，而是得到另一個交易，並且被正確
+地簽了名。
+
+它的手續費顯示的是**上限**而不是估算。Aptos 可以精確計價，但前提是拿到發送方的公鑰；
+報價的時候這個錢包沒有——金鑰要到最後一步才推導，而位址是公鑰的雜湊、反推不回去。
+沒用掉的 gas 不收費。
+
+**Sui 上沒有「帳戶裡有個數字」這回事。** 幣是**物件**，每個都有 id、版本和摘要；餘額是
+它們的和，轉帳花掉的是其中某幾個。這讓它成為繼 Bitcoin 之後第二條"發送是一次挑選而
+不是一次減法"的鏈，也讓「版本過期」變成拒絕而不是少轉一點。它也沒有「轉帳」這條指令：
+每筆交易都是一串命令，一次付款是先切一刀、再遞過去。
+
+它的位址是 `blake2b256(scheme || 公鑰)`——注意順序，跟 Aptos 正好相反。兩條鏈、兩把
+Ed25519 鑰匙、兩個 32 位元組位址，把兩個運算元調換一下，得到的是一個看起來完全正常、
+卻沒有人握有私鑰的帳戶。驗證方法是從主網拿真實交易，從簽章裡讀出簽章者的公鑰，再重新
+算一遍位址。
+
+手續費來自對這筆交易本身的 dry run，這同時也證明了位元組是對的：鏈自己的解析器必須
+讀懂它才能給它定價。有一個後果值得知道——Sui 會退還它收取的一部分儲存費，而把幣物件
+合併起來正好釋放儲存，所以一筆把三十個物件摺在一起的轉帳**可能一分錢都不花**。
+
+一個提醒：Sui 官方的公共全節點已經**停用**了 JSON-RPC，對所有方法都回
+"Method not found"。這裡預設用的是另一個還在提供它的節點。
 
 TON 在這裡是唯一一條**位址不是從金鑰算出來的**鏈。TON 上的錢包本身就是一個智慧合約，
 位址是這個合約初始程式碼和儲存的雜湊。由此帶來的兩件事都擺在介面上，而不是等你自己撞上：

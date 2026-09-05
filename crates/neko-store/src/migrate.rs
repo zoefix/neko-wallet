@@ -87,6 +87,14 @@ const MIGRATIONS: &[Migration] = &[
         to: 16,
         sql: include_str!("../migrations/0016_scroll.sql"),
     },
+    Migration {
+        to: 17,
+        sql: include_str!("../migrations/0017_aptos.sql"),
+    },
+    Migration {
+        to: 18,
+        sql: include_str!("../migrations/0018_sui.sql"),
+    },
 ];
 
 /// Apply whatever this database is missing.

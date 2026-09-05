@@ -36,6 +36,11 @@ fn longest_address(chain: neko_core::ChainId) -> &'static str {
         // Always 48: a workchain byte, 32 of hash and a CRC, base64url'd with
         // nothing left over to pad.
         neko_core::ChainId::Ton => "EQAzWZa6nM5mJev91wGc7VCSfBoIsYRqKJpV78N8Add9-U9d",
+        neko_core::ChainId::Sui => "0x5e93a736d04fbb25737aa40bee40171ef79f65fae833749e3c089fe7cc2161f1",
+        // 0x and 64 hex characters, the widest Aptos can print.
+        neko_core::ChainId::Aptos => {
+            "0xeb663b681209e7087d681c5d3eed12aaa8e1915e7c87794542c3f96e94b3d3bf"
+        }
     }
 }
 

@@ -9,8 +9,8 @@ one encrypted file — carry it on a USB stick, keep it on a network drive, copy
 it anywhere. Unlocked by an email and a password that are stored nowhere.
 
 Multi-chain by design: TRON, Ethereum, BNB Chain, Polygon, Base, Arbitrum,
-Optimism, Avalanche, HyperEVM, Mantle, Linea, zkSync Era, Scroll, Solana,
-Bitcoin and TON.
+Optimism, Avalanche, HyperEVM, Mantle, Linea, zkSync Era, Scroll, Aptos,
+Sui, Solana, Bitcoin and TON.
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
@@ -152,6 +152,8 @@ phrase, or a new thing to back up.
 | Linea | working | ETH, USDC (ERC20) |
 | zkSync Era | working | ETH, USDC (ERC20) |
 | Scroll | working | ETH, USDT (ERC20) |
+| Aptos | working | APT, USDT (fungible asset) |
+| Sui | working | SUI, USDC (coin objects) |
 | TON | working | GRAM, USDT (jetton) |
 
 The same phrase gives a different address on each — that is correct and
@@ -293,6 +295,51 @@ itself `USDT` on Ethereum and Scroll, `USDT0` on Polygon, `USD₮0` with a
 tugrik sign on Arbitrum and HyperEVM, and `USDt` with a lowercase t on
 Avalanche. Each is checked against its chain before a transfer is signed, and
 none of them is ever what the screen shows.
+
+Two chains here are not EVM chains and not like each other.
+
+**Aptos** keeps coins and *fungible assets* apart, and its USDT is one of the
+latter. They have different entry points and different balance views, and
+using one against the other does not move a wrong amount - the transaction
+aborts. Its address is `sha3_256(public_key || scheme)`, so the same key under
+a different scheme is a different account.
+
+The transaction encoding was checked against the chain's own encoder rather
+than against a document: Aptos will BCS-encode a transaction for you at
+`/transactions/encode_submission`, and this wallet's bytes are identical to
+its own for both transfers, all 197 and 297 of them. That matters because BCS
+carries no types - a misplaced length byte is not a malformed transaction, it
+is a different one, signed correctly.
+
+Its fee is shown as a **ceiling** rather than an estimate. Aptos will price a
+transaction exactly, but only when shown the sender's public key, which this
+wallet does not have while quoting - the key is derived at the last step, and
+the public key cannot be recovered from an address that is a hash of it.
+Unused gas is not charged.
+
+**Sui** has no accounts with numbers in them. Coins are *objects*, each with an
+id, a version and a digest; a balance is their sum, and a transfer spends
+particular ones. That makes it the second chain here after Bitcoin where
+sending needs a selection rather than a subtraction, and it makes a stale
+version a rejection rather than a smaller payment. There is no "transfer"
+instruction either: every transaction is a list of commands, and a payment is
+a split followed by a hand-over.
+
+Its address is `blake2b256(scheme || public_key)` - note the order, which is
+the opposite of Aptos's. Two chains, two Ed25519 keys, two 32-byte addresses,
+and swapping the operands gives a valid-looking account nobody holds the key
+to. Verified by taking real transactions off mainnet, reading each signer's
+public key out of the signature, and recomputing the address.
+
+The fee comes from a dry run of the exact transaction, which is also what
+proves the bytes decode: the chain's own parser has to read them to price
+them. One consequence is worth knowing - Sui refunds part of the storage it
+charges, and consolidating coin objects frees storage, so a transfer that
+folds thirty of them together can cost **nothing at all**.
+
+One caution: Sui's own public fullnode has **deprecated** JSON-RPC and answers
+"Method not found" to all of it. The default node here is a different one that
+still serves it.
 
 TON derives at `m/44'/607'/0'` and is the one chain here where **the address
 is not derived from the key**. A wallet on TON is a smart contract, and its

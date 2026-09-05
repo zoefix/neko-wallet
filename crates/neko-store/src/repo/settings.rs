@@ -27,6 +27,14 @@ pub mod keys {
     pub const BASE_RPC: &str = "base_rpc";
     pub const ARBITRUM_RPC: &str = "arbitrum_rpc";
     pub const OPTIMISM_RPC: &str = "optimism_rpc";
+    /// Aptos's fullnode. Like Esplora and toncenter, this is not an
+    /// alternative to asking a node - reading a balance here means running a
+    /// view function, which needs a node behind it.
+    pub const APTOS_API: &str = "aptos_api";
+    /// Sui's node. The public fullnode Sui documents has **deprecated**
+    /// JSON-RPC and answers "Method not found" to all of it, so the default
+    /// here is a public node that still serves it.
+    pub const SUI_API: &str = "sui_api";
     pub const AVALANCHE_RPC: &str = "avalanche_rpc";
     pub const HYPEREVM_RPC: &str = "hyperevm_rpc";
     pub const MANTLE_RPC: &str = "mantle_rpc";

@@ -752,6 +752,8 @@ fn cycle_setting(app: &mut App, forward: bool, tx: &Sender) {
         | SettingRow::LineaRpc
         | SettingRow::ZkSyncEraRpc
         | SettingRow::ScrollRpc
+        | SettingRow::AptosApi
+        | SettingRow::SuiApi
         | SettingRow::TonApi => begin_edit(app, tx),
     }
 }
@@ -783,6 +785,8 @@ fn begin_edit(app: &mut App, _tx: &Sender) {
         | SettingRow::LineaRpc
         | SettingRow::ZkSyncEraRpc
         | SettingRow::ScrollRpc
+        | SettingRow::AptosApi
+        | SettingRow::SuiApi
         | SettingRow::TonApi => st.editing = Some(Field::new(false)),
         _ => {}
     }
@@ -840,6 +844,8 @@ fn apply_text_setting(app: &mut App, row: crate::nav::SettingRow, value: &str) {
         | SettingRow::LineaRpc
         | SettingRow::ZkSyncEraRpc
         | SettingRow::ScrollRpc
+        | SettingRow::AptosApi
+        | SettingRow::SuiApi
         | SettingRow::TonApi => set_node_url(app, row, value),
         _ => {}
     }
@@ -888,6 +894,8 @@ fn set_node_url(app: &mut App, row: crate::nav::SettingRow, value: &str) {
         SettingRow::LineaRpc => (keys::LINEA_RPC, neko_i18n::Key::Settings_LineaRpcSaved),
         SettingRow::ZkSyncEraRpc => (keys::ZKSYNC_ERA_RPC, neko_i18n::Key::Settings_ZksyncEraRpcSaved),
         SettingRow::ScrollRpc => (keys::SCROLL_RPC, neko_i18n::Key::Settings_ScrollRpcSaved),
+        SettingRow::AptosApi => (keys::APTOS_API, neko_i18n::Key::Settings_AptosApiSaved),
+        SettingRow::SuiApi => (keys::SUI_API, neko_i18n::Key::Settings_SuiApiSaved),
         SettingRow::TonApi => (keys::TON_API, neko_i18n::Key::Settings_TonApiSaved),
         _ => (keys::NODE_URL, neko_i18n::Key::Settings_NodeSaved),
     };
@@ -913,6 +921,8 @@ fn set_node_url(app: &mut App, row: crate::nav::SettingRow, value: &str) {
         SettingRow::LineaRpc => app.linea_rpc = stored,
         SettingRow::ZkSyncEraRpc => app.zksync_era_rpc = stored,
         SettingRow::ScrollRpc => app.scroll_rpc = stored,
+        SettingRow::AptosApi => app.aptos_api = stored,
+        SettingRow::SuiApi => app.sui_api = stored,
         SettingRow::TonApi => app.ton_api = stored,
         _ => app.node_url = stored,
     }

@@ -241,6 +241,12 @@ impl Session {
                 ChainId::Ton => ChainAddress::Ton(neko_ton::wallet::address_for(
                     &neko_hd::ton::public_key(&sk),
                 )?),
+                ChainId::Aptos => ChainAddress::Aptos(
+                    neko_aptos::AptosAddress::from_public_key(&neko_hd::aptos::public_key(&sk)),
+                ),
+                ChainId::Sui => ChainAddress::Sui(neko_sui::SuiAddress::from_public_key(
+                    &neko_hd::sui::public_key(&sk),
+                )),
             });
         }
 
@@ -267,6 +273,22 @@ impl Session {
             ChainId::Linea => ChainAddress::Linea(derive::evm_address_at(&seed, 0, index)?),
             ChainId::ZkSyncEra => ChainAddress::ZkSyncEra(derive::evm_address_at(&seed, 0, index)?),
             ChainId::Scroll => ChainAddress::Scroll(derive::evm_address_at(&seed, 0, index)?),
+            // A different curve, a different coin type, and an address that is
+            // a hash of the key rather than the key itself.
+            ChainId::Aptos => {
+                let sk = neko_hd::aptos::private_key_at(&seed, index)?;
+                ChainAddress::Aptos(neko_aptos::AptosAddress::from_public_key(
+                    &neko_hd::aptos::public_key(&sk),
+                ))
+            }
+            // The same curve and the same depth as Aptos's, at a different
+            // coin type - and a different hash, in the other operand order.
+            ChainId::Sui => {
+                let sk = neko_hd::sui::private_key_at(&seed, index)?;
+                ChainAddress::Sui(neko_sui::SuiAddress::from_public_key(
+                    &neko_hd::sui::public_key(&sk),
+                ))
+            }
             // SLIP-0010, hardened at every level, so the account level is what
             // varies rather than a change/index pair that cannot exist here.
             ChainId::Solana => ChainAddress::Solana(neko_hd::solana::address_at(&seed, index)?),
@@ -485,6 +507,9 @@ impl Session {
                 ChainId::ZkSyncEra => neko_evm::ZKSYNC_ERA.stable_address().as_bytes().to_vec(),
                 ChainId::Scroll => neko_evm::SCROLL.stable_address().as_bytes().to_vec(),
                 ChainId::Ton => neko_ton::usdt_master().as_bytes(),
+                ChainId::Aptos => neko_aptos::usdt_metadata().as_bytes().to_vec(),
+                // A Move type rather than an address, so its bytes are its name.
+                ChainId::Sui => neko_sui::USDC_TYPE.as_bytes().to_vec(),
                 ChainId::Solana => neko_solana::usdt_mint().as_bytes().to_vec(),
                 // Unreachable: Bitcoin has no stablecoin, so this closure is
                 // never reached for it.
@@ -518,6 +543,8 @@ fn db_chain_id(c: ChainId) -> i64 {
         ChainId::Linea => neko_store::repo::addresses::LINEA_CHAIN_ID,
         ChainId::ZkSyncEra => neko_store::repo::addresses::ZKSYNC_ERA_CHAIN_ID,
         ChainId::Scroll => neko_store::repo::addresses::SCROLL_CHAIN_ID,
+        ChainId::Aptos => neko_store::repo::addresses::APTOS_CHAIN_ID,
+        ChainId::Sui => neko_store::repo::addresses::SUI_CHAIN_ID,
     }
 }
 

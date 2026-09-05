@@ -1,0 +1,19 @@
+[package]
+name = "neko-sui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+neko-hd = { path = "../neko-hd" }
+blake2 = "0.10"
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+hex.workspace = true
+zeroize.workspace = true
+ed25519-dalek.workspace = true
+tokio = { workspace = true, features = ["time"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }

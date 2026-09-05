@@ -1230,6 +1230,42 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                             q.bandwidth_burn(),
                         ));
                     }
+                    crate::send::FeeQuote::Sui(s) => {
+                        // Computation plus storage, less what the chain gives
+                        // back. Consolidating coin objects frees storage, so a
+                        // transfer that folds many together can cost nothing
+                        // at all - which is real rather than a failed reading.
+                        lines.push(Line::from(vec![
+                            Span::styled(fee_label(t(Key::Send_Gas)), theme::hint()),
+                            Span::raw(format!(
+                                "{} SUI after the storage rebate",
+                                s.fee_amount().to_display_string_trim(crate::chain::BALANCE_FRAC)
+                            )),
+                        ]));
+                        lines.push(Line::from(Span::styled(
+                            format!(
+                                "                {} coin object{} spent; budget {} SUI is held back",
+                                s.coins_spent,
+                                if s.coins_spent == 1 { "" } else { "s" },
+                                s.budget_amount()
+                                    .to_display_string_trim(crate::chain::BALANCE_FRAC)
+                            ),
+                            theme::hint(),
+                        )));
+                    }
+                    crate::send::FeeQuote::Aptos(a) => {
+                        // A ceiling rather than an estimate, and the total
+                        // line above already says "at most". A measured
+                        // transfer uses about 150 of these units.
+                        lines.push(Line::from(vec![
+                            Span::styled(fee_label(t(Key::Send_Gas)), theme::hint()),
+                            Span::raw(format!(
+                                "up to {} units x {} octas",
+                                group(a.max_gas_amount as i64),
+                                group(a.gas_unit_price as i64)
+                            )),
+                        ]));
+                    }
                     crate::send::FeeQuote::Evm(e) => {
                         let coin = e.chain.native_symbol;
                         // No allowance to draw down here, so there is nothing
@@ -1563,7 +1599,9 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                     crate::send::FeeQuote::Evm(_)
                     | crate::send::FeeQuote::Solana(_)
                     | crate::send::FeeQuote::Bitcoin(_)
-                    | crate::send::FeeQuote::Ton(_) => "",
+                    | crate::send::FeeQuote::Ton(_)
+                    | crate::send::FeeQuote::Aptos(_)
+                    | crate::send::FeeQuote::Sui(_) => "",
                 };
                 let mut total_line = vec![
                     Span::styled(fee_label(t(Key::Send_Total)), theme::hint()),
@@ -2280,6 +2318,12 @@ fn not_final_key(chain: neko_core::ChainId) -> Key {
         neko_core::ChainId::Solana => Key::Send_NotFinalSolana,
         neko_core::ChainId::Bitcoin => Key::Send_NotFinalBitcoin,
         neko_core::ChainId::Ton => Key::Send_NotFinalTon,
+        // An account chain with sequence numbers, so the EVM wording fits:
+        // a transaction is final once it is in a block.
+        neko_core::ChainId::Aptos => Key::Send_NotFinalEvm,
+        // Sui finalises by checkpoint rather than by block count, and a
+        // transaction that has executed is done.
+        neko_core::ChainId::Sui => Key::Send_NotFinalEvm,
     }
 }
 

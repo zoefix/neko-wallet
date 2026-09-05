@@ -166,7 +166,12 @@ jobs:
           #   avalanche-c-chain-rpc.publicnode.com,
           #   rpc.hyperliquid.xyz, rpc.mantle.xyz,
           #   rpc.linea.build, mainnet.era.zksync.io,
-          #   rpc.scroll.io
+          #   rpc.scroll.io,
+          #   fullnode.mainnet.aptoslabs.com,
+          #   sui-rpc.publicnode.com    Sui's own public fullnode has
+          #                             *deprecated* JSON-RPC and answers
+          #                             "Method not found" to all of it, so
+          #                             the default is a node that serves it
           #   blockstream.info          Bitcoin's is an *indexer*, not a node:
           #                             a node cannot say what an address
           #                             holds, so there is no version of this
@@ -179,6 +184,12 @@ jobs:
           #   nodereal.io               BNB Chain and Ethereum history, only
           #                             when the user supplies a key; never
           #                             contacted without one
+          #   api.mainnet.aptoslabs.com Aptos history. A fullnode can say what an
+          #   (graphql)                 account *sent* and nothing it received,
+          #                             so this is the only way to a whole
+          #                             history there. Keyless, and rate-limited
+          #                             by IP instead - 40,000 units per five
+          #                             minutes, which is reported as itself
           #   scrollscan.com            Scroll history. Its explorer serves the
           #                             Blockscout v2 API keyless, and the same
           #                             host is the explorer link - the only
@@ -218,7 +229,9 @@ jobs:
           #   arbiscan / optimistic.etherscan /
           #   snowtrace / hyperevmscan /
           #   mantlescan / lineascan /
-          #   explorer.zksync.io
+          #   explorer.zksync.io /
+          #   explorer.aptoslabs /
+          #   suiscan.xyz
           #   tether.to                 named by TON's USDT as where its own
           #                             metadata lives. Read out of the
           #                             contract and never fetched: the wallet
@@ -239,7 +252,7 @@ jobs:
           # before and after each transaction.
           found="$(grep -rhoE 'https?://[a-zA-Z0-9._/-]+' crates/*/src \
                    | sort -u \
-                   | grep -vE 'trongrid\.io|bsc-dataseed|mainnet-beta\.solana\.com|ethereum-rpc\.publicnode\.com|polygon-bor-rpc\.publicnode\.com|polygonscan\.com|base-rpc\.publicnode\.com|basescan\.org|arbitrum-one-rpc\.publicnode\.com|arbiscan\.io|optimism-rpc\.publicnode\.com|explorer\.optimism\.io|avalanche-c-chain-rpc\.publicnode\.com|rpc\.hyperliquid\.xyz|rpc\.mantle\.xyz|rpc\.linea\.build|mainnet\.era\.zksync\.io|rpc\.scroll\.io|scrollscan\.com|snowtrace\.io|hyperevmscan\.io|mantlescan\.xyz|lineascan\.build|explorer\.zksync\.io|blockstream\.info|nodereal\.io|tronscan\.org|bscscan\.com|solscan\.io|etherscan\.io|mempool\.space|blockscout\.com|api\.etherscan\.io|toncenter\.com|tonviewer\.com|tether\.to|my-node\.example|x\.example|example\.invalid' || true)"
+                   | grep -vE 'trongrid\.io|bsc-dataseed|mainnet-beta\.solana\.com|ethereum-rpc\.publicnode\.com|polygon-bor-rpc\.publicnode\.com|polygonscan\.com|base-rpc\.publicnode\.com|basescan\.org|arbitrum-one-rpc\.publicnode\.com|arbiscan\.io|optimism-rpc\.publicnode\.com|explorer\.optimism\.io|avalanche-c-chain-rpc\.publicnode\.com|rpc\.hyperliquid\.xyz|rpc\.mantle\.xyz|rpc\.linea\.build|mainnet\.era\.zksync\.io|rpc\.scroll\.io|scrollscan\.com|snowtrace\.io|hyperevmscan\.io|mantlescan\.xyz|lineascan\.build|explorer\.zksync\.io|fullnode\.mainnet\.aptoslabs\.com|api\.mainnet\.aptoslabs\.com|explorer\.aptoslabs\.com|sui-rpc\.publicnode\.com|suiscan\.xyz|blockstream\.info|nodereal\.io|tronscan\.org|bscscan\.com|solscan\.io|etherscan\.io|mempool\.space|blockscout\.com|api\.etherscan\.io|toncenter\.com|tonviewer\.com|tether\.to|my-node\.example|x\.example|example\.invalid' || true)"
           if [ -n "$found" ]; then
             echo "::error::unexpected network destinations in the program:"
             printf '%s\n' "$found"

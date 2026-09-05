@@ -8,7 +8,7 @@
 插U盘带走、放网盘、随便拷到哪里都行。用一个邮箱加一个密码解锁，
 而这两样东西哪里都没有保存。
 
-多链架构：TRON、Ethereum、BNB Chain、Polygon、Base、Arbitrum、Optimism、Avalanche、HyperEVM、Mantle、Linea、zkSync Era、Scroll、Solana、Bitcoin、TON。
+多链架构：TRON、Ethereum、BNB Chain、Polygon、Base、Arbitrum、Optimism、Avalanche、HyperEVM、Mantle、Linea、zkSync Era、Scroll、Aptos、Sui、Solana、Bitcoin、TON。
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
@@ -141,6 +141,8 @@ neko-wallet
 | Linea | 可用 | ETH、USDC (ERC20) |
 | zkSync Era | 可用 | ETH、USDC (ERC20) |
 | Scroll | 可用 | ETH、USDT (ERC20) |
+| Aptos | 可用 | APT、USDT (fungible asset) |
+| Sui | 可用 | SUI、USDC (coin objects) |
 | TON | 可用 | GRAM、USDT (jetton) |
 
 Polygon 也用同一个币种编号，所以同一句助记词在三条 EVM 链上是**同一个地址**。
@@ -228,6 +230,39 @@ ETH 价是 7.55 和 264。历史记录走 Blockscout，只是这家开在自己�
 在 Polygon 上是 `USDT0`，在 Arbitrum 和 HyperEVM 上是带图格里克符号的 `USD₮0`，
 在 Avalanche 上是小写 t 的 `USDt`。每一个都会在签名前跟链核对，而且一个都不会显示到
 屏幕上。
+
+这里有两条链既不是 EVM，彼此也完全不一样。
+
+**Aptos** 把 coin 和 *fungible asset* 分成两套东西，而它的 USDT 属于后者。两者的入口
+函数不同、查余额的方法也不同，拿一套去操作另一套不会转错金额——交易直接 abort。它的
+地址是 `sha3_256(公钥 || scheme)`，所以同一把钥匙换个签名方案就是另一个账户。
+
+交易编码不是照着文档写的，是跟链自己的编码器对过的：Aptos 提供
+`/transactions/encode_submission`，把交易交给它、它返回签名要覆盖的字节。这个钱包
+生成的字节跟它**逐字节相同**，两种转账分别 197 和 297 字节。这件事很要紧，因为 BCS
+不带类型——长度字节放错位置不会得到一个损坏的交易，而是得到另一个交易，并且被正确
+地签了名。
+
+它的手续费显示的是**上限**而不是估算。Aptos 可以精确计价，但前提是拿到发送方的公钥；
+报价的时候这个钱包没有——密钥要到最后一步才推导，而地址是公钥的哈希、反推不回去。
+没用掉的 gas 不收费。
+
+**Sui 上没有"账户里有个数字"这回事。** 币是**对象**，每个都有 id、版本和摘要；余额是
+它们的和，转账花掉的是其中某几个。这让它成为继 Bitcoin 之后第二条"发送是一次挑选而
+不是一次减法"的链，也让"版本过期"变成拒绝而不是少转一点。它也没有"转账"这条指令：
+每笔交易都是一串命令，一次付款是先切一刀、再递过去。
+
+它的地址是 `blake2b256(scheme || 公钥)`——注意顺序，跟 Aptos 正好相反。两条链、两把
+Ed25519 钥匙、两个 32 字节地址，把两个操作数调换一下，得到的是一个看起来完全正常、
+却没有人握有私钥的账户。验证方法是从主网拿真实交易，从签名里读出签名者的公钥，再重新
+算一遍地址。
+
+手续费来自对这笔交易本身的 dry run，这同时也证明了字节是对的：链自己的解析器必须
+读懂它才能给它定价。有一个后果值得知道——Sui 会退还它收取的一部分存储费，而把币对象
+合并起来正好释放存储，所以一笔把三十个对象折在一起的转账**可能一分钱都不花**。
+
+一个提醒：Sui 官方的公共全节点已经**停用**了 JSON-RPC，对所有方法都回
+"Method not found"。这里默认用的是另一个还在提供它的节点。
 
 TON 在这里是唯一一条**地址不是从密钥算出来的**链。TON 上的钱包本身就是一个智能合约，
 地址是这个合约初始代码和存储的哈希。由此带来的两件事都摆在界面上，而不是等你自己撞上：

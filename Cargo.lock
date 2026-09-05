@@ -105,7 +105,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "134c52ddac6d63c576bef8168db10c83c49c26444ecbc68060fef078925a901c"
 dependencies = [
  "base64ct",
- "blake2",
+ "blake2 0.11.0",
  "cpufeatures 0.3.1",
  "password-hash",
  "rayon",
@@ -234,6 +234,15 @@ name = "bitflags"
 version = "2.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
+
+[[package]]
+name = "blake2"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46502ad458c9a52b69d4d4d32775c788b7a1b85e8bc9d482d92250fc0e3f8efe"
+dependencies = [
+ "digest 0.10.7",
+]
 
 [[package]]
 name = "blake2"
@@ -1640,6 +1649,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "neko-aptos"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "hex",
+ "neko-hd",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha3",
+ "thiserror 2.0.20",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
 name = "neko-btc"
 version = "0.1.0"
 dependencies = [
@@ -1660,12 +1685,14 @@ name = "neko-core"
 version = "0.1.0"
 dependencies = [
  "hex",
+ "neko-aptos",
  "neko-btc",
  "neko-crypto",
  "neko-evm",
  "neko-hd",
  "neko-solana",
  "neko-store",
+ "neko-sui",
  "neko-ton",
  "neko-tron",
  "neko-vault",
@@ -1770,6 +1797,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "neko-sui"
+version = "0.1.0"
+dependencies = [
+ "blake2 0.10.6",
+ "ed25519-dalek",
+ "hex",
+ "neko-hd",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
 name = "neko-ton"
 version = "0.1.0"
 dependencies = [
@@ -1809,6 +1852,7 @@ version = "0.1.0"
 dependencies = [
  "crossterm",
  "futures-util",
+ "neko-aptos",
  "neko-btc",
  "neko-core",
  "neko-evm",
@@ -1816,6 +1860,7 @@ dependencies = [
  "neko-i18n",
  "neko-solana",
  "neko-store",
+ "neko-sui",
  "neko-ton",
  "neko-tron",
  "neko-vault",

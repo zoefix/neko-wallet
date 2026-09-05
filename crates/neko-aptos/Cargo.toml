@@ -1,0 +1,19 @@
+[package]
+name = "neko-aptos"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+neko-hd = { path = "../neko-hd" }
+sha3.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+hex.workspace = true
+zeroize.workspace = true
+ed25519-dalek.workspace = true
+tokio = { workspace = true, features = ["time"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }

@@ -125,12 +125,14 @@ pub enum SettingRow {
     LineaRpc,
     ZkSyncEraRpc,
     ScrollRpc,
+    AptosApi,
+    SuiApi,
     TonApi,
     AutoLock,
     BorderStyle,
 }
 
-pub const SETTING_ROWS: [SettingRow; 22] = [
+pub const SETTING_ROWS: [SettingRow; 24] = [
     SettingRow::Language,
     SettingRow::ApiKey,
     SettingRow::BscApiKey,
@@ -150,6 +152,8 @@ pub const SETTING_ROWS: [SettingRow; 22] = [
     SettingRow::LineaRpc,
     SettingRow::ZkSyncEraRpc,
     SettingRow::ScrollRpc,
+    SettingRow::AptosApi,
+    SettingRow::SuiApi,
     SettingRow::TonApi,
     SettingRow::AutoLock,
     SettingRow::BorderStyle,
@@ -177,6 +181,8 @@ impl SettingRow {
             SettingRow::LineaRpc => neko_i18n::t(neko_i18n::Key::Settings_LineaRpc),
             SettingRow::ZkSyncEraRpc => neko_i18n::t(neko_i18n::Key::Settings_ZksyncEraRpc),
             SettingRow::ScrollRpc => neko_i18n::t(neko_i18n::Key::Settings_ScrollRpc),
+            SettingRow::AptosApi => neko_i18n::t(neko_i18n::Key::Settings_AptosApi),
+            SettingRow::SuiApi => neko_i18n::t(neko_i18n::Key::Settings_SuiApi),
             SettingRow::TonApi => neko_i18n::t(neko_i18n::Key::Settings_TonApi),
             SettingRow::AutoLock => neko_i18n::t(neko_i18n::Key::Settings_Autolock),
             SettingRow::BorderStyle => neko_i18n::t(neko_i18n::Key::Settings_Border),

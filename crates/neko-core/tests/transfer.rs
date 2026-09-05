@@ -530,6 +530,9 @@ fn base_carries_usdc_and_every_chain_agrees_with_itself() {
         // chains there is no `stable_label`, and those all carry USDT.
         if let Some(evm) = chain.evm() {
             assert_eq!(sym, evm.stable_label, "{chain:?} is shown the wrong name");
+        } else if chain == ChainId::Sui {
+            // The one non-EVM chain carrying Circle's dollar.
+            assert_eq!(sym, "USDC");
         } else {
             assert_eq!(sym, "USDT", "{chain:?}");
         }
@@ -543,7 +546,9 @@ fn base_carries_usdc_and_every_chain_agrees_with_itself() {
             ChainId::Base,
             ChainId::Mantle,
             ChainId::Linea,
-            ChainId::ZkSyncEra
+            ChainId::ZkSyncEra,
+            // Sui too: Binance sends USDC there and no USDT at all.
+            ChainId::Sui
         ],
         "the set of chains carrying Circle's dollar changed"
     );
