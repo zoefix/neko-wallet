@@ -143,6 +143,7 @@ fn bsc_quote() -> FeeQuote {
         native_balance: Some(490_000_000_000_000),
         sending_native: false,
         amount: 1_000_000_000_000_000_000,
+        l1_fee: 0,
     })
 }
 

@@ -52,6 +52,8 @@ pub enum Quote {
         /// Whether the amount and the fee come out of the same balance.
         sending_native: bool,
         amount: u128,
+        /// What a rollup charges for posting this to Ethereum. Zero elsewhere.
+        l1_fee: u128,
     },
     Solana {
         params: neko_solana::tx::TxParams,

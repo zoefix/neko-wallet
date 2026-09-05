@@ -530,6 +530,27 @@ async fn evm_quote(rpc: &neko_evm::client::Rpc, req: &TransferRequest) -> Result
     // being sent.
     let native_balance = rpc.balance(from).await.ok();
 
+    // On a rollup, gas times price is not the whole fee: the transaction also
+    // has to be posted to Ethereum, and `op-geth` counts that in the balance
+    // check. Asked with the bytes that will actually be signed, because the
+    // cost depends on how well they compress.
+    //
+    // Zero on every chain that is not one, and a failure here is treated as
+    // zero rather than as a failed quote: it costs an accurate figure, not the
+    // ability to send.
+    let l1_fee = if chain.l1_fee_oracle.is_some() {
+        let unsigned = neko_evm::tx::Tx {
+            to,
+            value,
+            data: data.clone(),
+            params,
+        }
+        .signing_payload();
+        rpc.l1_fee(&unsigned).await.unwrap_or(0)
+    } else {
+        0
+    };
+
     Ok(Quote::Evm {
         chain: Box::new(chain),
         params,
@@ -539,6 +560,7 @@ async fn evm_quote(rpc: &neko_evm::client::Rpc, req: &TransferRequest) -> Result
             Asset::Bnb | Asset::Eth | Asset::Pol | Asset::BaseEth
         ),
         amount: req.amount.raw as u128,
+        l1_fee,
     })
 }
 

@@ -69,6 +69,17 @@ pub struct EvmChain {
     /// every chain here. Saying so is better than naming a host that does not
     /// resolve and reporting it as the network being down.
     pub history_host: Option<&'static str>,
+    /// The L1 gas price oracle, on a rollup that charges one.
+    ///
+    /// An OP-stack chain posts its transactions to Ethereum and charges the
+    /// sender for that, **on top of** L2 gas - and `op-geth` includes it in the
+    /// balance check. A wallet that models a fee as gas times price is short by
+    /// exactly this amount, which is why "send everything" on Base failed with
+    /// `have 1949655363709653 want 1949655797961312`: 434,251,659 wei of L1
+    /// fee it did not know about.
+    ///
+    /// The predeploy is at the same address on every OP-stack chain.
+    pub l1_fee_oracle: Option<&'static str>,
     /// Where this chain's coin is priced, when it cannot be priced here.
     ///
     /// The chain id of another chain, or `None` to use this one's own pool.
@@ -108,6 +119,7 @@ pub const BSC: EvmChain = EvmChain {
     wrapped_native: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
     tx_type: TxType::Legacy,
     history_host: Some("https://bsc-mainnet.nodereal.io/v1"),
+    l1_fee_oracle: None,
     prices_on: None,
     blockscout: None,
 };
@@ -134,6 +146,7 @@ pub const ETHEREUM: EvmChain = EvmChain {
     wrapped_native: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
     tx_type: TxType::Eip1559,
     history_host: Some("https://eth-mainnet.nodereal.io/v1"),
+    l1_fee_oracle: None,
     prices_on: None,
     blockscout: None,
 };
@@ -173,6 +186,7 @@ pub const POLYGON: EvmChain = EvmChain {
     // hundreds of gwei is ordinary.
     tx_type: TxType::Eip1559,
     history_host: None,
+    l1_fee_oracle: None,
     prices_on: None,
     blockscout: Some("https://polygon.blockscout.com"),
 };
@@ -212,6 +226,9 @@ pub const BASE: EvmChain = EvmChain {
     wrapped_native: "0x4200000000000000000000000000000000000006",
     tx_type: TxType::Eip1559,
     history_host: None,
+    // Base is a rollup: its fee is L2 gas *plus* the cost of posting the
+    // transaction to Ethereum.
+    l1_fee_oracle: Some("0x420000000000000000000000000000000000000F"),
     prices_on: Some(1),
     blockscout: Some("https://base.blockscout.com"),
 };

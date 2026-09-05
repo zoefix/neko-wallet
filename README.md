@@ -194,6 +194,14 @@ interface, so the price is read from Ethereum's pool instead — the same asset,
 on a chain this wallet already talks to. That is the trade BTC already makes.
 History comes from Blockscout, as Polygon's does.
 
+One more thing is Base's alone: **the fee is not gas times price**. A rollup
+writes its transactions to Ethereum and charges the sender for that on top of
+L2 gas, and `op-geth` counts it in the balance check — so a wallet that models
+a fee as gas times price is short by exactly that, and "send everything" is
+refused with `have … want …`. The amount is read from the chain's own L1 gas
+price oracle, using the bytes that will actually be signed, and shown on the
+review screen as its own line. It is not refunded.
+
 Base is also the one chain here whose stablecoin is **USDC rather than USDT**.
 That is not a preference: Tether's contract on Base holds about 23 million
 against Circle's 4.2 billion, and Binance lists nineteen networks for USDT

@@ -154,6 +154,12 @@ Base 的流动性在 Aerodrome 和 Uniswap V3 上，这两个都不是同一套�
 Ethereum 的池子读 —— 同一种资产，而且那条链本来就在联系。这跟 BTC 的做法是一样的。
 历史记录跟 Polygon 一样走 Blockscout。
 
+还有一件事是 Base 独有的：**手续费不等于 gas × 单价**。rollup 会把交易写到 Ethereum 上，
+这笔钱由发送方在 L2 gas 之外另付，而且 `op-geth` 把它算进余额检查里 —— 所以一个把手续费
+当成 gas × 单价的钱包会正好差这么多，「全部转出」会被节点以 `have … want …` 拒掉。
+这个金额是拿真正要签名的那串字节去问链上的 L1 gas 价格预言机取的，在确认页单列一行。
+它不退。
+
 Base 也是这里唯一一条稳定币是 **USDC 而不是 USDT** 的链。这不是偏好：Tether 在 Base
 上的合约总共 2380 万，Circle 的 USDC 是 42 亿；币安列出的 USDT 可提网络有 19 个，
 里面没有 Base —— 它在 Base 上只支持 ETH 和 USDC。放一行 USDT 在那儿，是一行谁也填

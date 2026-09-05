@@ -789,6 +789,7 @@ impl App {
                         native_balance,
                         sending_native,
                         amount,
+                        l1_fee,
                     } => crate::send::FeeQuote::Evm(crate::send::EvmFee {
                         chain,
                         gas_limit: p.gas_limit,
@@ -796,6 +797,7 @@ impl App {
                         native_balance,
                         sending_native,
                         amount,
+                        l1_fee,
                     }),
                     crate::event::Quote::Solana {
                         params: p,

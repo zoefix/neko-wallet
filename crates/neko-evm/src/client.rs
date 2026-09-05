@@ -141,6 +141,43 @@ impl Rpc {
     }
 
     /// A read-only contract call.
+    /// What this rollup will charge for posting `unsigned` to Ethereum.
+    ///
+    /// Zero on a chain that is not a rollup, which is not an approximation: it
+    /// is the whole of the L1 fee there.
+    ///
+    /// The oracle is asked with the transaction's own bytes rather than a
+    /// length, because the cost depends on how well they compress and a
+    /// synthetic payload of the same size answers differently. The signature is
+    /// not in an unsigned encoding and is charged for, so a fixed allowance for
+    /// it is added: 68 bytes at the worst-case per-byte rate is small next to
+    /// being short and having the transaction refused.
+    pub async fn l1_fee(&self, unsigned: &[u8]) -> Result<u128, EvmError> {
+        let Some(oracle) = self.chain().l1_fee_oracle else {
+            return Ok(0);
+        };
+        let oracle = EvmAddress::parse(oracle)
+            .map_err(|_| EvmError::BadReply("the L1 oracle address is malformed".into()))?;
+
+        // getL1Fee(bytes) = 0x49948e0e, then offset, length, padded body.
+        let mut padded = unsigned.to_vec();
+        padded.extend(std::iter::repeat_n(0xff, SIGNATURE_BYTES));
+        let mut data = Vec::with_capacity(4 + 64 + padded.len() + 32);
+        data.extend_from_slice(&[0x49, 0x94, 0x8e, 0x0e]);
+        data.extend_from_slice(&u256(32));
+        data.extend_from_slice(&u256(padded.len() as u128));
+        data.extend_from_slice(&padded);
+        data.resize(data.len() + (32 - padded.len() % 32) % 32, 0);
+
+        let out = self.eth_call(oracle, &data).await?;
+        let tail = out
+            .get(out.len().saturating_sub(16)..)
+            .ok_or_else(|| EvmError::BadReply("the L1 oracle returned nothing".into()))?;
+        let mut buf = [0u8; 16];
+        buf.copy_from_slice(tail);
+        Ok(u128::from_be_bytes(buf))
+    }
+
     pub async fn eth_call(&self, to: EvmAddress, data: &[u8]) -> Result<Vec<u8>, EvmError> {
         let v = self
             .call(
@@ -312,6 +349,17 @@ pub fn clean_revert(msg: &str) -> String {
 pub fn to_quantity(v: u128) -> String {
     format!("0x{v:x}")
 }
+
+/// A 32-byte big-endian word, which is how the ABI writes every scalar.
+fn u256(v: u128) -> [u8; 32] {
+    let mut w = [0u8; 32];
+    w[16..].copy_from_slice(&v.to_be_bytes());
+    w
+}
+
+/// What a signature adds to a transaction's encoded length. Charged for by the
+/// rollup and absent from the unsigned bytes the oracle is shown.
+const SIGNATURE_BYTES: usize = 68;
 
 #[cfg(test)]
 mod tests {

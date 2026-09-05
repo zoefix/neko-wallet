@@ -173,6 +173,13 @@ pub struct EvmFee {
     /// Whether the amount and the fee come out of the same balance.
     pub sending_native: bool,
     pub amount: u128,
+    /// What a rollup charges for posting this transaction to Ethereum, on top
+    /// of L2 gas. Zero everywhere else.
+    ///
+    /// `op-geth` counts it in the balance check, so a "send everything" that
+    /// leaves it out produces an amount the node refuses - which is exactly
+    /// what Base did, by 434,251,659 wei.
+    pub l1_fee: u128,
 }
 
 impl EvmFee {
@@ -180,13 +187,26 @@ impl EvmFee {
     /// for a type-2 one it is the base fee plus the tip, which is what gets
     /// charged.
     pub fn fee_wei(&self) -> u128 {
-        self.gas_limit as u128 * self.fees.expected_per_gas()
+        (self.gas_limit as u128 * self.fees.expected_per_gas()).saturating_add(self.l1_fee)
     }
 
     /// The most it can cost - the ceiling a balance has to cover even though
     /// the difference comes back. Equal to `fee_wei` on a legacy chain.
+    ///
+    /// The L1 fee is in both, and is not refundable: a rollup charges it for
+    /// posting the transaction to Ethereum whatever the L2 gas turns out to
+    /// cost.
     pub fn max_fee_wei(&self) -> u128 {
-        self.gas_limit as u128 * self.fees.max_per_gas()
+        (self.gas_limit as u128 * self.fees.max_per_gas()).saturating_add(self.l1_fee)
+    }
+
+    /// L2 gas alone, for the line that explains where the total came from.
+    pub fn l2_fee_wei(&self) -> u128 {
+        self.gas_limit as u128 * self.fees.expected_per_gas()
+    }
+
+    pub fn l1_fee_amount(&self) -> Amount {
+        Amount::new(self.l1_fee as i128, self.chain.native_decimals)
     }
 
     pub fn fee(&self) -> Amount {

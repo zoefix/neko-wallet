@@ -1246,6 +1246,25 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                                     .to_display_string_trim(crate::chain::BALANCE_FRAC)
                             )),
                         ]));
+                        // On a rollup the total is not gas times price, and a
+                        // screen that showed only that would be short by this
+                        // and unable to say why.
+                        if e.l1_fee > 0 {
+                            lines.push(Line::from(vec![
+                                Span::styled(fee_label(t(Key::Send_L1Fee)), theme::hint()),
+                                Span::raw(format!(
+                                    "{} {coin}",
+                                    e.l1_fee_amount()
+                                        .to_display_string_trim(crate::chain::BALANCE_FRAC)
+                                )),
+                            ]));
+                            for key in [Key::Send_L1FeeNote, Key::Send_L1FeeNote2] {
+                                lines.push(Line::from(Span::styled(
+                                    format!("                {}", t(key)),
+                                    theme::hint(),
+                                )));
+                            }
+                        }
                         // Ethereum names a ceiling and pays the base fee plus
                         // a tip. Showing the ceiling as the price would say a
                         // transfer costs about twice what it does; hiding it

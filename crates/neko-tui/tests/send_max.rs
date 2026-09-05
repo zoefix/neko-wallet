@@ -69,6 +69,7 @@ fn bsc_quote(amount: u128, balance: Option<u128>) -> FeeQuote {
         native_balance: balance,
         sending_native: true,
         amount,
+        l1_fee: 0,
     })
 }
 
@@ -297,6 +298,7 @@ fn the_request_built_for_signing_carries_the_reduced_amount() {
             native_balance: Some(BALANCE as u128),
             sending_native: true,
             amount: BALANCE as u128,
+            l1_fee: 0,
         })),
     });
 
@@ -363,6 +365,7 @@ fn eth_quote(amount: u128) -> FeeQuote {
         native_balance: Some(ETH_BALANCE as u128),
         sending_native: true,
         amount,
+        l1_fee: 0,
     })
 }
 
@@ -389,6 +392,7 @@ fn the_reserve_is_the_ceiling_and_the_total_is_the_price() {
         native_balance: Some(BALANCE as u128),
         sending_native: true,
         amount: 0,
+        l1_fee: 0,
     });
     assert_eq!(legacy.reserve().raw, legacy.total().raw);
 }
@@ -475,6 +479,7 @@ fn sending_everything_on_ethereum_produces_an_amount_the_node_accepts() {
             native_balance: Some(ETH_BALANCE as u128),
             sending_native: true,
             amount: ETH_BALANCE as u128,
+            l1_fee: 0,
         })),
     });
 
@@ -577,4 +582,114 @@ fn a_ton_maximum_holds_back_the_attached_coin_too() {
     // cost. Those being equal is what the EIP-1559 bug looked like.
     assert_eq!(q.total().raw, TON_FEE as i128);
     assert_eq!(q.reserve().raw, held);
+}
+
+// ── A rollup charges for posting to L1, and the balance check counts it ─────
+
+/// The exact failure reported from Base:
+///
+/// ```text
+/// insufficient funds for gas * price + value:
+///   have 1949655363709653 want 1949655797961312
+/// ```
+///
+/// An OP-stack chain writes its transactions to Ethereum and charges the
+/// sender for that, on top of L2 gas - and `op-geth` counts it in the balance
+/// check. Reserving only `gas_limit x max_fee_per_gas` therefore leaves an
+/// amount the node refuses, short by exactly the L1 fee.
+///
+/// It is exact, and that is what identified it. With the old reserve the value
+/// is `balance - gas x max_fee`, so `want - have` is the L1 fee and nothing
+/// else: 434,251,659 wei, an odd number that no `gas_limit x price` can
+/// produce.
+#[test]
+fn a_rollup_maximum_holds_back_the_l1_fee_as_well() {
+    const BALANCE: i128 = 1_949_655_363_709_653;
+    const GAS: u64 = 25_200;
+    const MAX_FEE: u128 = 11_000_000;
+    const L1: u128 = 434_251_659;
+
+    let evm = |l1_fee| {
+        FeeQuote::Evm(EvmFee {
+            chain: Box::new(neko_evm::BASE),
+            gas_limit: GAS,
+            fees: neko_evm::tx::Fees::Eip1559 {
+                max_fee_per_gas: MAX_FEE,
+                max_priority_fee_per_gas: 0,
+                base_fee: 5_000_000,
+            },
+            native_balance: Some(BALANCE as u128),
+            sending_native: true,
+            amount: BALANCE as u128,
+            l1_fee,
+        })
+    };
+
+    // What the chain will take: L2 gas at the ceiling, plus the L1 fee.
+    let reserve = evm(L1).reserve().raw;
+    assert_eq!(reserve, (GAS as u128 * MAX_FEE + L1) as i128);
+
+    // And what it would have been without it - short by the L1 fee exactly,
+    // which is the number in the report.
+    assert_eq!(reserve - evm(0).reserve().raw, L1 as i128);
+
+    // Through the real flow: press m, let the quote land, read the request.
+    let mut app = app_entering_amount(neko_core::ChainId::Base.native(), BALANCE);
+    neko_tui::keys::on_key_send(&mut app, KeyEvent::from(KeyCode::Char('m')), &channel());
+    let id = app.next_req();
+    app.inflight = Some(id);
+    app.on_app_event(neko_tui::event::AppEvent::Quoted {
+        req: id,
+        res: Ok(Box::new(neko_tui::event::Quote::Evm {
+            chain: Box::new(neko_evm::BASE),
+            params: neko_evm::tx::TxParams {
+                nonce: 0,
+                gas_limit: GAS,
+                chain_id: neko_evm::BASE.chain_id,
+                fees: neko_evm::tx::Fees::Eip1559 {
+                    max_fee_per_gas: MAX_FEE,
+                    max_priority_fee_per_gas: 0,
+                    base_fee: 5_000_000,
+                },
+            },
+            native_balance: Some(BALANCE as u128),
+            sending_native: true,
+            amount: BALANCE as u128,
+            l1_fee: L1,
+        })),
+    });
+
+    let Screen::Send(st) = &app.screen else {
+        unreachable!()
+    };
+    let SendStep::Review { req, .. } = &st.step else {
+        panic!("not at review: {:?}", st.error);
+    };
+
+    // The node's own arithmetic, applied to what would be signed. This is the
+    // line that failed: it came to `have + 434_251_659`.
+    let want = req.amount.raw as u128 + GAS as u128 * MAX_FEE + L1;
+    assert_eq!(
+        want,
+        BALANCE as u128,
+        "want {want} against have {BALANCE} - short by {}",
+        want as i128 - BALANCE
+    );
+}
+
+/// A chain that is not a rollup has no L1 fee, and nothing is held back for
+/// one. Reserving a phantom cost leaves dust behind on every other chain.
+#[test]
+fn a_chain_that_is_not_a_rollup_reserves_nothing_extra() {
+    assert_eq!(neko_evm::BSC.l1_fee_oracle, None);
+    assert_eq!(neko_evm::ETHEREUM.l1_fee_oracle, None);
+    assert_eq!(neko_evm::POLYGON.l1_fee_oracle, None);
+    assert!(neko_evm::BASE.l1_fee_oracle.is_some());
+
+    let q = bsc_quote(BALANCE as u128, Some(BALANCE as u128));
+    assert_eq!(
+        q.reserve().raw,
+        FEE,
+        "an L1 fee appeared where there is none"
+    );
 }
