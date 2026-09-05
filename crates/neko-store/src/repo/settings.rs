@@ -36,6 +36,9 @@ pub mod keys {
     /// NodeReal / BSCTrace key, for BNB Chain history. A credential, so it is
     /// stored with the same field-level encryption as the TronGrid one.
     pub const BSC_API_KEY: &str = "bsc_api_key";
+    /// Etherscan V2 key. Optional, and covers every EVM chain here at once -
+    /// which is why it is one setting rather than one per chain.
+    pub const ETHERSCAN_KEY: &str = "etherscan_key";
     pub const AUTOLOCK_SECS: &str = "autolock_secs";
     pub const LANGUAGE: &str = "language";
 }

@@ -6,9 +6,11 @@
 //! encryption, the interface - lives in the crates below both.
 
 pub mod abi;
+pub mod blockscout;
 pub mod chain_consts;
 pub mod client;
 pub mod error;
+pub mod etherscan;
 pub mod history;
 pub mod price;
 pub mod rlp;

@@ -61,6 +61,13 @@ pub struct EvmChain {
     /// every chain here. Saying so is better than naming a host that does not
     /// resolve and reporting it as the network being down.
     pub history_host: Option<&'static str>,
+    /// A Blockscout instance for this chain, which indexes both coin and token
+    /// movements and asks for no key.
+    ///
+    /// Set where there is no alternative. Polygon has no NodeReal endpoint, so
+    /// without this its history screen could only say "unavailable" - and a
+    /// keyless index is the same trade Bitcoin already makes with Esplora.
+    pub blockscout: Option<&'static str>,
 }
 
 /// BNB Chain.
@@ -83,6 +90,7 @@ pub const BSC: EvmChain = EvmChain {
     wrapped_native: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
     tx_type: TxType::Legacy,
     history_host: Some("https://bsc-mainnet.nodereal.io/v1"),
+    blockscout: None,
 };
 
 /// Ethereum.
@@ -106,6 +114,7 @@ pub const ETHEREUM: EvmChain = EvmChain {
     wrapped_native: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
     tx_type: TxType::Eip1559,
     history_host: Some("https://eth-mainnet.nodereal.io/v1"),
+    blockscout: None,
 };
 
 /// Polygon.
@@ -141,6 +150,7 @@ pub const POLYGON: EvmChain = EvmChain {
     // hundreds of gwei is ordinary.
     tx_type: TxType::Eip1559,
     history_host: None,
+    blockscout: Some("https://polygon.blockscout.com"),
 };
 
 impl EvmChain {

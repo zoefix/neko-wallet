@@ -36,6 +36,13 @@ pub struct Transfer {
     pub amount: i128,
     pub symbol: String,
     pub decimals: u8,
+    /// **Milliseconds** since the epoch, not seconds.
+    ///
+    /// Every provider states it differently - NodeReal in milliseconds,
+    /// Etherscan and Blockscout in seconds - and the screen renders whatever
+    /// arrives. A figure in seconds shown as milliseconds is January 1970,
+    /// which has happened here once already, so the unit is part of the type's
+    /// contract and each parser converts.
     pub block_ts: i64,
     pub success: bool,
 }
@@ -559,5 +566,67 @@ mod one_row_per_transfer {
             "a poisoning attempt was discarded rather than hidden"
         );
         assert_eq!(got[0].amount, 0);
+    }
+}
+
+#[cfg(test)]
+mod unit_agreement {
+    use super::*;
+    use serde_json::json;
+
+    /// Every provider must hand back the same instant in the same unit.
+    ///
+    /// They do not state it the same way: NodeReal writes milliseconds,
+    /// Etherscan and Blockscout write seconds. `Transfer::block_ts` is
+    /// milliseconds and the screen renders it directly, so a parser that
+    /// forwards seconds dates every row to January 1970. That shipped once,
+    /// for NodeReal, and was reintroduced the day a second provider was added
+    /// - which is what this test is for.
+    #[test]
+    fn every_provider_reports_the_same_instant_in_milliseconds() {
+        const WHEN: i64 = 1_782_513_790;
+        const MS: i64 = WHEN * 1_000;
+        let from = "0x1111111111111111111111111111111111111111";
+        let to = "0x2222222222222222222222222222222222222222";
+
+        let blockscout = crate::blockscout::parse_coins(
+            &json!({"items": [{
+                "timestamp": "2026-06-26T22:43:10.000000Z",
+                "hash": "0xa", "from": {"hash": from}, "to": {"hash": to},
+                "value": "1", "status": "ok",
+            }]}),
+            crate::POLYGON,
+        );
+        let etherscan = crate::etherscan::parse_coins(
+            &json!([{
+                "hash": "0xa", "from": from, "to": to,
+                "value": "1", "timeStamp": WHEN.to_string(), "isError": "0",
+            }]),
+            crate::POLYGON,
+        );
+        let nodereal = parse_direction(
+            &json!({"transfers": [{
+                "hash": "0xa", "from": from, "to": to,
+                "value": "0x1", "category": "external",
+                "blockTimeStamp": WHEN, "asset": "POL",
+            }]}),
+            crate::POLYGON,
+            crate::POLYGON.usdt_address(),
+            false,
+        );
+
+        for (name, rows) in [
+            ("blockscout", &blockscout),
+            ("etherscan", &etherscan),
+            ("nodereal", &nodereal),
+        ] {
+            assert_eq!(rows.len(), 1, "{name} parsed nothing");
+            assert_eq!(
+                rows[0].block_ts, MS,
+                "{name} reported {} - seconds where milliseconds were expected \
+                 puts every row in 1970",
+                rows[0].block_ts
+            );
+        }
     }
 }

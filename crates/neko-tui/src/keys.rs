@@ -737,6 +737,7 @@ fn cycle_setting(app: &mut App, forward: bool, tx: &Sender) {
         SettingRow::ApiKey
         | SettingRow::BscApiKey
         | SettingRow::TonApiKey
+        | SettingRow::EtherscanKey
         | SettingRow::NodeUrl
         | SettingRow::SolanaRpc
         | SettingRow::BitcoinApi
@@ -753,9 +754,10 @@ fn begin_edit(app: &mut App, _tx: &Sender) {
     };
     match st.row() {
         // An API key is a credential: masked while typing, never rendered back.
-        SettingRow::ApiKey | SettingRow::BscApiKey | SettingRow::TonApiKey => {
-            st.editing = Some(Field::new(true))
-        }
+        SettingRow::ApiKey
+        | SettingRow::BscApiKey
+        | SettingRow::TonApiKey
+        | SettingRow::EtherscanKey => st.editing = Some(Field::new(true)),
         // Not credentials, so shown while typing - a mistyped node URL is
         // easier to spot than to debug.
         SettingRow::NodeUrl
@@ -780,6 +782,14 @@ fn apply_text_setting(app: &mut App, row: crate::nav::SettingRow, value: &str) {
                 value,
                 neko_i18n::Key::Settings_BscApiKeySaved,
                 neko_i18n::Key::Settings_BscApiKeyCleared,
+            ));
+        }
+        SettingRow::EtherscanKey => {
+            app.set_etherscan_key(value.trim());
+            app.toast(key_toast(
+                value,
+                neko_i18n::Key::Settings_EtherscanKeySaved,
+                neko_i18n::Key::Settings_EtherscanKeyCleared,
             ));
         }
         SettingRow::TonApiKey => {

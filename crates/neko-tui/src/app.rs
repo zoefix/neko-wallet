@@ -122,6 +122,9 @@ pub struct App {
     /// NodeReal key for BNB Chain history. Balances and transfers work without
     /// it; only history needs an indexer.
     pub bsc_api_key: Option<String>,
+    /// Etherscan V2 key. Optional, and covers every EVM chain at once: with
+    /// one set, it is preferred over NodeReal on all of them.
+    pub etherscan_key: Option<String>,
     /// toncenter key. Optional - it raises a rate limit rather than unlocking
     /// anything, and unlike the BNB Chain key it is balances rather than
     /// history that hit that limit.
@@ -186,6 +189,7 @@ impl App {
             api_key: std::env::var("TRONGRID_API_KEY").ok(),
             bsc_api_key: std::env::var("NODEREAL_API_KEY").ok(),
             ton_api_key: std::env::var("TONCENTER_API_KEY").ok(),
+            etherscan_key: std::env::var("ETHERSCAN_API_KEY").ok(),
             balances: None,
             balances_req: None,
             prices: neko_core::Prices::default(),
@@ -692,7 +696,7 @@ impl App {
             // can hit it; a key raises it. Optional, like the others.
             neko_core::ChainId::Ton => self.ton_api_key.clone(),
         };
-        crate::chain::Client::for_chain(chain, url, key)
+        crate::chain::Client::for_chain_with(chain, url, key, self.etherscan_key.clone())
     }
 
     /// Open the transfer flow for the asset highlighted on the assets screen.
@@ -782,7 +786,7 @@ impl App {
                         sending_native,
                         amount,
                     } => crate::send::FeeQuote::Evm(crate::send::EvmFee {
-                        chain,
+                        chain: *chain,
                         gas_limit: p.gas_limit,
                         fees: p.fees,
                         native_balance,
@@ -935,6 +939,11 @@ impl App {
                 self.bsc_api_key = Some(k.to_string());
             }
         }
+        if self.etherscan_key.is_none() {
+            if let Ok(Some(k)) = s.secret_setting(keys::ETHERSCAN_KEY) {
+                self.etherscan_key = Some(k.to_string());
+            }
+        }
         if self.ton_api_key.is_none() {
             if let Ok(Some(k)) = s.secret_setting(keys::TON_API_KEY) {
                 self.ton_api_key = Some(k.to_string());
@@ -962,6 +971,13 @@ impl App {
             let _ = s.set_secret_setting(neko_store::repo::settings::keys::BSC_API_KEY, key);
         }
         self.bsc_api_key = Some(key.to_string()).filter(|k| !k.is_empty());
+    }
+
+    pub fn set_etherscan_key(&mut self, key: &str) {
+        if let Some(s) = self.session.as_ref() {
+            let _ = s.set_secret_setting(neko_store::repo::settings::keys::ETHERSCAN_KEY, key);
+        }
+        self.etherscan_key = Some(key.to_string()).filter(|k| !k.is_empty());
     }
 
     pub fn set_ton_api_key(&mut self, key: &str) {
@@ -998,6 +1014,14 @@ impl App {
                 ),
                 Some(_) => neko_i18n::tf(neko_i18n::Key::Settings_ApiKeySet, &[("tail", "")]),
                 None => neko_i18n::t(neko_i18n::Key::Settings_BscApiKeyUnset).to_string(),
+            },
+            SettingRow::EtherscanKey => match &self.etherscan_key {
+                Some(k) if k.len() > 4 => neko_i18n::tf(
+                    neko_i18n::Key::Settings_ApiKeySet,
+                    &[("tail", &k[k.len() - 4..])],
+                ),
+                Some(_) => neko_i18n::tf(neko_i18n::Key::Settings_ApiKeySet, &[("tail", "")]),
+                None => neko_i18n::t(neko_i18n::Key::Settings_EtherscanKeyUnset).to_string(),
             },
             SettingRow::TonApiKey => match &self.ton_api_key {
                 Some(k) if k.len() > 4 => neko_i18n::tf(

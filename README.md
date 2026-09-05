@@ -173,10 +173,15 @@ itself, which is how this wallet knows: the wrapped native contract reports
 `WPOL`. And its USDT contract calls itself **`USDT0`** since Tether moved
 Polygon's supply to its omnichain deployment. It is the token everyone means
 by USDT and the wallet shows it as USDT; what gets checked against the chain
-before signing is the name the contract actually has. Polygon is also the one
-chain here with **no transfer index available**, so the history screen says
-that plainly rather than asking for a key that would not help — balances,
-fees, prices and transfers are unaffected.
+before signing is the name the contract actually has. Polygon's history comes
+from a **Blockscout** instance rather than from NodeReal, which does not index
+this chain. It needs no key, so it is the one index here contacted without
+being asked — the same trade Bitcoin already makes with Esplora, and for the
+same reason: `eth_getLogs` caps at ten thousand blocks, which on a chain with
+1.5-second blocks is four hours, and native transfers emit no logs at all.
+
+Setting an **Etherscan API key** is optional and covers every EVM chain here
+with one key; when it is set it is used in preference to the others.
 
 TON derives at `m/44'/607'/0'` and is the one chain here where **the address
 is not derived from the key**. A wallet on TON is a smart contract, and its

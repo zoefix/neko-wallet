@@ -50,7 +50,19 @@ async fn main() {
     // History has no index on this chain, and must say so rather than fail as
     // a network error.
     match neko_tui::chain::history(&client, mine, 5).await {
-        Ok(rows) => println!("\nhistory: {} rows", rows.len()),
+        Ok(rows) => {
+            println!("\nhistory: {} rows", rows.len());
+            for r in &rows {
+                println!(
+                    "  {:?} {:>6} {:>18}  {}  {}",
+                    r.direction,
+                    r.symbol,
+                    neko_core::Amount::new(r.amount, r.decimals).to_display_string_trim(8),
+                    &r.counterparty[..r.counterparty.len().min(14)],
+                    r.block_ts
+                );
+            }
+        }
         Err(e) => println!("\nhistory: {e}"),
     }
 

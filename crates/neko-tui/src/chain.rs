@@ -35,10 +35,17 @@ pub enum Client {
     /// the two get confused.
     Evm {
         rpc: Box<neko_evm::client::Rpc>,
-        /// Only history needs this. Balances, fees and transfers all work
+        /// Only history needs these. Balances, fees and transfers all work
         /// from the plain RPC, so a missing key costs one screen rather than
         /// the chain.
+        ///
+        /// Three possible indexers and they are tried in order of what the
+        /// user has actually chosen: an Etherscan key covers every chain and
+        /// wins; otherwise a NodeReal key, which covers two of them; otherwise
+        /// a keyless Blockscout instance, which is why Polygon works out of
+        /// the box.
         history_key: Option<String>,
+        etherscan_key: Option<String>,
     },
     Solana(Box<neko_solana::client::Rpc>),
     /// TON. The one client here that must ask a contract rather than the node:
@@ -60,6 +67,18 @@ pub enum Client {
 
 impl Client {
     pub fn for_chain(chain: ChainId, url: Option<&str>, api_key: Option<String>) -> Self {
+        Self::for_chain_with(chain, url, api_key, None)
+    }
+
+    /// The same, plus the Etherscan key, which is not per-chain: one key covers
+    /// every chain it serves, so it is passed alongside rather than folded into
+    /// `api_key`.
+    pub fn for_chain_with(
+        chain: ChainId,
+        url: Option<&str>,
+        api_key: Option<String>,
+        etherscan_key: Option<String>,
+    ) -> Self {
         match chain {
             ChainId::Tron => Client::Tron(Box::new(TronGrid::new(url, api_key))),
             // The TronGrid key is not a BscScan key; passing it here would only
@@ -70,6 +89,7 @@ impl Client {
                     url,
                 )),
                 history_key: api_key.filter(|k| !k.is_empty()),
+                etherscan_key: etherscan_key.filter(|k| !k.is_empty()),
             },
             ChainId::Solana => Client::Solana(Box::new(neko_solana::client::Rpc::new(url))),
             // toncenter's public endpoint rate-limits hard enough to matter,
@@ -497,7 +517,7 @@ async fn evm_quote(rpc: &neko_evm::client::Rpc, req: &TransferRequest) -> Result
     let native_balance = rpc.balance(from).await.ok();
 
     Ok(Quote::Evm {
-        chain,
+        chain: Box::new(chain),
         params,
         native_balance,
         sending_native: matches!(req.asset, Asset::Bnb | Asset::Eth | Asset::Pol),
@@ -719,31 +739,39 @@ pub async fn history(
             Ok(neko_tron::history::merge(all))
         }
         Client::Evm {
-            rpc, history_key, ..
+            rpc,
+            history_key,
+            etherscan_key,
         } => {
             // A node's RPC cannot answer "what has this address done"; that
-            // needs an index. Two different reasons there might not be one, and
-            // they need different answers: this chain has none at all, or it
-            // has one and no key has been supplied. Asking for a key that would
-            // not help is worse than saying nothing.
+            // needs an index. Three of them, tried in the order of what the
+            // user has actually supplied.
             let chain = rpc.chain();
-            if chain.history_host.is_none() {
+            let a = addr.as_evm().map_err(|e| e.to_string())?;
+            let usdt = chain.usdt_address();
+            let rows = if let Some(es) = etherscan_key
+                .as_deref()
+                .and_then(|k| neko_evm::etherscan::Etherscan::new(chain, k))
+            {
+                // One key, every chain. Preferred when it exists.
+                es.transfers(a, usdt, limit as usize).await
+            } else if let Some(nr) = history_key
+                .as_deref()
+                .and_then(|k| neko_evm::history::Bsctrace::new(chain, k))
+            {
+                nr.transfers(a, usdt, limit as usize).await
+            } else if let Some(bs) = neko_evm::blockscout::Blockscout::new(chain, None) {
+                // No key at all. Polygon's default, and why its history works
+                // with nothing configured.
+                bs.transfers(a, usdt, limit as usize).await
+            } else if chain.history_host.is_some() {
+                // There is an index for this chain and no key for it, which is
+                // a different thing from there being none.
+                return Err(neko_i18n::t(neko_i18n::Key::History_NeedsIndexer).to_string());
+            } else {
                 return Err(neko_i18n::t(neko_i18n::Key::History_NoIndexer).to_string());
             }
-            let Some(key) = history_key else {
-                return Err(neko_i18n::t(neko_i18n::Key::History_NeedsIndexer).to_string());
-            };
-            let a = addr.as_evm().map_err(|e| e.to_string())?;
-            // Not every EVM chain has an index behind it. Polygon has none,
-            // and saying so is better than posting to a host that does not
-            // resolve and calling it a network failure.
-            let Some(index) = neko_evm::history::Bsctrace::new(chain, key) else {
-                return Err(neko_i18n::t(neko_i18n::Key::History_NoIndexer).to_string());
-            };
-            let rows = index
-                .transfers(a, chain.usdt_address(), limit as usize)
-                .await
-                .map_err(|e| e.to_string())?;
+            .map_err(|e| e.to_string())?;
 
             let mine = a.to_string().to_ascii_lowercase();
             Ok(rows

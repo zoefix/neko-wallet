@@ -283,7 +283,7 @@ fn the_request_built_for_signing_carries_the_reduced_amount() {
     app.on_app_event(neko_tui::event::AppEvent::Quoted {
         req: id,
         res: Ok(Box::new(neko_tui::event::Quote::Evm {
-            chain: neko_evm::BSC,
+            chain: Box::new(neko_evm::BSC),
             params: neko_evm::tx::TxParams {
                 nonce: 0,
                 gas_limit: GAS_LIMIT,
@@ -459,7 +459,7 @@ fn sending_everything_on_ethereum_produces_an_amount_the_node_accepts() {
     app.on_app_event(neko_tui::event::AppEvent::Quoted {
         req: id,
         res: Ok(Box::new(neko_tui::event::Quote::Evm {
-            chain: neko_evm::ETHEREUM,
+            chain: Box::new(neko_evm::ETHEREUM),
             params: neko_evm::tx::TxParams {
                 nonce: 0,
                 gas_limit: ETH_GAS_LIMIT,

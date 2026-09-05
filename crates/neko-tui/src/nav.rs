@@ -109,6 +109,7 @@ pub enum SettingRow {
     Language,
     ApiKey,
     BscApiKey,
+    EtherscanKey,
     TonApiKey,
     NodeUrl,
     SolanaRpc,
@@ -120,10 +121,11 @@ pub enum SettingRow {
     BorderStyle,
 }
 
-pub const SETTING_ROWS: [SettingRow; 12] = [
+pub const SETTING_ROWS: [SettingRow; 13] = [
     SettingRow::Language,
     SettingRow::ApiKey,
     SettingRow::BscApiKey,
+    SettingRow::EtherscanKey,
     SettingRow::TonApiKey,
     SettingRow::NodeUrl,
     SettingRow::SolanaRpc,
@@ -141,6 +143,7 @@ impl SettingRow {
             SettingRow::Language => neko_i18n::t(neko_i18n::Key::Settings_Language),
             SettingRow::ApiKey => neko_i18n::t(neko_i18n::Key::Settings_ApiKey),
             SettingRow::BscApiKey => neko_i18n::t(neko_i18n::Key::Settings_BscApiKey),
+            SettingRow::EtherscanKey => neko_i18n::t(neko_i18n::Key::Settings_EtherscanKey),
             SettingRow::TonApiKey => neko_i18n::t(neko_i18n::Key::Settings_TonApiKey),
             SettingRow::NodeUrl => neko_i18n::t(neko_i18n::Key::Settings_NodeUrl),
             SettingRow::SolanaRpc => neko_i18n::t(neko_i18n::Key::Settings_SolanaRpc),

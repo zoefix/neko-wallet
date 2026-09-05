@@ -41,7 +41,9 @@ pub enum Quote {
         recipient_is_new: bool,
     },
     Evm {
-        chain: neko_evm::EvmChain,
+        /// Boxed because it is a dozen static strings, and an unboxed copy
+        /// makes every other variant of this enum as large as the heaviest.
+        chain: Box<neko_evm::EvmChain>,
         params: neko_evm::tx::TxParams,
         /// The chain's own coin pays the fee whatever is being sent, so a
         /// wallet holding only USDT cannot move it. `None` means the balance

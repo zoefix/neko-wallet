@@ -172,6 +172,21 @@ jobs:
           #   nodereal.io               BNB Chain and Ethereum history, only
           #                             when the user supplies a key; never
           #                             contacted without one
+          #   blockscout.com            Polygon history. The one index here
+          #                             that needs no key, and therefore the
+          #                             one contacted without being asked -
+          #                             the same trade Esplora already makes
+          #                             for Bitcoin, for the same reason:
+          #                             there is no version of this that asks
+          #                             nobody. NodeReal indexes no Polygon
+          #                             and eth_getLogs caps at four hours of
+          #                             that chain's blocks
+          #   api.etherscan.io          optional, and only with a user's key:
+          #                             one key covers every EVM chain here
+          #                             and is preferred over the other two
+          #                             when set. The explorer links below are
+          #                             a different thing and are never
+          #                             fetched
           #   tronscan / bscscan /      explorer links, copied for the user to
           #   solscan / etherscan /     open - this wallet never fetches them
           #   mempool.space / tonviewer
@@ -182,7 +197,8 @@ jobs:
           #                             checks the decimals, which are on
           #                             chain, and does not go looking for the
           #                             symbol, which is not
-          #   my-node / x.example       examples in documentation
+          #   my-node / x.example /     examples in documentation and in tests;
+          #   example.invalid           .invalid can never resolve, by RFC 2606
           #
           # Notably absent: any price service. Portfolio values are quoted from
           # a swap pool on the chain already being talked to - SunSwap on TRON,
@@ -195,7 +211,7 @@ jobs:
           # before and after each transaction.
           found="$(grep -rhoE 'https?://[a-zA-Z0-9._/-]+' crates/*/src \
                    | sort -u \
-                   | grep -vE 'trongrid\.io|bsc-dataseed|mainnet-beta\.solana\.com|ethereum-rpc\.publicnode\.com|polygon-bor-rpc\.publicnode\.com|polygonscan\.com|blockstream\.info|nodereal\.io|tronscan\.org|bscscan\.com|solscan\.io|etherscan\.io|mempool\.space|toncenter\.com|tonviewer\.com|tether\.to|my-node\.example|x\.example' || true)"
+                   | grep -vE 'trongrid\.io|bsc-dataseed|mainnet-beta\.solana\.com|ethereum-rpc\.publicnode\.com|polygon-bor-rpc\.publicnode\.com|polygonscan\.com|blockstream\.info|nodereal\.io|tronscan\.org|bscscan\.com|solscan\.io|etherscan\.io|mempool\.space|blockscout\.com|api\.etherscan\.io|toncenter\.com|tonviewer\.com|tether\.to|my-node\.example|x\.example|example\.invalid' || true)"
           if [ -n "$found" ]; then
             echo "::error::unexpected network destinations in the program:"
             printf '%s\n' "$found"
