@@ -173,11 +173,14 @@ pub fn parse_tokens(body: &Value, token: EvmAddress) -> Vec<Transfer> {
                 from: hash_of(t.get("from"))?,
                 to: hash_of(t.get("to"))?,
                 amount: big_int(total.get("value")?)?,
-                symbol: tok
-                    .get("symbol")
-                    .and_then(Value::as_str)
-                    .unwrap_or("USDT")
-                    .to_string(),
+                // Our own label, not the one in the reply.
+                //
+                // The row is already matched on the contract, so the name it
+                // carries is the real token's - but rendering a string a
+                // server sent is the habit this codebase does not have, and
+                // the assets screen calls the same holding USDT. It showed
+                // USDT0 here and USDT there, for one balance.
+                symbol: crate::history::TOKEN_LABEL.to_string(),
                 decimals: num(total.get("decimals").or_else(|| tok.get("decimals"))?)? as u8,
                 // Milliseconds: what `Transfer` carries, not what the reply
                 // states.
@@ -352,7 +355,11 @@ mod tests {
         assert_eq!(rows.len(), 1, "another token came through: {rows:?}");
         assert_eq!(rows[0].amount, 2_700_000);
         assert_eq!(rows[0].decimals, 6, "read from the reply, not assumed");
-        assert_eq!(rows[0].symbol, "USDT0", "what the contract calls itself");
+        assert_eq!(
+            rows[0].symbol, "USDT",
+            "the reply says USDT0 and the screen must not repeat it: the assets \
+             screen calls this same holding USDT"
+        );
         assert_eq!(
             rows[0].block_ts, 1_782_547_200_000,
             "08:00:00 in milliseconds, not the other row's time in seconds"

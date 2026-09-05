@@ -26,6 +26,24 @@ use crate::error::EvmError;
 pub const DEFAULT_HOST: &str = "https://bsc-mainnet.nodereal.io/v1";
 pub const SIGNUP_URL: &str = "https://nodereal.io";
 
+/// What a token movement is called on screen, whatever the contract calls
+/// itself and whatever a provider says it is called.
+///
+/// Two reasons it is a constant here rather than a field of the reply:
+///
+/// * **A token can call itself anything.** Several in a typical address's
+///   history call themselves USDT in characters that are not the ones in
+///   USDT, and a name taken from a server is a name an attacker chose.
+/// * **One holding, one name.** The balance screen shows USDT, so the history
+///   has to as well. Polygon's contract is named `USDT0` since Tether's
+///   omnichain migration, and taking the name from the reply showed the same
+///   money as USDT in one place and USDT0 in another.
+///
+/// What the contract calls itself is still checked against the chain before a
+/// transfer is signed - see `EvmChain::usdt_symbol`. That check is about
+/// whether this is the right contract; this is about what to call it.
+pub const TOKEN_LABEL: &str = "USDT";
+
 /// One movement of value, as the provider reports it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Transfer {
@@ -234,7 +252,7 @@ fn parse_one(t: &Value, chain: crate::EvmChain, token: EvmAddress) -> Option<Tra
         // several in this address's history call themselves USDT in characters
         // that are not the ones in USDT.
         "20" if contract.eq_ignore_ascii_case(&token.to_string()) => {
-            ("USDT".to_string(), chain.usdt_decimals)
+            (TOKEN_LABEL.to_string(), chain.usdt_decimals)
         }
         _ => return None,
     };
@@ -627,6 +645,69 @@ mod unit_agreement {
                  puts every row in 1970",
                 rows[0].block_ts
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod token_naming {
+    use super::*;
+    use serde_json::json;
+
+    /// No provider's idea of a token's name reaches the screen.
+    ///
+    /// A row is matched on the contract address, so a hostile token cannot be
+    /// mistaken for USDT. But the *name* still used to be copied out of the
+    /// reply on two of the three paths, which did two things: it let a server
+    /// choose a string the user reads, and it showed one holding as USDT on
+    /// the balance screen and USDT0 in its own history.
+    #[test]
+    fn the_token_label_never_comes_from_the_reply() {
+        // A name in characters that are not the ones in USDT, plus the real
+        // contract address, on every provider's shape.
+        const HOSTILE: &str = "U\u{0405}DT";
+        let usdt = crate::POLYGON.usdt_address();
+        let contract = usdt.to_string();
+        let from = "0x1111111111111111111111111111111111111111";
+        let to = "0x2222222222222222222222222222222222222222";
+
+        let blockscout = crate::blockscout::parse_tokens(
+            &json!({"items": [{
+                "timestamp": "2026-06-26T22:43:10.000000Z",
+                "transaction_hash": "0xa",
+                "from": {"hash": from}, "to": {"hash": to},
+                "total": {"decimals": "6", "value": "1"},
+                "token": {"address_hash": contract, "decimals": "6", "symbol": HOSTILE},
+            }]}),
+            usdt,
+        );
+        let etherscan = crate::etherscan::parse_tokens(&json!([{
+            "hash": "0xa", "from": from, "to": to, "value": "1",
+            "tokenSymbol": HOSTILE, "tokenDecimal": "6", "timeStamp": "1782513790",
+        }]));
+        let nodereal = parse(
+            &json!({"transfers": [{
+                "hash": "0xa", "from": from, "to": to, "value": "0x1",
+                "category": "20", "contractAddress": contract,
+                "blockTimeStamp": 1_782_513_790i64, "asset": HOSTILE,
+            }]}),
+            crate::POLYGON,
+            usdt,
+        );
+
+        for (name, rows) in [
+            ("blockscout", &blockscout),
+            ("etherscan", &etherscan),
+            ("nodereal", &nodereal),
+        ] {
+            assert_eq!(rows.len(), 1, "{name} parsed nothing");
+            assert_eq!(
+                rows[0].symbol, TOKEN_LABEL,
+                "{name} put a name the server chose on the screen"
+            );
+            assert_ne!(rows[0].symbol, HOSTILE);
+            // And the precision is still the token's own, not the label's.
+            assert_eq!(rows[0].decimals, 6, "{name}");
         }
     }
 }

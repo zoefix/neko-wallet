@@ -158,11 +158,9 @@ pub fn parse_tokens(result: &Value) -> Vec<Transfer> {
                 from: t.get("from")?.as_str()?.to_string(),
                 to: t.get("to")?.as_str()?.to_string(),
                 amount: dec_str(t.get("value")?)?,
-                symbol: t
-                    .get("tokenSymbol")
-                    .and_then(Value::as_str)
-                    .unwrap_or("USDT")
-                    .to_string(),
+                // Our own label, not `tokenSymbol` from the reply - see
+                // `crate::history::TOKEN_LABEL`.
+                symbol: crate::history::TOKEN_LABEL.to_string(),
                 // Stated by the reply. Six on Ethereum and Polygon, eighteen
                 // on BNB Chain, for the same token name.
                 decimals: dec_str(t.get("tokenDecimal")?)? as u8,
