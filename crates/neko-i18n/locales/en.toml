@@ -188,6 +188,7 @@ new_token_account_note = "This address has never held %{asset}. Opening an accou
 new_token_account_note2 = "costs %{amount} SOL in rent, paid by you, once."
 max_hint = "balance %{amount} %{asset}   press m to send it all"
 held_back = "the most that can be sent - %{fee} %{asset} is held back for the fee"
+held_back_refund = "held back for the fee ceiling; what the transfer does not use comes back"
 hint_amount = "Enter next   m send it all   Esc back"
 hint_entry = "Enter next   Esc back"
 hint_review = "Enter continue (once the characters match)   Esc cancel"

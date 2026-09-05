@@ -804,7 +804,12 @@ impl App {
                 // the maximum does not exist until the fee does - which is why
                 // the amount screen could only record the request.
                 if let Some(bal) = fee.native_balance().or(s.balance) {
-                    let held = fee.total();
+                    // The reserve, not the expected cost. On EIP-1559 the chain
+                    // requires the balance to cover the whole ceiling even
+                    // though the difference comes straight back, so holding
+                    // back the expected figure produces an amount the node
+                    // rejects with "insufficient funds".
+                    let held = fee.reserve();
                     if let Some(max) = s.hold_back_fee(bal, held) {
                         // The quote decides affordability from the amount it was
                         // given, so it has to be told the amount changed.

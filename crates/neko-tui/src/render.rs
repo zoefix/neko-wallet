@@ -1164,6 +1164,13 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
             // The amount on this line is smaller than the one that was typed.
             // Say why, here, rather than leaving somebody to wonder whether they
             // mistyped it.
+            // On a chain that reserves a ceiling, the held-back figure is
+            // larger than the fee - and somebody comparing the two deserves to
+            // be told the difference is not spent.
+            let reserve_is_a_ceiling = quote
+                .as_ref()
+                .map(|q| q.reserve().raw > q.total().raw)
+                .unwrap_or(false);
             if let Some(fee) = st.held_back {
                 lines.push(Line::from(Span::styled(
                     format!(
@@ -1181,6 +1188,12 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                     ),
                     theme::hint(),
                 )));
+                if reserve_is_a_ceiling {
+                    lines.push(Line::from(Span::styled(
+                        format!("            {}", t(Key::Send_HeldBackRefund)),
+                        theme::hint(),
+                    )));
+                }
             }
 
             if let Some(q) = quote {

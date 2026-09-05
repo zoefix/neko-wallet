@@ -315,3 +315,180 @@ fn the_request_built_for_signing_carries_the_reduced_amount() {
     );
     assert_eq!(st.held_back.map(|f| f.raw), Some(FEE));
 }
+
+// ── EIP-1559 reserves a ceiling, not a price ───────────────────────────────
+
+/// The exact transfer that failed: 0.001927234996653140 ETH, sent in full,
+/// rejected by the node with `have 1927234996653140 want 1930394086141940`.
+///
+/// EIP-1559 makes the chain check the balance against `gas_limit x
+/// max_fee_per_gas` - the whole ceiling - even though only the base fee plus
+/// the tip is charged and the difference is refunded within the same block.
+/// Holding back the *expected* cost therefore leaves an amount the node refuses
+/// outright, and it is off by the entire refundable headroom.
+const ETH_BALANCE: i128 = 1_927_234_996_653_140;
+const ETH_GAS_LIMIT: u64 = 25_200;
+/// base + tip, what the transfer is expected to cost per unit of gas. Derived
+/// from what the wallet actually held back that day - `have - amount` over the
+/// gas limit - rather than from the screen, which truncates.
+const ETH_EXPECTED_PER_GAS: u128 = 124_722_225;
+/// Roughly twice that: the quote asks for double the base fee plus the tip, so
+/// the ceiling covers six consecutive full blocks. The precise figure from that
+/// transfer cannot be reconstructed from what was on screen, and pinning a
+/// reverse-engineered one would be false precision - the property below is what
+/// matters and it holds for any ceiling above the price.
+const ETH_MAX_PER_GAS: u128 = 249_444_450;
+
+fn eth_quote(amount: u128) -> FeeQuote {
+    FeeQuote::Evm(neko_tui::send::EvmFee {
+        chain: neko_evm::ETHEREUM,
+        gas_limit: ETH_GAS_LIMIT,
+        fees: neko_evm::tx::Fees::Eip1559 {
+            max_fee_per_gas: ETH_MAX_PER_GAS,
+            max_priority_fee_per_gas: 0,
+            base_fee: ETH_EXPECTED_PER_GAS,
+        },
+        native_balance: Some(ETH_BALANCE as u128),
+        sending_native: true,
+        amount,
+    })
+}
+
+/// The two figures are different, and which one is used decides whether the
+/// transfer is accepted at all.
+#[test]
+fn the_reserve_is_the_ceiling_and_the_total_is_the_price() {
+    let q = eth_quote(0);
+    let expected = ETH_GAS_LIMIT as i128 * ETH_EXPECTED_PER_GAS as i128;
+    let ceiling = ETH_GAS_LIMIT as i128 * ETH_MAX_PER_GAS as i128;
+
+    assert_eq!(q.total().raw, expected, "the screen should show the price");
+    assert_eq!(q.reserve().raw, ceiling, "the balance check is the ceiling");
+    assert!(q.reserve().raw > q.total().raw);
+
+    // On a chain with one gas price the two are the same number, and nothing
+    // extra is held back.
+    let legacy = FeeQuote::Evm(neko_tui::send::EvmFee {
+        chain: neko_evm::BSC,
+        gas_limit: GAS_LIMIT,
+        fees: neko_evm::tx::Fees::Legacy {
+            gas_price: GAS_PRICE,
+        },
+        native_balance: Some(BALANCE as u128),
+        sending_native: true,
+        amount: 0,
+    });
+    assert_eq!(legacy.reserve().raw, legacy.total().raw);
+}
+
+/// Sending everything has to leave an amount the node will take.
+#[test]
+fn sending_all_of_an_eip1559_balance_is_accepted() {
+    let mut q = eth_quote(ETH_BALANCE as u128);
+    let FeeQuote::Evm(e) = &q else { unreachable!() };
+    assert_eq!(
+        e.affordable(),
+        Some(false),
+        "the setup must start unaffordable"
+    );
+
+    let mut st = state(neko_core::Asset::Eth, Some(ETH_BALANCE));
+    st.request_max();
+    let max = st.hold_back_fee(ETH_BALANCE, q.reserve()).unwrap();
+    q.set_amount(max);
+
+    let FeeQuote::Evm(e) = &q else { unreachable!() };
+    assert_eq!(
+        e.affordable(),
+        Some(true),
+        "still short after holding back the fee"
+    );
+    // What the node checks: value + gas_limit x max_fee_per_gas.
+    assert_eq!(
+        e.native_needed(),
+        ETH_BALANCE as u128,
+        "the reserve should use the balance exactly"
+    );
+
+    // The figure the node refused, reproduced: reserving the expected cost
+    // instead leaves an amount that needs more than the balance holds.
+    let mut wrong = state(neko_core::Asset::Eth, Some(ETH_BALANCE));
+    wrong.request_max();
+    let bad = wrong.hold_back_fee(ETH_BALANCE, q.total()).unwrap();
+    let mut q2 = eth_quote(bad as u128);
+    q2.set_amount(bad);
+    let FeeQuote::Evm(e2) = &q2 else {
+        unreachable!()
+    };
+    assert_eq!(
+        e2.affordable(),
+        Some(false),
+        "reserving the price rather than the ceiling should still be short"
+    );
+    // Short by exactly the headroom, which is what the node's "want" exceeded
+    // its "have" by.
+    assert_eq!(
+        e2.native_needed() - ETH_BALANCE as u128,
+        (ETH_MAX_PER_GAS - ETH_EXPECTED_PER_GAS) * ETH_GAS_LIMIT as u128
+    );
+}
+
+/// End to end, through the event that decides it.
+///
+/// The two tests above check the arithmetic and would both have passed while
+/// the wallet was broken: the fault was in which of the two figures `app.rs`
+/// handed to `hold_back_fee`, and calling it directly cannot see that. This
+/// drives the quote through `on_app_event`, which is the path that failed.
+#[test]
+fn sending_everything_on_ethereum_produces_an_amount_the_node_accepts() {
+    let mut app = app_entering_amount(neko_core::Asset::Eth, ETH_BALANCE);
+    neko_tui::keys::on_key_send(&mut app, KeyEvent::from(KeyCode::Char('m')), &channel());
+
+    let id = app.next_req();
+    app.inflight = Some(id);
+    app.on_app_event(neko_tui::event::AppEvent::Quoted {
+        req: id,
+        res: Ok(Box::new(neko_tui::event::Quote::Evm {
+            chain: neko_evm::ETHEREUM,
+            params: neko_evm::tx::TxParams {
+                nonce: 0,
+                gas_limit: ETH_GAS_LIMIT,
+                chain_id: neko_evm::ETHEREUM.chain_id,
+                fees: neko_evm::tx::Fees::Eip1559 {
+                    max_fee_per_gas: ETH_MAX_PER_GAS,
+                    max_priority_fee_per_gas: 0,
+                    base_fee: ETH_EXPECTED_PER_GAS,
+                },
+            },
+            native_balance: Some(ETH_BALANCE as u128),
+            sending_native: true,
+            amount: ETH_BALANCE as u128,
+        })),
+    });
+
+    let Screen::Send(st) = &app.screen else {
+        unreachable!()
+    };
+    let SendStep::Review { req, quote, .. } = &st.step else {
+        panic!("not at review")
+    };
+    let Some(q) = quote else { panic!("no quote") };
+    let FeeQuote::Evm(e) = &**q else {
+        panic!("wrong chain")
+    };
+
+    assert_eq!(
+        e.affordable(),
+        Some(true),
+        "the amount the wallet chose would be rejected by the node"
+    );
+    // Every wei accounted for: the amount plus the ceiling is the balance.
+    assert_eq!(
+        req.amount.raw as u128 + e.max_fee_wei(),
+        ETH_BALANCE as u128
+    );
+    // And what was held back is the ceiling, not the price - which is the
+    // difference the screen has to explain, since the excess comes back.
+    assert_eq!(st.held_back.map(|f| f.raw), Some(e.max_fee_wei() as i128));
+    assert!(e.max_fee_wei() > e.fee_wei());
+}

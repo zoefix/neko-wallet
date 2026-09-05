@@ -183,6 +183,7 @@ new_token_account_note = "この宛先は %{asset} を保有したことがあ�
 new_token_account_note2 = "%{amount} SOL のレント（家賃）がかかり、送金者が一度だけ負担します。"
 max_hint = "残高 %{amount} %{asset}   m で全額"
 held_back = "送金できる最大額です。手数料として %{fee} %{asset} を残しています"
+held_back_refund = "手数料の上限として確保した分です。使われなかった分は戻ります"
 hint_amount = "Enter 次へ   m 全額   Esc 戻る"
 hint_entry = "Enter 次へ   Esc 戻る"
 hint_review = "Enter 続行 (文字が一致したら)   Esc 取消"

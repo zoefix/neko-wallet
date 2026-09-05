@@ -183,6 +183,7 @@ new_token_account_note = "这个地址从未持有过 %{asset}。为它开一个
 new_token_account_note2 = "需要 %{amount} SOL 的租金，由你支付，只收一次。"
 max_hint = "余额 %{amount} %{asset}   按 m 全部转出"
 held_back = "这是可转出的最大金额，已为手续费留下 %{fee} %{asset}"
+held_back_refund = "这是按手续费上限预留的；这笔转账没用掉的部分会退回来"
 hint_amount = "Enter 下一步   m 全部转出   Esc 返回"
 hint_entry = "Enter 下一步   Esc 返回"
 hint_review = "Enter 继续 (字符对上之后)   Esc 取消"

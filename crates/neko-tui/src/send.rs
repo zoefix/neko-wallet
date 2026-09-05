@@ -339,6 +339,25 @@ pub enum FeeQuote {
 impl FeeQuote {
     /// The figure shown as the total. On TRON this can be an upper bound; on
     /// BNB Chain it is exact.
+    /// What has to be *held back* from a balance, which is not always what the
+    /// transfer costs.
+    ///
+    /// On EIP-1559 the chain checks the balance against the ceiling - the whole
+    /// `gas_limit x max_fee_per_gas` - even though only the base fee plus the
+    /// tip is charged and the difference is refunded. Reserving the expected
+    /// cost instead makes "send everything" produce an amount the node rejects
+    /// outright, which is exactly what it did.
+    ///
+    /// Everywhere else the two are the same number, and TRON's total is already
+    /// an upper bound when its resources could not be read.
+    pub fn reserve(&self) -> Amount {
+        match self {
+            FeeQuote::Evm(e) => e.max_fee(),
+            other => other.total(),
+        }
+    }
+
+    /// What the transfer is expected to cost. What the screen shows.
     pub fn total(&self) -> Amount {
         match self {
             FeeQuote::Tron(t) => t.total_burn(),
@@ -530,6 +549,10 @@ impl SendState {
     /// balance leaves the amount alone: the review screen already explains that
     /// the balance cannot cover the fee, and silently rewriting the amount to
     /// zero would replace that explanation with a puzzle.
+    /// `fee` is what the chain will *check the balance against*, not what the
+    /// transfer is expected to cost. On EIP-1559 those differ by the whole
+    /// refundable headroom, and holding back the smaller one produces an amount
+    /// the node refuses.
     pub fn hold_back_fee(&mut self, balance: i128, fee: Amount) -> Option<i128> {
         if !self.max_requested || !self.asset.is_native() {
             return None;
