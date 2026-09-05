@@ -798,7 +798,8 @@ impl SendState {
             | ChainId::Ethereum
             | ChainId::Polygon
             | ChainId::Base
-            | ChainId::Arbitrum => n == EVM_ADDRESS_LEN,
+            | ChainId::Arbitrum
+            | ChainId::Optimism => n == EVM_ADDRESS_LEN,
             // A Solana address is 32 bytes in base58, and base58 shortens a
             // value with leading zero bytes - so there is no single length to
             // compare against, only a range.

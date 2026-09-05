@@ -6,7 +6,7 @@ use rusqlite::{Connection, OptionalExtension};
 
 use crate::error::StoreError;
 
-pub const CURRENT_SCHEMA: i32 = 9;
+pub const CURRENT_SCHEMA: i32 = 10;
 pub const BLOB_VERSION: u32 = 1;
 
 #[derive(Debug, Clone)]

@@ -26,6 +26,7 @@ pub mod keys {
     pub const POLYGON_RPC: &str = "polygon_rpc";
     pub const BASE_RPC: &str = "base_rpc";
     pub const ARBITRUM_RPC: &str = "arbitrum_rpc";
+    pub const OPTIMISM_RPC: &str = "optimism_rpc";
     /// toncenter. Like Esplora, this is not an alternative to asking a node -
     /// reading a TON balance means running a contract's own method, which needs
     /// a full node's index behind it.

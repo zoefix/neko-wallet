@@ -159,17 +159,7 @@ impl Rpc {
         let oracle = EvmAddress::parse(oracle)
             .map_err(|_| EvmError::BadReply("the L1 oracle address is malformed".into()))?;
 
-        // getL1Fee(bytes) = 0x49948e0e, then offset, length, padded body.
-        let mut padded = unsigned.to_vec();
-        padded.extend(std::iter::repeat_n(0xff, SIGNATURE_BYTES));
-        let mut data = Vec::with_capacity(4 + 64 + padded.len() + 32);
-        data.extend_from_slice(&[0x49, 0x94, 0x8e, 0x0e]);
-        data.extend_from_slice(&u256(32));
-        data.extend_from_slice(&u256(padded.len() as u128));
-        data.extend_from_slice(&padded);
-        data.resize(data.len() + (32 - padded.len() % 32) % 32, 0);
-
-        let out = self.eth_call(oracle, &data).await?;
+        let out = self.eth_call(oracle, &l1_fee_calldata(unsigned)).await?;
         let tail = out
             .get(out.len().saturating_sub(16)..)
             .ok_or_else(|| EvmError::BadReply("the L1 oracle returned nothing".into()))?;
@@ -361,6 +351,33 @@ fn u256(v: u128) -> [u8; 32] {
 /// rollup and absent from the unsigned bytes the oracle is shown.
 const SIGNATURE_BYTES: usize = 68;
 
+/// `getL1Fee(bytes)` against the transaction as it will actually be posted.
+///
+/// The stand-in bytes for the signature must not repeat, and that is not a
+/// detail. Since Fjord the oracle prices a transaction by how well it
+/// *compresses* rather than by its length: this padding was 68 copies of
+/// `0xff`, which compresses to almost nothing, so the wallet reserved less
+/// than the chain charges. A real signature is 64 bytes of `r` and `s` and
+/// does not compress at all.
+///
+/// Measured against Optimism's own oracle: a counter costs exactly what a
+/// random signature costs, while `0xff` padding came in 193 million wei short
+/// on a plain transfer and 633 million short on a token one. Being short here
+/// is what has "send everything" refused by the node, which is the failure
+/// this whole query exists to prevent.
+fn l1_fee_calldata(unsigned: &[u8]) -> Vec<u8> {
+    let mut padded = unsigned.to_vec();
+    padded.extend((0..SIGNATURE_BYTES).map(|i| i as u8));
+    // getL1Fee(bytes) = 0x49948e0e, then offset, length, padded body.
+    let mut data = Vec::with_capacity(4 + 64 + padded.len() + 32);
+    data.extend_from_slice(&[0x49, 0x94, 0x8e, 0x0e]);
+    data.extend_from_slice(&u256(32));
+    data.extend_from_slice(&u256(padded.len() as u128));
+    data.extend_from_slice(&padded);
+    data.resize(data.len() + (32 - padded.len() % 32) % 32, 0);
+    data
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -420,6 +437,58 @@ mod tests {
         assert_eq!(
             Rpc::new(crate::BSC, Some("https://x.example")).url,
             "https://x.example"
+        );
+    }
+}
+
+#[cfg(test)]
+mod l1_fee_query {
+    use super::*;
+
+    /// The selector, the ABI frame, and the length the oracle is told.
+    #[test]
+    fn the_call_is_shaped_the_way_the_oracle_expects() {
+        let unsigned = [0xaa_u8; 48];
+        let data = l1_fee_calldata(&unsigned);
+
+        assert_eq!(&data[..4], &[0x49, 0x94, 0x8e, 0x0e], "getL1Fee(bytes)");
+        // offset 32, then the length: the payload plus the signature allowance.
+        assert_eq!(data[4..36], u256(32));
+        let want = unsigned.len() + SIGNATURE_BYTES;
+        assert_eq!(data[36..68], u256(want as u128));
+        assert_eq!(&data[68..68 + unsigned.len()], &unsigned[..]);
+        // Padded to a whole number of words, and no further.
+        assert_eq!((data.len() - 68) % 32, 0);
+        assert!(data.len() - 68 - want < 32);
+    }
+
+    /// The signature stand-in must not compress, because the chain prices
+    /// compressed size rather than length.
+    ///
+    /// This is the regression. The padding was 68 copies of `0xff`; measured
+    /// against Optimism's oracle that reserved 193 million wei too little on a
+    /// plain transfer and 633 million too little on a token one, because
+    /// FastLZ turns a run of identical bytes into almost nothing while a real
+    /// signature is incompressible. Being short is what has "send everything"
+    /// refused - the failure the L1 query exists to prevent - so the test is
+    /// that the padding has no repeats at all.
+    #[test]
+    fn the_signature_allowance_does_not_compress_away() {
+        let data = l1_fee_calldata(&[]);
+        let pad = &data[68..68 + SIGNATURE_BYTES];
+        assert_eq!(pad.len(), 68);
+
+        // No byte repeats, so there is no run for a compressor to collapse.
+        let mut seen = [false; 256];
+        for b in pad {
+            assert!(!seen[*b as usize], "byte {b:#04x} appears twice in the padding");
+            seen[*b as usize] = true;
+        }
+
+        // And specifically not the constant it used to be.
+        assert!(
+            !pad.iter().all(|b| *b == pad[0]),
+            "a constant fill compresses to nothing and under-reserves the fee"
         );
     }
 }

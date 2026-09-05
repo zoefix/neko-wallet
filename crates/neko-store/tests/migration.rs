@@ -419,6 +419,7 @@ fn a_database_one_version_behind_catches_up_with_its_data() {
         include_str!("../migrations/0006_ton.sql"),
         include_str!("../migrations/0007_polygon.sql"),
         include_str!("../migrations/0008_base.sql"),
+        include_str!("../migrations/0009_arbitrum.sql"),
     ] {
         conn.execute_batch(sql).unwrap();
     }
@@ -479,7 +480,10 @@ fn a_database_one_version_behind_catches_up_with_its_data() {
             |r| r.get(0),
         )
         .expect("the newest chain is not registered");
-    assert_eq!(slug, "arbitrum");
+    // The one line here that is meant to be edited per chain: it names what
+    // the newest migration was for, so a migration that runs but registers
+    // nothing is caught rather than passing as "the version went up".
+    assert_eq!(slug, "optimism");
 }
 
 /// Polygon is the third chain to share Ethereum's coin type, and the first
@@ -554,5 +558,47 @@ fn the_migration_registers_base_with_eth() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(n, 3, "Ethereum, Base and Arbitrum all call their coin ETH");
+    assert_eq!(
+        n, 4,
+        "Ethereum, Base, Arbitrum and Optimism all call their coin ETH"
+    );
+}
+
+/// Optimism's row, and the one number in this database that invites a wrong
+/// conclusion.
+///
+/// Its row id is 10 and its *EVM* chain id is also 10. Nothing connects them:
+/// the row id counts the chains this wallet supports, in the order they were
+/// added, while the EVM chain id goes into a signature and decides which
+/// network that signature is valid on. On every other chain the two are
+/// obviously different - Base is row 8 and chain 8453 - so this is the only
+/// place the coincidence could be mistaken for a rule and copied to the next
+/// chain, where it would be wrong.
+#[test]
+fn optimisms_row_id_is_not_its_chain_id_even_though_they_match() {
+    let conn = v1_with_a_funded_wallet();
+    neko_store::migrate::run(&conn).unwrap();
+
+    let (slug, coin): (String, i64) = conn
+        .query_row("SELECT slug, coin_type FROM chains WHERE id = 10", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .expect("no optimism row in chains");
+    assert_eq!(slug, "optimism");
+    assert_eq!(coin, 60, "coin type 60, like every EVM chain here");
+
+    let (sym, dec): (String, i64) = conn
+        .query_row(
+            "SELECT symbol, decimals FROM assets WHERE chain_id = 10 AND contract IS NULL",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .expect("no native asset for optimism");
+    assert_eq!(sym, "ETH");
+    assert_eq!(dec, 18);
+
+    // The row id this crate hands out, which is the number the column above
+    // holds. That it equals Optimism's EVM chain id is checked where both are
+    // in scope - see `chain_ids` in neko-core.
+    assert_eq!(neko_store::repo::addresses::OPTIMISM_CHAIN_ID, 10);
 }

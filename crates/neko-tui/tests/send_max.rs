@@ -45,7 +45,8 @@ fn state(asset: neko_core::Asset, balance: Option<i128>) -> SendState {
         neko_core::ChainId::Ethereum
         | neko_core::ChainId::Polygon
         | neko_core::ChainId::Base
-        | neko_core::ChainId::Arbitrum => (BSC_MINE, BSC_TO),
+        | neko_core::ChainId::Arbitrum
+        | neko_core::ChainId::Optimism => (BSC_MINE, BSC_TO),
     };
     let mut st = SendState::new(
         1,

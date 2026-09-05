@@ -21,7 +21,8 @@ fn addr_for(chain: neko_core::ChainId) -> &'static str {
         neko_core::ChainId::Ethereum
         | neko_core::ChainId::Polygon
         | neko_core::ChainId::Base
-        | neko_core::ChainId::Arbitrum => "0xA41811CF4D41e306310CB82B47258C22b80475cC",
+        | neko_core::ChainId::Arbitrum
+        | neko_core::ChainId::Optimism => "0xA41811CF4D41e306310CB82B47258C22b80475cC",
     }
 }
 

@@ -94,7 +94,8 @@ impl Client {
             | ChainId::Ethereum
             | ChainId::Polygon
             | ChainId::Base
-            | ChainId::Arbitrum => {
+            | ChainId::Arbitrum
+            | ChainId::Optimism => {
                 let evm = chain.evm().expect("every EVM chain has parameters");
                 Client::Evm {
                     rpc: Box::new(neko_evm::client::Rpc::new(evm, url)),
@@ -274,7 +275,7 @@ async fn solana_quote(
             create_recipient_account,
         },
         sol_balance,
-        sending_native: matches!(req.asset, Asset::Sol),
+        sending_native: req.asset.is_native(),
         amount: u64::try_from(req.amount.raw).map_err(|_| "amount is too large".to_string())?,
         rent,
     })
@@ -356,7 +357,7 @@ async fn ton_quote(
             jetton_wallet,
         }),
         gram_balance: Some(state.balance),
-        sending_native: matches!(req.asset, Asset::Gram),
+        sending_native: req.asset.is_native(),
         amount: u128::try_from(req.amount.raw).map_err(|_| "amount is too large".to_string())?,
         // Not quoted: TON's fees are small, fixed in shape, and the chain
         // charges what it charges. The figure is an upper bound used to check a
@@ -488,17 +489,33 @@ async fn evm_quote(rpc: &neko_evm::client::Rpc, req: &TransferRequest) -> Result
     let from = req.from.as_evm().map_err(|e| e.to_string())?;
 
     let chain = rpc.chain();
-    let (to, value, data) = match req.asset {
-        Asset::Bnb | Asset::Eth | Asset::Pol | Asset::BaseEth | Asset::ArbitrumEth => (
+
+    // The asset has to belong to *this* chain, not merely to an EVM one.
+    // Four chains here call their coin ETH and one phrase gives the same
+    // twenty bytes on all of them, so an asset from the wrong chain is the
+    // "right address, wrong network" mistake with nothing to make it visible.
+    if req.asset.chain().evm().map(|e| e.chain_id) != Some(chain.chain_id) {
+        return Err(format!(
+            "that asset belongs to {:?}, not to chain {}",
+            req.asset.chain(),
+            chain.chain_id
+        ));
+    }
+
+    let (to, value, data) = if req.asset.is_native() {
+        (
             req.to.as_evm().map_err(|e| e.to_string())?,
             req.amount.raw as u128,
             Vec::new(),
-        ),
-        Asset::Bep20 { contract, decimals }
-        | Asset::Erc20 { contract, decimals }
-        | Asset::PolygonErc20 { contract, decimals }
-        | Asset::BaseErc20 { contract, decimals }
-        | Asset::ArbitrumErc20 { contract, decimals } => {
+        )
+    } else {
+        // Which token, asked of the asset rather than matched here with a
+        // catch-all - see `Asset::evm_token`.
+        let (contract, decimals) = req
+            .asset
+            .evm_token()
+            .ok_or_else(|| format!("that asset is not on chain {}", chain.chain_id))?;
+        {
             // Same reasoning as TRON's: ask the contract what it is before
             // trusting a built-in address.
             let (symbol, chain_decimals) = rpc
@@ -524,7 +541,6 @@ async fn evm_quote(rpc: &neko_evm::client::Rpc, req: &TransferRequest) -> Result
                 .unwrap_or_default();
             (contract, 0u128, data)
         }
-        _ => return Err(format!("that asset is not on chain {}", chain.chain_id)),
     };
 
     let params = rpc
@@ -560,10 +576,14 @@ async fn evm_quote(rpc: &neko_evm::client::Rpc, req: &TransferRequest) -> Result
         chain: Box::new(chain),
         params,
         native_balance,
-        sending_native: matches!(
-            req.asset,
-            Asset::Bnb | Asset::Eth | Asset::Pol | Asset::BaseEth | Asset::ArbitrumEth
-        ),
+        // Asked of the asset rather than listed. This was a `matches!` over
+        // five coin variants, and `matches!` is not checked for exhaustiveness
+        // - so a sixth EVM chain compiled cleanly with its coin treated as a
+        // token. That is not a cosmetic slip: this flag is what makes
+        // `native_needed` include the amount being sent, so the affordability
+        // gate would have called an unpayable transfer payable, on the one
+        // chain where the L1 fee makes that easiest to hit.
+        sending_native: req.asset.is_native(),
         amount: req.amount.raw as u128,
         l1_fee,
     })

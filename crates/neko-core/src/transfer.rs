@@ -147,6 +147,7 @@ impl TransferRequest {
             | Asset::Pol
             | Asset::BaseEth
             | Asset::ArbitrumEth
+            | Asset::OptimismEth
             | Asset::Jetton { .. } => Ok(None),
             Asset::Trc20 { .. } => Ok(Some(neko_tron::tx::encode_trc20_transfer(
                 self.to.as_tron()?,
@@ -156,9 +157,11 @@ impl TransferRequest {
             | Asset::Erc20 { .. }
             | Asset::PolygonErc20 { .. }
             | Asset::BaseErc20 { .. }
-            | Asset::ArbitrumErc20 { .. } => Ok(Some(
-                neko_evm::abi::transfer(self.to.as_evm()?, self.amount.raw as u128),
-            )),
+            | Asset::ArbitrumErc20 { .. }
+            | Asset::OptimismErc20 { .. } => Ok(Some(neko_evm::abi::transfer(
+                self.to.as_evm()?,
+                self.amount.raw as u128,
+            ))),
         }
     }
 }
@@ -429,7 +432,8 @@ impl Session {
             | ChainId::Ethereum
             | ChainId::Polygon
             | ChainId::Base
-            | ChainId::Arbitrum => {
+            | ChainId::Arbitrum
+            | ChainId::Optimism => {
                 neko_hd::derive::private_key_at_coin(&seed, chain.coin_type(), 0, index)?
             }
         })

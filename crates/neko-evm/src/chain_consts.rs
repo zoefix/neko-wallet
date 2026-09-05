@@ -277,9 +277,64 @@ pub const ARBITRUM: EvmChain = EvmChain {
     blockscout: Some("https://arbitrum.blockscout.com"),
 };
 
+/// Optimism.
+///
+/// The original OP-stack chain - Base runs a fork of its software - and it
+/// charges for L1 the same way, which is *not* the way Arbitrum does. Read
+/// from the chain rather than assumed, because two of these were surprises:
+///
+/// * **It charges for L1 beside gas.** The `GasPriceOracle` predeploy is here
+///   and answers `getL1Fee`; the code at that address is byte-for-byte the
+///   same length as Base's. A plain transfer still estimates at exactly
+///   21,000 gas, which is the tell: the posting cost is not in the gas number,
+///   so it has to be reserved separately. Arbitrum is the other way round and
+///   has no predeploy at all.
+/// * **Its V2 router is at a different address from Base's and Arbitrum's.**
+///   Those two share `0x4752..AD24`; here that address holds no code, so
+///   copying it would have produced a router that silently answers nothing.
+///   The one below reports the WETH contract above and a factory of its own.
+/// * **Its USDT is plain `USDT`.** No omnichain rename here, unlike Polygon's
+///   `USDT0` and Arbitrum's `USD₮0` - 223 million of it, and Binance's own
+///   withdrawal entry for Optimism names exactly the contract below.
+/// * **It cannot price its coin.** The V2 WETH/USDT pair holds 0.0031 WETH
+///   against 7.57 USDT - fifteen dollars in total - and quotes an ether at
+///   $7.55. The WETH/USDC pair is the more dangerous one: $592 of liquidity
+///   quoting $264, which is wrong by a factor of nine while still looking like
+///   a number a coin could cost. The depth here is on Velodrome and Uniswap
+///   V3, neither of which speaks `getAmountsOut`.
+pub const OPTIMISM: EvmChain = EvmChain {
+    chain_id: 10,
+    native_symbol: "ETH",
+    native_decimals: 18,
+    // Tether's own contract, 6 decimals. Binance withdraws USDT here for a
+    // 0.04 fee and lists this address for it.
+    stable: "0x94b008aA00579c1307B0EF2c499aD98a8ce58e58",
+    stable_decimals: 6,
+    stable_symbol: "USDT",
+    stable_label: "USDT",
+    default_rpc: "https://optimism-rpc.publicnode.com",
+    explorer_tx: "https://optimistic.etherscan.io/tx/",
+    // Uniswap V2 on Optimism, and **not** the address the other two rollups
+    // use. Verified by asking it: its `WETH()` is the contract below.
+    router: "0x4A7b5Da61326A6379179b40d00F57E5bbDC962c2",
+    wrapped_native: "0x4200000000000000000000000000000000000006",
+    tx_type: TxType::Eip1559,
+    // NodeReal *does* serve an Optimism RPC - unlike Polygon, where the host
+    // does not exist - but not the index: `nr_getAssetTransfers` there answers
+    // "Method not found". A working host with a missing method is the worse
+    // failure of the two, because it looks like the chain is up.
+    history_host: None,
+    // OP-stack, like Base. This one is load-bearing in the other direction
+    // from Arbitrum's `None`.
+    l1_fee_oracle: Some("0x420000000000000000000000000000000000000F"),
+    prices_on: Some(1),
+    // `optimism.blockscout.com` answers 301 and points here.
+    blockscout: Some("https://explorer.optimism.io"),
+};
+
 /// Every chain in this file, so a chain id can be turned back into its
 /// parameters without a chain of `if`s that forgets the newest one.
-pub const ALL: [EvmChain; 5] = [BSC, ETHEREUM, POLYGON, BASE, ARBITRUM];
+pub const ALL: [EvmChain; 6] = [BSC, ETHEREUM, POLYGON, BASE, ARBITRUM, OPTIMISM];
 
 pub fn by_chain_id(id: u64) -> Option<EvmChain> {
     ALL.into_iter().find(|c| c.chain_id == id)
@@ -353,6 +408,7 @@ mod tests {
         assert_eq!(POLYGON.chain_id, 137);
         assert_eq!(BASE.chain_id, 8453);
         assert_eq!(ARBITRUM.chain_id, 42_161);
+        assert_eq!(OPTIMISM.chain_id, 10);
         let ids: Vec<u64> = ALL.iter().map(|c| c.chain_id).collect();
         for (i, a) in ids.iter().enumerate() {
             for b in &ids[i + 1..] {
@@ -394,6 +450,9 @@ mod tests {
             // A tugrik sign where the T should be. Checked against, never
             // shown.
             (ARBITRUM, "USD\u{20ae}0", "USDT"),
+            // And Optimism's contract still says plain `USDT` - the only one
+            // of the three rollups that does.
+            (OPTIMISM, "USDT", "USDT"),
         ] {
             assert_eq!(c.stable_symbol, symbol, "chain {}", c.chain_id);
             assert_eq!(c.stable_label, label, "chain {}", c.chain_id);
@@ -413,10 +472,19 @@ mod tests {
             "Circle's USDC on Base"
         );
         assert_eq!(BASE.stable_decimals, 6);
-        for c in [BSC, ETHEREUM, POLYGON, ARBITRUM] {
+        for c in [BSC, ETHEREUM, POLYGON, ARBITRUM, OPTIMISM] {
             assert_eq!(c.stable_label, "USDT", "chain {}", c.chain_id);
             assert_ne!(c.stable, BASE.stable);
         }
+
+        // And Optimism is the counter-example that makes the Base decision a
+        // finding rather than a policy about rollups: same kind of chain, and
+        // there Tether is the bigger of the two - 223 million, with Binance
+        // withdrawing to it for a 0.04 fee.
+        assert_eq!(
+            OPTIMISM.stable, "0x94b008aA00579c1307B0EF2c499aD98a8ce58e58",
+            "Tether's contract on Optimism, the address Binance itself lists"
+        );
     }
 
     /// A coin that cannot be priced where it lives is priced somewhere it can.
@@ -436,6 +504,11 @@ mod tests {
         // Arbitrum's coin is ETH too, and its own pools are thin enough to
         // sit 14% stale.
         assert_eq!(ARBITRUM.prices_on, Some(ETHEREUM.chain_id));
+        // Optimism's V2 pools are emptier still: fifteen dollars of WETH/USDT
+        // quoting an ether at $7.55, and a WETH/USDC pair holding $592 that
+        // answers $264 - wrong by a factor of nine while still looking like a
+        // number a coin could cost.
+        assert_eq!(OPTIMISM.prices_on, Some(ETHEREUM.chain_id));
         for c in [BSC, ETHEREUM, POLYGON] {
             assert_eq!(c.prices_on, None, "chain {} moved its pricing", c.chain_id);
             assert_eq!(c.price_chain().chain_id, c.chain_id);
@@ -459,7 +532,7 @@ mod tests {
     fn a_chain_without_a_transfer_index_admits_it() {
         assert!(BSC.history_host.is_some());
         assert!(ETHEREUM.history_host.is_some());
-        for c in [BASE, ARBITRUM] {
+        for c in [BASE, ARBITRUM, OPTIMISM] {
             assert_eq!(c.history_host, None, "chain {}", c.chain_id);
             assert!(
                 c.blockscout.is_some(),
@@ -481,6 +554,7 @@ mod tests {
         assert_eq!(POLYGON.tx_type, TxType::Eip1559);
         assert_eq!(BASE.tx_type, TxType::Eip1559);
         assert_eq!(ARBITRUM.tx_type, TxType::Eip1559);
+        assert_eq!(OPTIMISM.tx_type, TxType::Eip1559);
         assert_eq!(BSC.tx_type, TxType::Legacy);
     }
 }
@@ -489,30 +563,100 @@ mod tests {
 mod rollup_fees {
     use super::*;
 
-    /// Two rollups, two fee models, and only one of them has a fee to reserve.
+    /// Three rollups, two fee models, and which chain is in which group is a
+    /// fact about the chain rather than about the word "rollup".
     ///
-    /// Base is OP-stack: it charges for posting to Ethereum *beside* L2 gas,
-    /// `op-geth` counts that in the balance check, and a wallet that leaves it
-    /// out has "send everything" refused - by exactly 434,251,659 wei, once.
+    /// Base and Optimism are OP-stack: they charge for posting to Ethereum
+    /// *beside* L2 gas, `op-geth` counts that in the balance check, and a
+    /// wallet that leaves it out has "send everything" refused - by exactly
+    /// 434,251,659 wei, once, on Base. Both answer `getL1Fee` at the same
+    /// predeploy, and the code at that address is the same length on both.
     ///
     /// Arbitrum is Nitro: it folds the same cost into the gas *estimate*, so
     /// `gas_limit x price` already covers it. There is no oracle predeploy to
-    /// ask, and reserving a second L1 fee here would hold back money the chain
-    /// never charges, leaving dust behind on every maximum.
+    /// ask - the address holds zero bytes - and reserving a second L1 fee here
+    /// would hold back money the chain never charges, leaving dust behind on
+    /// every maximum. The chain says so itself: a plain transfer estimates at
+    /// 21,422 gas there against exactly 21,000 on both OP-stack chains, and
+    /// asking it to run one with 21,000 answers "intrinsic gas too low".
+    ///
+    /// Written over `ALL` rather than a list of names. The previous version
+    /// named four chains and asserted the fifth was the only one with an
+    /// oracle; when a sixth arrived it was in neither list, so the test went on
+    /// passing while checking nothing about it.
     #[test]
-    fn only_the_op_stack_rollup_charges_for_l1_separately() {
-        assert_eq!(
-            BASE.l1_fee_oracle,
-            Some("0x420000000000000000000000000000000000000F"),
-            "Base charges for L1 beside gas"
-        );
-        for c in [BSC, ETHEREUM, POLYGON, ARBITRUM] {
-            assert_eq!(
-                c.l1_fee_oracle, None,
-                "chain {} does not charge for L1 beside gas",
-                c.chain_id
-            );
+    fn which_chains_charge_for_l1_separately_is_read_from_each_chain() {
+        const PREDEPLOY: &str = "0x420000000000000000000000000000000000000F";
+        // The OP-stack chains, by name, because being on this list is what
+        // makes a wallet reserve money it would otherwise spend.
+        let op_stack = [BASE.chain_id, OPTIMISM.chain_id];
+
+        for c in ALL {
+            if op_stack.contains(&c.chain_id) {
+                assert_eq!(
+                    c.l1_fee_oracle,
+                    Some(PREDEPLOY),
+                    "chain {} is OP-stack and charges for L1 beside gas",
+                    c.chain_id
+                );
+            } else {
+                assert_eq!(
+                    c.l1_fee_oracle, None,
+                    "chain {} does not charge for L1 beside gas",
+                    c.chain_id
+                );
+            }
         }
+
+        // Every chain is in exactly one group, so a new one cannot be added
+        // without this test having an opinion about it.
+        assert_eq!(
+            ALL.iter().filter(|c| c.l1_fee_oracle.is_some()).count(),
+            op_stack.len()
+        );
+
+        // Arbitrum is a rollup and is not on that list. Naming it here is the
+        // point: "is it a rollup" is the wrong question, and answering it
+        // would have put a phantom fee on this chain.
+        assert_eq!(
+            ARBITRUM.l1_fee_oracle, None,
+            "Nitro charges through the gas estimate, not beside it"
+        );
+    }
+
+    /// The router is per chain, and on Optimism it is not the shared one.
+    ///
+    /// Base and Arbitrum both use `0x4752..AD24`. It would be reasonable to
+    /// assume the third OP-stack-shaped chain does too, and it does not: that
+    /// address holds no code on Optimism, so a router copied from either
+    /// neighbour would answer nothing at all - not an error, an empty result -
+    /// and every price would silently go missing.
+    ///
+    /// Priced coins are the only thing that breaks, which is why it is worth a
+    /// test: nothing about sending would fail, so the wrong constant would sit
+    /// there looking like a chain that just has no price.
+    #[test]
+    fn optimism_does_not_share_its_neighbours_router() {
+        const SHARED: &str = "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24";
+        assert_eq!(BASE.router, SHARED);
+        assert_eq!(ARBITRUM.router, SHARED);
+        assert_ne!(
+            OPTIMISM.router, SHARED,
+            "that address has no code on Optimism"
+        );
+        assert_eq!(OPTIMISM.router, "0x4A7b5Da61326A6379179b40d00F57E5bbDC962c2");
+
+        // Verified by asking the router itself: its `WETH()` is this chain's
+        // wrapped native, which is what makes it the right router rather than
+        // merely a contract that exists.
+        assert_eq!(
+            OPTIMISM.wrapped_native,
+            "0x4200000000000000000000000000000000000006"
+        );
+        // The same predeploy address as Base's wrapped native - OP-stack puts
+        // it at a fixed address - so the router is what tells them apart.
+        assert_eq!(BASE.wrapped_native, OPTIMISM.wrapped_native);
+        assert_ne!(BASE.router, OPTIMISM.router);
     }
 
     /// Every rollup here is priced off Ethereum, and every chain that is not a

@@ -19,6 +19,9 @@ pub const TON_CHAIN_ID: i64 = 6;
 pub const POLYGON_CHAIN_ID: i64 = 7;
 pub const BASE_CHAIN_ID: i64 = 8;
 pub const ARBITRUM_CHAIN_ID: i64 = 9;
+/// Row 10. Not to be confused with Optimism's *EVM* chain id, which is also
+/// 10 by coincidence - see `migrations/0010_optimism.sql`.
+pub const OPTIMISM_CHAIN_ID: i64 = 10;
 
 /// Lengths Bitcoin's script column may take: 22 for P2WPKH, 23 for P2SH, 25
 /// for P2PKH, 34 for P2WSH and Taproot. Bitcoin is the only chain here whose
@@ -40,7 +43,12 @@ pub const BITCOIN_SCRIPT_LENS: [usize; 4] = [22, 23, 25, 34];
 pub fn width_is_plausible(chain_id: i64, len: usize) -> bool {
     match chain_id {
         TRON_CHAIN_ID => len == 21,
-        BSC_CHAIN_ID | ETHEREUM_CHAIN_ID | POLYGON_CHAIN_ID | BASE_CHAIN_ID | ARBITRUM_CHAIN_ID => {
+        BSC_CHAIN_ID
+        | ETHEREUM_CHAIN_ID
+        | POLYGON_CHAIN_ID
+        | BASE_CHAIN_ID
+        | ARBITRUM_CHAIN_ID
+        | OPTIMISM_CHAIN_ID => {
             len == 20
         }
         SOLANA_CHAIN_ID => len == 32,

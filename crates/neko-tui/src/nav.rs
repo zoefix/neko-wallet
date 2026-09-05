@@ -118,12 +118,13 @@ pub enum SettingRow {
     PolygonRpc,
     BaseRpc,
     ArbitrumRpc,
+    OptimismRpc,
     TonApi,
     AutoLock,
     BorderStyle,
 }
 
-pub const SETTING_ROWS: [SettingRow; 15] = [
+pub const SETTING_ROWS: [SettingRow; 16] = [
     SettingRow::Language,
     SettingRow::ApiKey,
     SettingRow::BscApiKey,
@@ -136,6 +137,7 @@ pub const SETTING_ROWS: [SettingRow; 15] = [
     SettingRow::PolygonRpc,
     SettingRow::BaseRpc,
     SettingRow::ArbitrumRpc,
+    SettingRow::OptimismRpc,
     SettingRow::TonApi,
     SettingRow::AutoLock,
     SettingRow::BorderStyle,
@@ -156,6 +158,7 @@ impl SettingRow {
             SettingRow::PolygonRpc => neko_i18n::t(neko_i18n::Key::Settings_PolygonRpc),
             SettingRow::BaseRpc => neko_i18n::t(neko_i18n::Key::Settings_BaseRpc),
             SettingRow::ArbitrumRpc => neko_i18n::t(neko_i18n::Key::Settings_ArbitrumRpc),
+            SettingRow::OptimismRpc => neko_i18n::t(neko_i18n::Key::Settings_OptimismRpc),
             SettingRow::TonApi => neko_i18n::t(neko_i18n::Key::Settings_TonApi),
             SettingRow::AutoLock => neko_i18n::t(neko_i18n::Key::Settings_Autolock),
             SettingRow::BorderStyle => neko_i18n::t(neko_i18n::Key::Settings_Border),

@@ -23,9 +23,10 @@ pub enum ChainId {
     Polygon,
     Base,
     Arbitrum,
+    Optimism,
 }
 
-pub const CHAINS: [ChainId; 9] = [
+pub const CHAINS: [ChainId; 10] = [
     ChainId::Tron,
     ChainId::Bsc,
     ChainId::Solana,
@@ -35,6 +36,7 @@ pub const CHAINS: [ChainId; 9] = [
     ChainId::Polygon,
     ChainId::Base,
     ChainId::Arbitrum,
+    ChainId::Optimism,
 ];
 
 impl ChainId {
@@ -50,6 +52,7 @@ impl ChainId {
             ChainId::Polygon => "polygon",
             ChainId::Base => "base",
             ChainId::Arbitrum => "arbitrum",
+            ChainId::Optimism => "optimism",
         }
     }
 
@@ -69,6 +72,7 @@ impl ChainId {
             ChainId::Polygon => "Polygon",
             ChainId::Base => "Base",
             ChainId::Arbitrum => "Arbitrum",
+            ChainId::Optimism => "Optimism",
         }
     }
 
@@ -83,9 +87,11 @@ impl ChainId {
             ChainId::Bitcoin => neko_hd::COIN_TYPE_BTC,
             // 60, the same as BNB Chain's: every EVM chain shares Ethereum's
             // coin type, so one phrase gives the same address on all of them.
-            ChainId::Ethereum | ChainId::Polygon | ChainId::Base | ChainId::Arbitrum => {
-                neko_hd::derive::COIN_TYPE_EVM
-            }
+            ChainId::Ethereum
+            | ChainId::Polygon
+            | ChainId::Base
+            | ChainId::Arbitrum
+            | ChainId::Optimism => neko_hd::derive::COIN_TYPE_EVM,
             ChainId::Ton => neko_hd::COIN_TYPE_TON,
         }
     }
@@ -106,8 +112,10 @@ impl ChainId {
             // ETH, the same coin as Ethereum's. Only the chain id separates a
             // transfer on one from a transfer on the other.
             ChainId::Base => neko_evm::BASE.native_symbol,
-            // ETH again. Three chains here call their coin that.
+            // ETH again. Four chains here call their coin that, and only
+            // the chain id tells a transfer on one from a transfer on another.
             ChainId::Arbitrum => neko_evm::ARBITRUM.native_symbol,
+            ChainId::Optimism => neko_evm::OPTIMISM.native_symbol,
         }
     }
 
@@ -121,6 +129,7 @@ impl ChainId {
             ChainId::Polygon => neko_evm::POLYGON.native_decimals,
             ChainId::Base => neko_evm::BASE.native_decimals,
             ChainId::Arbitrum => neko_evm::ARBITRUM.native_decimals,
+            ChainId::Optimism => neko_evm::OPTIMISM.native_decimals,
             ChainId::Ton => neko_ton::GRAM_DECIMALS,
             ChainId::Solana => neko_solana::SOL_DECIMALS,
             ChainId::Bitcoin => neko_btc::BTC_DECIMALS,
@@ -179,6 +188,12 @@ impl ChainId {
                 contract: neko_evm::ARBITRUM.stable_address(),
                 decimals: neko_evm::ARBITRUM.stable_decimals,
             }),
+            // Plain `USDT`, the only one of the three rollups here whose
+            // contract still calls itself that.
+            ChainId::Optimism => Some(Asset::OptimismErc20 {
+                contract: neko_evm::OPTIMISM.stable_address(),
+                decimals: neko_evm::OPTIMISM.stable_decimals,
+            }),
             ChainId::Ton => Some(Asset::Jetton {
                 master: neko_ton::usdt_master(),
                 decimals: neko_ton::USDT_DECIMALS,
@@ -208,6 +223,7 @@ impl ChainId {
             ChainId::Polygon => Some(neko_evm::POLYGON),
             ChainId::Base => Some(neko_evm::BASE),
             ChainId::Arbitrum => Some(neko_evm::ARBITRUM),
+            ChainId::Optimism => Some(neko_evm::OPTIMISM),
             ChainId::Tron | ChainId::Solana | ChainId::Bitcoin | ChainId::Ton => None,
         }
     }
@@ -234,6 +250,7 @@ impl ChainId {
             ChainId::Polygon => Asset::Pol,
             ChainId::Base => Asset::BaseEth,
             ChainId::Arbitrum => Asset::ArbitrumEth,
+            ChainId::Optimism => Asset::OptimismEth,
             ChainId::Ton => Asset::Gram,
         }
     }
@@ -249,6 +266,7 @@ impl ChainId {
             ChainId::Polygon => format!("{}{id}", neko_evm::POLYGON.explorer_tx),
             ChainId::Base => format!("{}{id}", neko_evm::BASE.explorer_tx),
             ChainId::Arbitrum => format!("{}{id}", neko_evm::ARBITRUM.explorer_tx),
+            ChainId::Optimism => format!("{}{id}", neko_evm::OPTIMISM.explorer_tx),
             ChainId::Ton => format!("{}{id}", neko_ton::EXPLORER_TX),
         }
     }
@@ -273,6 +291,7 @@ pub enum ChainAddress {
     Polygon(neko_hd::EvmAddress),
     Base(neko_hd::EvmAddress),
     Arbitrum(neko_hd::EvmAddress),
+    Optimism(neko_hd::EvmAddress),
     Ton(neko_ton::TonAddress),
 }
 
@@ -287,6 +306,7 @@ impl ChainAddress {
             ChainAddress::Polygon(_) => ChainId::Polygon,
             ChainAddress::Base(_) => ChainId::Base,
             ChainAddress::Arbitrum(_) => ChainId::Arbitrum,
+            ChainAddress::Optimism(_) => ChainId::Optimism,
             ChainAddress::Ton(_) => ChainId::Ton,
         }
     }
@@ -323,6 +343,9 @@ impl ChainAddress {
             ChainId::Arbitrum => neko_hd::EvmAddress::parse(s)
                 .map(ChainAddress::Arbitrum)
                 .map_err(|_| CoreError::BadAddress),
+            ChainId::Optimism => neko_hd::EvmAddress::parse(s)
+                .map(ChainAddress::Optimism)
+                .map_err(|_| CoreError::BadAddress),
             ChainId::Ton => neko_ton::TonAddress::parse(s)
                 .map(ChainAddress::Ton)
                 .map_err(|_| CoreError::BadAddress),
@@ -344,6 +367,7 @@ impl ChainAddress {
             ChainAddress::Polygon(a) => a.as_bytes().to_vec(),
             ChainAddress::Base(a) => a.as_bytes().to_vec(),
             ChainAddress::Arbitrum(a) => a.as_bytes().to_vec(),
+            ChainAddress::Optimism(a) => a.as_bytes().to_vec(),
             ChainAddress::Ton(a) => a.as_bytes(),
         }
     }
@@ -374,6 +398,9 @@ impl ChainAddress {
             ChainId::Arbitrum => neko_hd::EvmAddress::from_bytes(b)
                 .map(ChainAddress::Arbitrum)
                 .map_err(|_| CoreError::BadAddress),
+            ChainId::Optimism => neko_hd::EvmAddress::from_bytes(b)
+                .map(ChainAddress::Optimism)
+                .map_err(|_| CoreError::BadAddress),
             ChainId::Ton => neko_ton::TonAddress::from_bytes(b)
                 .map(ChainAddress::Ton)
                 .map_err(|_| CoreError::BadAddress),
@@ -396,7 +423,8 @@ impl ChainAddress {
             | ChainAddress::Ethereum(a)
             | ChainAddress::Polygon(a)
             | ChainAddress::Base(a)
-            | ChainAddress::Arbitrum(a) => Ok(*a),
+            | ChainAddress::Arbitrum(a)
+            | ChainAddress::Optimism(a) => Ok(*a),
             _ => Err(CoreError::WrongChain),
         }
     }
@@ -433,6 +461,7 @@ impl std::fmt::Display for ChainAddress {
             ChainAddress::Polygon(a) => write!(f, "{a}"),
             ChainAddress::Base(a) => write!(f, "{a}"),
             ChainAddress::Arbitrum(a) => write!(f, "{a}"),
+            ChainAddress::Optimism(a) => write!(f, "{a}"),
             ChainAddress::Ethereum(a) => write!(f, "{a}"),
             ChainAddress::Ton(a) => write!(f, "{a}"),
         }
@@ -485,6 +514,13 @@ pub enum Asset {
         contract: neko_hd::EvmAddress,
         decimals: u8,
     },
+    /// Optimism's coin, which is ETH for the third time.
+    OptimismEth,
+    /// A token on Optimism.
+    OptimismErc20 {
+        contract: neko_hd::EvmAddress,
+        decimals: u8,
+    },
     /// A token on Polygon. Technically an ERC-20 like Ethereum's, and
     /// deliberately not the same variant: [`Asset::Erc20`] means *Ethereum's*,
     /// and one variant for both would make `chain()` answer Ethereum for a
@@ -513,6 +549,7 @@ impl Asset {
             Asset::Pol | Asset::PolygonErc20 { .. } => ChainId::Polygon,
             Asset::BaseEth | Asset::BaseErc20 { .. } => ChainId::Base,
             Asset::ArbitrumEth | Asset::ArbitrumErc20 { .. } => ChainId::Arbitrum,
+            Asset::OptimismEth | Asset::OptimismErc20 { .. } => ChainId::Optimism,
             Asset::Gram | Asset::Jetton { .. } => ChainId::Ton,
         }
     }
@@ -525,6 +562,7 @@ impl Asset {
             Asset::Pol => neko_evm::POLYGON.native_decimals,
             Asset::BaseEth => neko_evm::BASE.native_decimals,
             Asset::ArbitrumEth => neko_evm::ARBITRUM.native_decimals,
+            Asset::OptimismEth => neko_evm::OPTIMISM.native_decimals,
             Asset::Gram => neko_ton::GRAM_DECIMALS,
             Asset::Sol => neko_solana::SOL_DECIMALS,
             Asset::Btc => neko_btc::BTC_DECIMALS,
@@ -535,6 +573,7 @@ impl Asset {
             | Asset::PolygonErc20 { decimals, .. }
             | Asset::BaseErc20 { decimals, .. }
             | Asset::ArbitrumErc20 { decimals, .. }
+            | Asset::OptimismErc20 { decimals, .. }
             | Asset::Jetton { decimals, .. } => decimals,
         }
     }
@@ -549,6 +588,7 @@ impl Asset {
             Asset::Pol => "POL",
             Asset::BaseEth => "ETH",
             Asset::ArbitrumEth => "ETH",
+            Asset::OptimismEth => "ETH",
             Asset::Gram => "GRAM",
             // Base's stablecoin is a different token, not a differently named
             // one - see `ChainId::stable`.
@@ -562,7 +602,40 @@ impl Asset {
             | Asset::Erc20 { .. }
             | Asset::PolygonErc20 { .. }
             | Asset::ArbitrumErc20 { .. }
+            | Asset::OptimismErc20 { .. }
             | Asset::Jetton { .. } => "USDT",
+        }
+    }
+
+    /// The contract and precision of this asset, when it is a token on an EVM
+    /// chain.
+    ///
+    /// Exhaustive on purpose, with no `_` arm: the send path used to pick
+    /// these out with a list of variants and a catch-all that answered "that
+    /// asset is not on chain N". A new chain's token fell into the catch-all,
+    /// so the failure arrived at the moment of sending and named the chain
+    /// rather than the omission. Here the compiler asks instead.
+    pub fn evm_token(self) -> Option<(neko_hd::EvmAddress, u8)> {
+        match self {
+            Asset::Bep20 { contract, decimals }
+            | Asset::Erc20 { contract, decimals }
+            | Asset::PolygonErc20 { contract, decimals }
+            | Asset::BaseErc20 { contract, decimals }
+            | Asset::ArbitrumErc20 { contract, decimals }
+            | Asset::OptimismErc20 { contract, decimals } => Some((contract, decimals)),
+            Asset::Trx
+            | Asset::Trc20 { .. }
+            | Asset::Bnb
+            | Asset::Sol
+            | Asset::SplToken { .. }
+            | Asset::Btc
+            | Asset::Eth
+            | Asset::Gram
+            | Asset::Pol
+            | Asset::BaseEth
+            | Asset::ArbitrumEth
+            | Asset::OptimismEth
+            | Asset::Jetton { .. } => None,
         }
     }
 
@@ -591,6 +664,8 @@ impl Asset {
             | Asset::BaseErc20 { .. }
             | Asset::ArbitrumEth
             | Asset::ArbitrumErc20 { .. }
+            | Asset::OptimismEth
+            | Asset::OptimismErc20 { .. }
             | Asset::Gram
             | Asset::Jetton { .. } => None,
         }
@@ -601,19 +676,17 @@ impl Asset {
     /// arithmetic and being impossible - a token's fee is paid in the chain's
     /// own coin, so the whole token balance can go, while sending the coin has
     /// to hold back enough of itself to pay for the sending.
+    ///
+    /// **Asked of the chain rather than listed.** This was a `matches!` over
+    /// the nine coin variants, and `matches!` gets no exhaustiveness check: a
+    /// new chain's coin falls through as `false` and the crate still compiles.
+    /// Optimism's did, and the two things that answer to this flag are the two
+    /// that decide whether "send everything" is payable - `hold_back_fee`,
+    /// which then reserves nothing, and `native_needed`, which then leaves the
+    /// amount out of the balance check. Both fail in the direction that offers
+    /// a transfer the chain will refuse.
     pub fn is_native(self) -> bool {
-        matches!(
-            self,
-            Asset::Trx
-                | Asset::Bnb
-                | Asset::Sol
-                | Asset::Btc
-                | Asset::Eth
-                | Asset::Pol
-                | Asset::BaseEth
-                | Asset::ArbitrumEth
-                | Asset::Gram
-        )
+        self == self.chain().native()
     }
 }
 
@@ -726,5 +799,33 @@ mod tests {
         assert_eq!(ChainId::Bsc.native().symbol(), "BNB");
         assert!(ChainId::Bsc.native().is_native());
         assert!(!ChainId::Bsc.stable().unwrap().is_native());
+    }
+
+    /// Every chain's coin knows it is one, and no token does.
+    ///
+    /// Written over `CHAINS` because the single-chain version above passed for
+    /// as long as `is_native` was a hand-written list that had gone stale:
+    /// BNB was on it, and Optimism's ether was not. What that flag decides is
+    /// whether "send everything" holds back the fee, so a coin missing from it
+    /// offers the user a transfer the chain refuses.
+    #[test]
+    fn every_chains_coin_is_native_and_no_token_is() {
+        for c in CHAINS {
+            assert!(
+                c.native().is_native(),
+                "{c:?}: its own coin is not recognised as one"
+            );
+            assert_eq!(c.native().chain(), c, "{c:?}: coin belongs elsewhere");
+            if let Some(t) = c.stable() {
+                assert!(!t.is_native(), "{c:?}: its token claims to be the coin");
+                assert_eq!(t.chain(), c, "{c:?}: token belongs elsewhere");
+            }
+        }
+        // Every asset on every chain, so a chain that grows a third one is
+        // covered too.
+        for c in CHAINS {
+            let natives = c.assets().iter().filter(|a| a.is_native()).count();
+            assert_eq!(natives, 1, "{c:?}: exactly one asset pays the fees");
+        }
     }
 }

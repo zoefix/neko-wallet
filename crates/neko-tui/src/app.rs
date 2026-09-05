@@ -117,6 +117,7 @@ pub struct App {
     pub base_rpc: Option<String>,
     /// Arbitrum's node. `None` means the public one.
     pub arbitrum_rpc: Option<String>,
+    pub optimism_rpc: Option<String>,
     /// toncenter. `None` means the public endpoint. Configurable for the same
     /// reason as Esplora: reading a TON balance means running a contract's own
     /// method, so this server is not an alternative to asking the chain - it is
@@ -191,6 +192,7 @@ impl App {
             polygon_rpc: None,
             base_rpc: None,
             arbitrum_rpc: None,
+            optimism_rpc: None,
             ton_api: None,
             api_key: std::env::var("TRONGRID_API_KEY").ok(),
             bsc_api_key: std::env::var("NODEREAL_API_KEY").ok(),
@@ -686,6 +688,7 @@ impl App {
             neko_core::ChainId::Polygon => self.polygon_rpc.as_deref(),
             neko_core::ChainId::Base => self.base_rpc.as_deref(),
             neko_core::ChainId::Arbitrum => self.arbitrum_rpc.as_deref(),
+            neko_core::ChainId::Optimism => self.optimism_rpc.as_deref(),
             neko_core::ChainId::Ton => self.ton_api.as_deref(),
             neko_core::ChainId::Bsc => None,
         };
@@ -698,7 +701,10 @@ impl App {
             // they read from Blockscout, or from Etherscan when a key is set.
             neko_core::ChainId::Polygon
             | neko_core::ChainId::Base
-            | neko_core::ChainId::Arbitrum => None,
+            | neko_core::ChainId::Arbitrum
+            // NodeReal *has* an Optimism RPC host, but not the index behind
+            // it: `nr_getAssetTransfers` there answers "Method not found".
+            | neko_core::ChainId::Optimism => None,
             // Neither Solana's public cluster nor Esplora needs a key. Both
             // rate-limit, which costs a retry rather than a screen.
             neko_core::ChainId::Solana | neko_core::ChainId::Bitcoin => None,
@@ -943,6 +949,9 @@ impl App {
         if let Ok(v) = s.setting(keys::ARBITRUM_RPC) {
             self.arbitrum_rpc = v.filter(|u| !u.is_empty());
         }
+        if let Ok(v) = s.setting(keys::OPTIMISM_RPC) {
+            self.optimism_rpc = v.filter(|u| !u.is_empty());
+        }
         if let Ok(v) = s.setting(keys::TON_API) {
             self.ton_api = v.filter(|u| !u.is_empty());
         }
@@ -1086,6 +1095,10 @@ impl App {
                 .arbitrum_rpc
                 .clone()
                 .unwrap_or_else(|| neko_evm::ARBITRUM.default_rpc.into()),
+            SettingRow::OptimismRpc => self
+                .optimism_rpc
+                .clone()
+                .unwrap_or_else(|| neko_evm::OPTIMISM.default_rpc.into()),
             SettingRow::TonApi => self
                 .ton_api
                 .clone()

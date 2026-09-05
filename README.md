@@ -8,8 +8,8 @@ A self-custody encrypted crypto wallet for the terminal. Your whole wallet is
 one encrypted file — carry it on a USB stick, keep it on a network drive, copy
 it anywhere. Unlocked by an email and a password that are stored nowhere.
 
-Multi-chain by design: TRON, Ethereum, BNB Chain, Polygon, Base, Arbitrum, Solana,
-Bitcoin and TON.
+Multi-chain by design: TRON, Ethereum, BNB Chain, Polygon, Base, Arbitrum,
+Optimism, Solana, Bitcoin and TON.
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
@@ -144,6 +144,7 @@ phrase, or a new thing to back up.
 | Polygon | working | POL, USDT (ERC20) |
 | Base | working | ETH, USDC (ERC20) |
 | Arbitrum | working | ETH, USDT (ERC20) |
+| Optimism | working | ETH, USDT (ERC20) |
 | TON | working | GRAM, USDT (jetton) |
 
 The same phrase gives a different address on each — that is correct and
@@ -196,13 +197,20 @@ interface, so the price is read from Ethereum's pool instead — the same asset,
 on a chain this wallet already talks to. That is the trade BTC already makes.
 History comes from Blockscout, as Polygon's does.
 
-One more thing is Base's alone: **the fee is not gas times price**. A rollup
-writes its transactions to Ethereum and charges the sender for that on top of
-L2 gas, and `op-geth` counts it in the balance check — so a wallet that models
-a fee as gas times price is short by exactly that, and "send everything" is
-refused with `have … want …`. The amount is read from the chain's own L1 gas
-price oracle, using the bytes that will actually be signed, and shown on the
-review screen as its own line. It is not refunded.
+One more thing Base shares only with Optimism: **the fee is not gas times
+price**. An OP-stack rollup writes its transactions to Ethereum and charges
+the sender for that on top of L2 gas, and `op-geth` counts it in the balance
+check — so a wallet that models a fee as gas times price is short by exactly
+that, and "send everything" is refused with `have … want …`. The amount is
+read from the chain's own L1 gas price oracle, using the bytes that will
+actually be signed, and shown on the review screen as its own line. It is not
+refunded.
+
+What is charged for is the *compressed* size, which makes the stand-in bytes
+for the not-yet-made signature part of the sum rather than a detail: a run of
+identical padding compresses to nothing and reserves too little. Measured
+against both chains' oracles, that came to a shortfall of 133 to 633 million
+wei depending on the chain and whether a token was being sent.
 
 Base is also the one chain here whose stablecoin is **USDC rather than USDT**.
 That is not a preference: Tether's contract on Base holds about 23 million
@@ -221,6 +229,25 @@ from Ethereum for the same reason Base's is: its own pools hold about \$30,000
 and sit 14% stale. Its USDT is real — 835 million of it, and Binance will send
 it there — though the contract calls itself `USD₮0`, with a tugrik sign where
 the T should be. That name is checked against the chain and never shown.
+
+Optimism is the sixth EVM chain and the third rollup, and it is where the
+question stops being "is it a rollup". It is OP-stack like Base, so it charges
+for L1 beside gas and the oracle is asked; Arbitrum, which is also a rollup,
+must not be. The chain says which is which if you ask it: a plain transfer
+estimates at exactly 21,000 gas on both OP-stack chains and at 21,422 on
+Arbitrum, where the posting cost is already inside that number.
+
+Two things here would have been wrong if copied from its neighbours. Its
+Uniswap V2 router is at a **different address** from Base's and Arbitrum's,
+which share one — theirs holds no code on Optimism, so a copied constant would
+have answered nothing at all and every price would have quietly gone missing.
+And unlike Polygon's `USDT0` and Arbitrum's `USD₮0`, its USDT contract still
+calls itself plain `USDT`: 223 million of it, at the address Binance itself
+lists for withdrawals to this chain. Its coin is ETH and is priced from
+Ethereum, because its own V2 pools hold fifteen dollars and five hundred
+respectively, quoting an ether at \$7.55 and \$264. History comes from a
+Blockscout instance on its own domain. NodeReal serves an RPC for this chain
+but no index behind it, so history does not go there.
 
 TON derives at `m/44'/607'/0'` and is the one chain here where **the address
 is not derived from the key**. A wallet on TON is a smart contract, and its

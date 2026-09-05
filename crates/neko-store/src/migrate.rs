@@ -59,6 +59,10 @@ const MIGRATIONS: &[Migration] = &[
         to: 9,
         sql: include_str!("../migrations/0009_arbitrum.sql"),
     },
+    Migration {
+        to: 10,
+        sql: include_str!("../migrations/0010_optimism.sql"),
+    },
 ];
 
 /// Apply whatever this database is missing.

@@ -1898,6 +1898,17 @@ fn draw_settings(f: &mut Frame, area: Rect, app: &App, st: &SettingsState) {
         lines.extend(hint_lines(t(Key::Settings_SolanaRpcNote2), inner.width));
     } else if matches!(st.row(), SettingRow::EthRpc) {
         lines.extend(hint_lines(t(Key::Settings_EthRpcNote), inner.width));
+    // The four newer EVM rows. Their notes had been written and translated
+    // into all four languages and then never rendered - the same silent gap as
+    // `send.confirm_prompt`, and worth the one line it costs to close.
+    } else if matches!(st.row(), SettingRow::PolygonRpc) {
+        lines.extend(hint_lines(t(Key::Settings_PolygonRpcNote), inner.width));
+    } else if matches!(st.row(), SettingRow::BaseRpc) {
+        lines.extend(hint_lines(t(Key::Settings_BaseRpcNote), inner.width));
+    } else if matches!(st.row(), SettingRow::ArbitrumRpc) {
+        lines.extend(hint_lines(t(Key::Settings_ArbitrumRpcNote), inner.width));
+    } else if matches!(st.row(), SettingRow::OptimismRpc) {
+        lines.extend(hint_lines(t(Key::Settings_OptimismRpcNote), inner.width));
     } else if matches!(st.row(), SettingRow::BitcoinApi) {
         lines.extend(hint_lines(t(Key::Settings_BitcoinApiNote), inner.width));
         lines.extend(hint_lines(t(Key::Settings_BitcoinApiNote2), inner.width));
@@ -2213,7 +2224,8 @@ fn not_final_key(chain: neko_core::ChainId) -> Key {
         | neko_core::ChainId::Ethereum
         | neko_core::ChainId::Polygon
         | neko_core::ChainId::Base
-        | neko_core::ChainId::Arbitrum => Key::Send_NotFinalEvm,
+        | neko_core::ChainId::Arbitrum
+        | neko_core::ChainId::Optimism => Key::Send_NotFinalEvm,
         neko_core::ChainId::Solana => Key::Send_NotFinalSolana,
         neko_core::ChainId::Bitcoin => Key::Send_NotFinalBitcoin,
         neko_core::ChainId::Ton => Key::Send_NotFinalTon,

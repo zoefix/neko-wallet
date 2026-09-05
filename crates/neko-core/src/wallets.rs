@@ -211,6 +211,9 @@ impl Session {
                 ChainId::Arbitrum => {
                     ChainAddress::Arbitrum(derive::evm_address_from_private_key(&sk)?)
                 }
+                ChainId::Optimism => {
+                    ChainAddress::Optimism(derive::evm_address_from_private_key(&sk)?)
+                }
                 ChainId::Solana => {
                     ChainAddress::Solana(neko_hd::solana::address_from_private_key(&sk)?)
                 }
@@ -237,6 +240,9 @@ impl Session {
             ChainId::Base => ChainAddress::Base(derive::evm_address_at(&seed, 0, index)?),
             // Five EVM chains, one coin type, one set of twenty bytes.
             ChainId::Arbitrum => ChainAddress::Arbitrum(derive::evm_address_at(&seed, 0, index)?),
+            // Six now. The bytes are the same on all of them; the chain is
+            // what makes a destination right or wrong.
+            ChainId::Optimism => ChainAddress::Optimism(derive::evm_address_at(&seed, 0, index)?),
             // SLIP-0010, hardened at every level, so the account level is what
             // varies rather than a change/index pair that cannot exist here.
             ChainId::Solana => ChainAddress::Solana(neko_hd::solana::address_at(&seed, index)?),
@@ -447,6 +453,7 @@ impl Session {
                 ChainId::Polygon => neko_evm::POLYGON.stable_address().as_bytes().to_vec(),
                 ChainId::Base => neko_evm::BASE.stable_address().as_bytes().to_vec(),
                 ChainId::Arbitrum => neko_evm::ARBITRUM.stable_address().as_bytes().to_vec(),
+                ChainId::Optimism => neko_evm::OPTIMISM.stable_address().as_bytes().to_vec(),
                 ChainId::Ton => neko_ton::usdt_master().as_bytes(),
                 ChainId::Solana => neko_solana::usdt_mint().as_bytes().to_vec(),
                 // Unreachable: Bitcoin has no stablecoin, so this closure is
@@ -474,6 +481,7 @@ fn db_chain_id(c: ChainId) -> i64 {
         ChainId::Polygon => neko_store::repo::addresses::POLYGON_CHAIN_ID,
         ChainId::Base => neko_store::repo::addresses::BASE_CHAIN_ID,
         ChainId::Arbitrum => neko_store::repo::addresses::ARBITRUM_CHAIN_ID,
+        ChainId::Optimism => neko_store::repo::addresses::OPTIMISM_CHAIN_ID,
     }
 }
 

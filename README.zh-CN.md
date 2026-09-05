@@ -8,7 +8,7 @@
 插U盘带走、放网盘、随便拷到哪里都行。用一个邮箱加一个密码解锁，
 而这两样东西哪里都没有保存。
 
-多链架构：TRON、Ethereum、BNB Chain、Polygon、Base、Arbitrum、Solana、Bitcoin、TON。
+多链架构：TRON、Ethereum、BNB Chain、Polygon、Base、Arbitrum、Optimism、Solana、Bitcoin、TON。
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
@@ -134,6 +134,7 @@ neko-wallet
 | Polygon | 可用 | POL、USDT (ERC20) |
 | Base | 可用 | ETH、USDC (ERC20) |
 | Arbitrum | 可用 | ETH、USDT (ERC20) |
+| Optimism | 可用 | ETH、USDT (ERC20) |
 | TON | 可用 | GRAM、USDT (jetton) |
 
 Polygon 也用同一个币种编号，所以同一句助记词在三条 EVM 链上是**同一个地址**。
@@ -155,11 +156,15 @@ Base 的流动性在 Aerodrome 和 Uniswap V3 上，这两个都不是同一套�
 Ethereum 的池子读 —— 同一种资产，而且那条链本来就在联系。这跟 BTC 的做法是一样的。
 历史记录跟 Polygon 一样走 Blockscout。
 
-还有一件事是 Base 独有的：**手续费不等于 gas × 单价**。rollup 会把交易写到 Ethereum 上，
-这笔钱由发送方在 L2 gas 之外另付，而且 `op-geth` 把它算进余额检查里 —— 所以一个把手续费
-当成 gas × 单价的钱包会正好差这么多，「全部转出」会被节点以 `have … want …` 拒掉。
-这个金额是拿真正要签名的那串字节去问链上的 L1 gas 价格预言机取的，在确认页单列一行。
-它不退。
+还有一件事 Base 只跟 Optimism 共有：**手续费不等于 gas × 单价**。OP-stack rollup 会把
+交易写到 Ethereum 上，这笔钱由发送方在 L2 gas 之外另付，而且 `op-geth` 把它算进余额
+检查里 —— 所以一个把手续费当成 gas × 单价的钱包会正好差这么多，「全部转出」会被节点以
+`have … want …` 拒掉。这个金额是拿真正要签名的那串字节去问链上的 L1 gas 价格预言机
+取的，在确认页单列一行。它不退。
+
+链上按**压缩后**的体积收费，所以「签名还没生成、拿什么字节占位」不是细节而是钱：一串
+重复的填充会被压没，预留就不够。拿两条链的预言机实测，这个缺口在 1.33 亿到 6.33 亿 wei
+之间，取决于是哪条链、转的是不是代币。
 
 Base 也是这里唯一一条稳定币是 **USDC 而不是 USDT** 的链。这不是偏好：Tether 在 Base
 上的合约总共 2380 万，Circle 的 USDC 是 42 亿；币安列出的 USDT 可提网络有 19 个，
@@ -173,6 +178,19 @@ Arbitrum One 是第五条 EVM 链、第二条 rollup，而它收 L1 费用的方
 价格同样从 Ethereum 读，理由跟 Base 一样：它自己的池子只有大约三万美元，报价慢了 14%。
 它的 USDT 是真的 —— 8.35 亿，币安也能提过去 —— 只是合约自称 `USD₮0`，那个 T 的位置
 是图格里克符号。这个名字只拿去跟链核对，从不显示。
+
+Optimism 是第六条 EVM 链、第三条 rollup，也是「是不是 rollup」这个问题失效的地方。它跟
+Base 一样是 OP-stack，所以要另外预留 L1 费用、要去问预言机；Arbitrum 同样是 rollup，
+却绝不能问。想知道是哪一类，问链就行：一笔普通转账在两条 OP-stack 链上都正好估 21,000
+gas，在 Arbitrum 上估 21,422 —— 那个多出来的部分就是已经折进去的写入成本。
+
+这条链上有两样东西照抄邻居就是错的。它的 Uniswap V2 路由地址跟 Base、Arbitrum **不一样**
+—— 那两条链共用一个地址，而那个地址在 Optimism 上没有代码，抄过来不会报错，只会什么都
+不返回，然后价格就悄悄没了。另外，不像 Polygon 的 `USDT0` 和 Arbitrum 的 `USD₮0`，它的
+USDT 合约老老实实就叫 `USDT`：2.235 亿，地址跟币安自己列的提币地址一致。它的币是 ETH，
+价格从 Ethereum 读，因为它自己的两个 V2 池子分别只有十五美元和五百多美元，报出来的
+ETH 价是 7.55 和 264。历史记录走 Blockscout，只是这家开在自己的域名上。NodeReal 有这条
+链的 RPC，但没有对应的索引，所以历史不走它。
 
 TON 在这里是唯一一条**地址不是从密钥算出来的**链。TON 上的钱包本身就是一个智能合约，
 地址是这个合约初始代码和存储的哈希。由此带来的两件事都摆在界面上，而不是等你自己撞上：
