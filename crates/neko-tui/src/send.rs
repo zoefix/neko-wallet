@@ -509,6 +509,37 @@ impl FeeQuote {
         }
     }
 
+    /// Whether the chain's own figures say this transfer can be paid for.
+    ///
+    /// `None` means the balance could not be read, and must not be turned into
+    /// a refusal - an unknown balance is not an empty one. `Some(false)` is the
+    /// chain's arithmetic, not a guess, and nothing should be signed against
+    /// it: see [`crate::keys`], where it stops the flow.
+    pub fn affordable(&self) -> Option<bool> {
+        match self {
+            // TRON's quote is about energy and bandwidth. The burn comes out of
+            // the TRX balance, which this does not carry, so there is nothing
+            // to answer rather than something approximate.
+            FeeQuote::Tron(_) => None,
+            FeeQuote::Evm(e) => e.affordable(),
+            FeeQuote::Solana(s) => s.affordable(),
+            // Decided before the quote existed: if the coins could not cover
+            // the amount and the fee, selection failed and there is no quote.
+            FeeQuote::Bitcoin(_) => Some(true),
+            FeeQuote::Ton(t) => t.affordable(),
+        }
+    }
+
+    /// How far short, when the chain's figures say it is short at all.
+    pub fn shortfall(&self) -> Option<Amount> {
+        match self {
+            FeeQuote::Tron(_) | FeeQuote::Bitcoin(_) => None,
+            FeeQuote::Evm(e) => e.shortfall(),
+            FeeQuote::Solana(s) => s.shortfall(),
+            FeeQuote::Ton(t) => t.shortfall(),
+        }
+    }
+
     pub fn is_free(&self) -> bool {
         match self {
             FeeQuote::Tron(t) => t.is_free(),

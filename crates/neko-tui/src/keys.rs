@@ -464,6 +464,18 @@ pub fn on_key_send(app: &mut App, k: KeyEvent, tx: &Sender) {
                     st.error = Some(neko_i18n::t(neko_i18n::Key::Send_ErrNoMatch).to_string());
                     return;
                 }
+                // And the chain's own figures must say it can be paid for.
+                //
+                // Not advice: a transfer the chain cannot pay for still costs
+                // a fee and still consumes the sequence number, and on TON it
+                // does so *silently* - the wallet's send is skipped, every
+                // phase reports success, and the tokens never move. Which is
+                // exactly what happened when this was only a red line on the
+                // review screen that Enter walked straight past.
+                if let Some(short) = unaffordable(st) {
+                    st.error = Some(short);
+                    return;
+                }
                 advance_to_authorize(app);
             }
             _ => {}
@@ -814,6 +826,38 @@ fn set_node_url(app: &mut App, row: crate::nav::SettingRow, value: &str) {
         let _ = s.set_setting(key, v);
     }
     app.toast(neko_i18n::t(saved).to_string());
+}
+
+/// Why this transfer cannot be paid for, when the chain has said so.
+///
+/// `None` covers both "it can" and "we do not know" - an unknown balance is
+/// not an empty one, and refusing on one would block every transfer whenever a
+/// balance lookup failed.
+fn unaffordable(st: &crate::send::SendState) -> Option<String> {
+    let crate::send::SendStep::Review { quote, .. } = &st.step else {
+        return None;
+    };
+    let q = quote.as_ref()?;
+    if q.affordable() != Some(false) {
+        return None;
+    }
+    let coin = st.asset.chain().native_symbol();
+    Some(match q.shortfall() {
+        Some(short) => neko_i18n::tf(
+            neko_i18n::Key::Send_ErrCannotAfford,
+            &[
+                ("coin", coin),
+                (
+                    "amount",
+                    &short.to_display_string_trim(crate::chain::BALANCE_FRAC),
+                ),
+            ],
+        ),
+        None => neko_i18n::tf(
+            neko_i18n::Key::Send_ErrCannotAffordUnknown,
+            &[("coin", coin)],
+        ),
+    })
 }
 
 /// Move from the retype gate to the password gate.

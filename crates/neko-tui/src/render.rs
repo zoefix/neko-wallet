@@ -1745,7 +1745,7 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
             )));
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
-                format!("   {}", t(Key::Send_NotFinal)),
+                format!("   {}", t(not_final_key(st.asset.chain()))),
                 theme::hint(),
             )));
         }
@@ -2160,6 +2160,23 @@ const VALUE_COL: usize = 18;
 ///
 /// `None` when the price is not known, so the line stays silent instead of
 /// implying the transfer is free.
+/// What "accepted" does and does not mean, which differs by chain.
+///
+/// It used to say "give it ~19 blocks" everywhere. That is TRON's rule, and it
+/// was shown for Bitcoin, where a block is ten minutes, and for TON, where the
+/// number of blocks is not the question at all: a wallet there is a contract,
+/// and a message it cannot pay for is skipped in silence while every phase of
+/// the transaction reports success.
+fn not_final_key(chain: neko_core::ChainId) -> Key {
+    match chain {
+        neko_core::ChainId::Tron => Key::Send_NotFinalTron,
+        neko_core::ChainId::Bsc | neko_core::ChainId::Ethereum => Key::Send_NotFinalEvm,
+        neko_core::ChainId::Solana => Key::Send_NotFinalSolana,
+        neko_core::ChainId::Bitcoin => Key::Send_NotFinalBitcoin,
+        neko_core::ChainId::Ton => Key::Send_NotFinalTon,
+    }
+}
+
 fn fee_in_usdt(
     total: neko_core::Amount,
     chain: neko_core::ChainId,

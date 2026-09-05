@@ -113,6 +113,56 @@ fn review_screen(q: TronFee) -> App {
     app
 }
 
+/// A review screen for any chain's asset, with a quote already in hand.
+fn review_screen_for(asset: neko_core::Asset, q: FeeQuote) -> App {
+    // Both ends have to belong to the chain being tested: a request that
+    // cannot be built leaves no review screen to press Enter on.
+    let (mine, to) = match asset.chain() {
+        neko_core::ChainId::Ton => (
+            "EQAzWZa6nM5mJev91wGc7VCSfBoIsYRqKJpV78N8Add9-U9d",
+            "EQDVJucJT96vGh_bYm3e5uzenasiTOwA9orUHQiyhNsKmEcK",
+        ),
+        _ => (MINE, TO),
+    };
+    let mut app = App::new(std::path::PathBuf::from("/tmp/neko-fee-gate.db"));
+    let mut st = SendState::new(
+        1,
+        "w".into(),
+        neko_core::ChainAddress::parse(asset.chain(), mine).unwrap(),
+        asset,
+        asset.symbol().to_string(),
+    );
+    to.chars().for_each(|c| st.to.push(c));
+    "1".chars().for_each(|c| st.amount.push(c));
+    let req = st.build_request().unwrap();
+    let params = match asset.chain() {
+        neko_core::ChainId::Ton => {
+            neko_core::ChainTxParams::Ton(Box::new(neko_core::TonTxParams {
+                seqno: 0,
+                valid_until: 0,
+                deploy: true,
+                jetton_wallet: None,
+            }))
+        }
+        _ => neko_core::ChainTxParams::Tron(Box::new(neko_tron::tx::TxParams {
+            ref_block_num: 1,
+            ref_block_hash: [0xab; 32],
+            timestamp: 1_756_000_000_000,
+            expiration: 1_756_000_060_000,
+            fee_limit: 100_000_000,
+        })),
+    };
+    st.step = SendStep::Review {
+        req: Box::new(req),
+        params: Box::new(params),
+        quote: Some(Box::new(q)),
+        typed: neko_tui::input::Field::new(false),
+    };
+    app.screen = Screen::Send(Box::new(st));
+    neko_i18n::set_locale(neko_i18n::Locale::English);
+    app
+}
+
 fn render(app: &App, w: u16, h: u16) -> String {
     // These assertions are written against the English strings; the app
     // otherwise follows the OS language, which is not the same on every
@@ -534,4 +584,142 @@ fn the_nodes_energy_estimate_reaches_the_screen_unmultiplied() {
         "6.428500",
         "the fee on screen is not what the chain charges"
     );
+}
+
+// ── A transfer the chain cannot pay for must not be signed ──────────────────
+
+/// Pressing Enter past a "not enough GRAM" warning used to sign and broadcast.
+///
+/// On TON that is worse than a rejected transaction. The wallet is a contract,
+/// and the send it was asked to make is skipped when the balance will not cover
+/// it - `tot_actions: 1, msgs_created: 0, skipped_actions: 1`, with every phase
+/// reporting success. The node accepts the message, the screen says so, the fee
+/// is charged, the sequence number moves on, and the tokens do not. Nothing in
+/// the result tells the user any of that.
+///
+/// So the warning is now a gate. This drives the real key handler.
+#[test]
+fn enter_will_not_sign_a_transfer_the_chain_cannot_pay_for() {
+    use crossterm::event::{KeyCode, KeyEvent};
+
+    let mut app = review_screen_for(
+        neko_core::ChainId::Ton.usdt().unwrap(),
+        FeeQuote::Ton(neko_tui::send::TonFee {
+            fee: neko_ton::FEE_TRANSFER,
+            attached: neko_ton::JETTON_TRANSFER_ATTACHED,
+            // What she actually had: 0.0299 GRAM against the 0.06 needed.
+            gram_balance: Some(29_999_999),
+            sending_native: false,
+            amount: 2_700_000,
+            deploy: true,
+        }),
+    );
+
+    // Type the confirmation so the only thing left is affordability.
+    let tail: Vec<char> = {
+        let Screen::Send(st) = &app.screen else {
+            unreachable!()
+        };
+        let to = st.to.value().to_string();
+        to.chars()
+            .rev()
+            .take(neko_tui::send::CONFIRM_CHARS)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect()
+    };
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    for c in tail {
+        neko_tui::keys::on_key_send(&mut app, KeyEvent::from(KeyCode::Char(c)), &tx);
+    }
+    neko_tui::keys::on_key_send(&mut app, KeyEvent::from(KeyCode::Enter), &tx);
+
+    let Screen::Send(st) = &app.screen else {
+        unreachable!()
+    };
+    assert!(
+        matches!(st.step, SendStep::Review { .. }),
+        "it advanced to the password prompt for a transfer that cannot be paid for"
+    );
+    let err = st.error.as_deref().unwrap_or("");
+    assert!(
+        err.contains("GRAM"),
+        "the refusal does not name the coin: {err:?}"
+    );
+    // 0.06 needed against 0.029999999 held. Shown to eight places, which is
+    // where every balance on screen is cut, so the ninth decimal is not there.
+    assert!(
+        err.contains("0.03"),
+        "the refusal does not say how much is short: {err:?}"
+    );
+    assert!(
+        err.contains("Nothing was signed"),
+        "the refusal does not say the key was never used: {err:?}"
+    );
+}
+
+/// And a transfer that *is* affordable still goes through to the password.
+/// A gate that refuses everything is not a gate.
+#[test]
+fn enter_still_advances_when_the_balance_covers_it() {
+    use crossterm::event::{KeyCode, KeyEvent};
+
+    let mut app = review_screen_for(
+        neko_core::ChainId::Ton.usdt().unwrap(),
+        FeeQuote::Ton(neko_tui::send::TonFee {
+            fee: neko_ton::FEE_TRANSFER,
+            attached: neko_ton::JETTON_TRANSFER_ATTACHED,
+            gram_balance: Some(500_000_000), // half a GRAM, plenty
+            sending_native: false,
+            amount: 2_700_000,
+            deploy: true,
+        }),
+    );
+
+    let tail: Vec<char> = {
+        let Screen::Send(st) = &app.screen else {
+            unreachable!()
+        };
+        let to = st.to.value().to_string();
+        to.chars()
+            .rev()
+            .take(neko_tui::send::CONFIRM_CHARS)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect()
+    };
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    for c in tail {
+        neko_tui::keys::on_key_send(&mut app, KeyEvent::from(KeyCode::Char(c)), &tx);
+    }
+    neko_tui::keys::on_key_send(&mut app, KeyEvent::from(KeyCode::Enter), &tx);
+
+    let Screen::Send(st) = &app.screen else {
+        unreachable!()
+    };
+    assert!(
+        matches!(st.step, SendStep::Authorize { .. }),
+        "an affordable transfer was refused; error was {:?}",
+        st.error
+    );
+}
+
+/// An unknown balance is not an empty one. TRON's quote carries no TRX figure
+/// at all, and refusing on that would block every TRON transfer there is.
+#[test]
+fn an_unknown_balance_does_not_refuse_the_transfer() {
+    let q = quote(64_285, 0, 345, 600);
+    assert_eq!(FeeQuote::Tron(q).affordable(), None);
+
+    let unknown = FeeQuote::Ton(neko_tui::send::TonFee {
+        fee: neko_ton::FEE_TRANSFER,
+        attached: 0,
+        gram_balance: None,
+        sending_native: true,
+        amount: 1,
+        deploy: false,
+    });
+    assert_eq!(unknown.affordable(), None);
 }
