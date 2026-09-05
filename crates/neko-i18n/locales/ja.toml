@@ -140,6 +140,7 @@ prices_fallback = "%{energy} sun/エネルギー、%{bandwidth} sun/バイト (�
 resources_unknown = "このアカウントのエネルギーと帯域を取得できませんでした。"
 resources_unknown2 = "上の数値は「保有ゼロ」として算出しています。実際の"
 resources_unknown3 = "費用はこれより低い可能性があります。API Key を設定すると安定します。"
+fee_is_an_allowance = "見積もりではなく固定の上限枠です。実際の費用はこの何分の一かです。"
 first_time = "このアドレスは %{asset} を一度も保有していません。残高スロットの"
 first_time2 = "作成でエネルギーがおよそ倍になり、手数料も倍になります。"
 lookalike = "このアドレスは取引履歴にある別のアドレスを模倣しています："

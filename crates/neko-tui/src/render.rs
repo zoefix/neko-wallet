@@ -1577,7 +1577,12 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                 // account. Without an API key these calls hit the public rate
                 // limit intermittently, which is exactly when a confident but
                 // wrong number would do the most damage.
-                if q.is_upper_bound() {
+                //
+                // Gated on the lookup having failed rather than on the total
+                // being a ceiling: TON's total is always a ceiling, and this
+                // alarm - energy, bandwidth, an API key - describes none of
+                // that chain.
+                if q.resources_unreadable() {
                     lines.push(Line::from(Span::styled(
                         format!("     !  {}", t(Key::Send_ResourcesUnknown)),
                         theme::danger(),
@@ -1589,6 +1594,12 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                     lines.push(Line::from(Span::styled(
                         format!("        {}", t(Key::Send_ResourcesUnknown3)),
                         theme::warn(),
+                    )));
+                } else if matches!(&**q, crate::send::FeeQuote::Ton(_)) {
+                    // Why this one says "at most" when nothing went wrong.
+                    lines.push(Line::from(Span::styled(
+                        format!("        {}", t(Key::Send_FeeIsAnAllowance)),
+                        theme::hint(),
                     )));
                 }
 
@@ -1646,8 +1657,11 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 format!(
-                    "   Type the LAST {} characters of the destination to confirm:",
-                    send::CONFIRM_CHARS
+                    "   {}",
+                    tf(
+                        Key::Send_ConfirmPrompt,
+                        &[("n", &send::CONFIRM_CHARS.to_string())]
+                    )
                 ),
                 theme::title(),
             )));

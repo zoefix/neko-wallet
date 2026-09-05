@@ -540,6 +540,26 @@ impl FeeQuote {
         }
     }
 
+    /// Whether the figure is a ceiling *because a lookup failed*.
+    ///
+    /// Distinct from [`Self::is_upper_bound`], which two chains answer `true`
+    /// to for opposite reasons. TRON's total is a ceiling when the account's
+    /// energy and bandwidth could not be read and it had to assume none - that
+    /// is a failure, worth an alarm and a pointer at the fix. TON's is a
+    /// ceiling by design: the fee is a fixed allowance rather than a quote,
+    /// nothing failed, and no API key would change it.
+    ///
+    /// The screen showed TRON's alarm - energy, bandwidth, API key and all - on
+    /// TON, a chain that has none of those things.
+    pub fn resources_unreadable(&self) -> bool {
+        match self {
+            FeeQuote::Tron(t) => t.is_upper_bound(),
+            FeeQuote::Evm(_) | FeeQuote::Solana(_) | FeeQuote::Bitcoin(_) | FeeQuote::Ton(_) => {
+                false
+            }
+        }
+    }
+
     pub fn is_free(&self) -> bool {
         match self {
             FeeQuote::Tron(t) => t.is_free(),

@@ -723,3 +723,61 @@ fn an_unknown_balance_does_not_refuse_the_transfer() {
     });
     assert_eq!(unknown.affordable(), None);
 }
+
+/// TRON's alarm on a chain that has neither energy nor bandwidth.
+///
+/// "Could not read this account's energy and bandwidth ... setting an API key
+/// makes this reliable" was shown on the TON review screen, where none of those
+/// three things exists and nothing had failed. It fired because TON's total is
+/// always a ceiling - the fee is a fixed allowance rather than a quote - and
+/// the alarm was gated on the total being a ceiling rather than on a lookup
+/// having failed.
+#[test]
+fn ton_does_not_borrow_trons_energy_warning() {
+    let app = review_screen_for(
+        neko_core::ChainId::Ton.usdt().unwrap(),
+        FeeQuote::Ton(neko_tui::send::TonFee {
+            fee: neko_ton::FEE_TRANSFER,
+            attached: neko_ton::JETTON_TRANSFER_ATTACHED,
+            gram_balance: Some(99_006_120),
+            sending_native: false,
+            amount: 2_700_000,
+            deploy: false,
+        }),
+    );
+    let out = render(&app, 120, 40);
+
+    for absent in ["energy", "bandwidth", "API key"] {
+        assert!(
+            !out.contains(absent),
+            "TON has no {absent}, and the screen mentions it:\n{out}"
+        );
+    }
+    // The ceiling is still labelled as one, and now says why.
+    assert!(
+        out.contains("at most"),
+        "the ceiling is not labelled:\n{out}"
+    );
+    assert!(
+        out.contains("fixed allowance"),
+        "nothing explains why it is a ceiling:\n{out}"
+    );
+}
+
+/// And TRON keeps the warning, which is about a lookup that really did fail.
+#[test]
+fn tron_keeps_its_energy_warning_when_the_lookup_failed() {
+    let out = render(&review_screen(quote_unknown(64_285, 345)), 120, 40);
+    assert!(
+        out.contains("energy and bandwidth"),
+        "the alarm is gone:\n{out}"
+    );
+    assert!(out.contains("API key"), "the fix is not pointed at:\n{out}");
+
+    // A TRON quote whose resources *were* read says nothing of the sort.
+    let read = render(&review_screen(quote(64_285, 0, 345, 600)), 120, 40);
+    assert!(
+        !read.contains("Could not read"),
+        "a successful lookup warned anyway:\n{read}"
+    );
+}

@@ -140,6 +140,7 @@ prices_fallback = "%{energy} sun/能量，%{bandwidth} sun/字节 (兜底值 - �
 resources_unknown = "无法读取该账户的能量和带宽，"
 resources_unknown2 = "上面的数字是按「你一点都没有」估的。实际"
 resources_unknown3 = "花费可能更低。配置 API Key 可以避免这种情况。"
+fee_is_an_allowance = "这是固定的上限额度，不是报价；实际花费只有它的几分之一"
 first_time = "该地址从未持有过 %{asset}。为它新建余额"
 first_time2 = "存储槽会让能量消耗大约翻倍，手续费也随之翻倍。"
 lookalike = "该地址在模仿你交易记录里的另一个地址："

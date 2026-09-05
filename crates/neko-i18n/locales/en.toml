@@ -145,6 +145,7 @@ prices_fallback = "%{energy} sun/energy, %{bandwidth} sun/byte (fallback - chain
 resources_unknown = "Could not read this account's energy and bandwidth,"
 resources_unknown2 = "so the figure above assumes you have none. The real"
 resources_unknown3 = "cost may be lower. Setting an API key makes this reliable."
+fee_is_an_allowance = "a fixed allowance rather than a quote; the real cost is a fraction of it"
 first_time = "This address has never held %{asset}. Creating its balance"
 first_time2 = "slot roughly doubles the energy, and so the fee."
 lookalike = "This address IMITATES one in your history:"

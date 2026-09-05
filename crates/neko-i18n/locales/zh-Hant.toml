@@ -140,6 +140,7 @@ prices_fallback = "%{energy} sun/能量，%{bandwidth} sun/位元組 (備用值 
 resources_unknown = "無法讀取該帳戶的能量與頻寬，"
 resources_unknown2 = "上面的數字是按「你完全沒有」估算的。實際"
 resources_unknown3 = "花費可能更低。設定 API Key 可以避免這種情況。"
+fee_is_an_allowance = "這是固定的上限額度，不是報價；實際花費只有它的幾分之一"
 first_time = "該地址從未持有過 %{asset}。為它新建餘額"
 first_time2 = "儲存槽會讓能量消耗大約加倍，手續費也隨之加倍。"
 lookalike = "該地址正在模仿你交易紀錄裡的另一個地址："
