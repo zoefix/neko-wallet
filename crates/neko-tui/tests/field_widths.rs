@@ -24,6 +24,9 @@ fn longest_address(chain: neko_core::ChainId) -> &'static str {
         neko_core::ChainId::Bitcoin => {
             "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3"
         }
+        // Always 48: a workchain byte, 32 of hash and a CRC, base64url'd with
+        // nothing left over to pad.
+        neko_core::ChainId::Ton => "EQAzWZa6nM5mJev91wGc7VCSfBoIsYRqKJpV78N8Add9-U9d",
     }
 }
 

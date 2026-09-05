@@ -8,7 +8,7 @@
 插U盘带走、放网盘、随便拷到哪里都行。用一个邮箱加一个密码解锁，
 而这两样东西哪里都没有保存。
 
-多链架构：TRON、Ethereum、BNB Chain、Solana、Bitcoin。
+多链架构：TRON、Ethereum、BNB Chain、Solana、Bitcoin、TON。
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
@@ -131,7 +131,19 @@ neko-wallet
 | Solana | 可用 | SOL、USDT (SPL) |
 | Bitcoin | 可用 | BTC |
 | Ethereum | 可用 | ETH、USDT (ERC20) |
-| Bitcoin | 界面里已列出，功能还没做 | — |
+| TON | 可用 | GRAM、USDT (jetton) |
+
+TON 在这里是唯一一条**地址不是从密钥算出来的**链。TON 上的钱包本身就是一个智能合约，
+地址是这个合约初始代码和存储的哈希。由此带来的两件事都摆在界面上，而不是等你自己撞上：
+钱包转出的第一笔要把合约代码一起带出去，因为在那之前这个地址只是有余额、却没有任何
+能动它的东西；转 USDT 需要 GRAM，因为代币转账是两个合约之间发消息，每一跳都得靠随
+消息带上的钱才跑得动 —— 其中大部分会退回来。转账界面把这笔随带金额和手续费分开显示，
+而不是加在一起。
+
+因为地址取决于钱包合约，**同一句助记词，这里的 TON 地址不一定和 Tonkeeper 或 Telegram
+里的一致** —— 除非它们也用 v4R2 和标准的 subwallet id，这是常见默认值，但不是保证。
+币叫 GRAM：2026 年 6 月 15 日从 Toncoin 改回了它在 Telegram 2018 年白皮书里的名字。
+改的只是代号 —— 网络还是 TON，地址和余额都没变。
 
 链相关的代码只集中在一个 crate 里。密钥派生、存储、加密和界面都是共用且与链无关的，
 数据库从第一版迁移起就带着一张有 SLIP-44 币种编号的 `chains` 表。
@@ -388,6 +400,7 @@ neko-tron     仅 TRON：protobuf、交易构造与签名、节点客户端
 neko-evm      Ethereum 与 BNB Chain：RLP、EIP-155 与 EIP-1559 签名、ABI、JSON-RPC
 neko-solana   Solana：Ed25519、交易编码、代币账户、集群 RPC
 neko-btc      Bitcoin：bech32、隔离见证签名、选币、Esplora
+neko-ton      TON：cell 与 BoC、钱包合约 v4R2、jetton、toncenter
 neko-core     界面唯一对话的门面
 neko-i18n     编译期校验的翻译表
 neko-tui      ratatui 界面

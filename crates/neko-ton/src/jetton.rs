@@ -120,3 +120,163 @@ mod tests {
         assert_eq!(one.bits() - zero.bits(), 8);
     }
 }
+
+// ── The token describing itself ────────────────────────────────────────────
+
+/// TEP-64 metadata: a dictionary keyed by the sha256 of each attribute's name.
+///
+/// `sha256("decimals")`, computed once and pinned rather than hashed at
+/// runtime, so the constant is visible and the test can check it.
+pub const KEY_DECIMALS: [u8; 32] = [
+    0xee, 0x80, 0xfd, 0x2f, 0x1e, 0x03, 0x48, 0x0e, 0x22, 0x82, 0x36, 0x35, 0x96, 0xee, 0x75, 0x2d,
+    0x7b, 0xb2, 0x7f, 0x50, 0x77, 0x6b, 0x95, 0x08, 0x6a, 0x02, 0x79, 0x18, 0x96, 0x75, 0x92, 0x3e,
+];
+
+/// How TEP-64 says a metadata blob is stored.
+const CONTENT_ONCHAIN: u64 = 0x00;
+/// How a string is stored inside one: a byte of tag, then the bytes,
+/// continuing into a reference when they do not fit.
+const STRING_SNAKE: u64 = 0x00;
+
+/// What a jetton says its precision is, out of the master's own content cell.
+///
+/// This is the number worth checking. A symbol that is wrong is a cosmetic
+/// problem; a precision that is wrong moves a million times the intended
+/// amount, and the same token name is six decimals on four of these chains and
+/// eighteen on the fifth.
+///
+/// **The symbol is deliberately not read.** TON's USDT publishes only its
+/// decimals and a URI on chain - the name and symbol live in a JSON file on the
+/// issuer's web server. Fetching that would mean this wallet talking to a host
+/// the user never chose, to learn a string, which is not a trade worth making.
+pub fn decimals_from_content(content: &Arc<Cell>) -> Result<u8, TonError> {
+    let mut s = crate::dict::Slice::new(content);
+    let kind = s.load_uint(8)?;
+    if kind != CONTENT_ONCHAIN {
+        return Err(TonError::BadReply(
+            "this jetton keeps its metadata off chain, so its decimals cannot be checked".into(),
+        ));
+    }
+    let leaf = crate::dict::lookup_maybe_empty(&mut s, 256, &KEY_DECIMALS)?
+        .ok_or_else(|| TonError::BadReply("this jetton does not state its decimals".into()))?;
+    let mut leaf = leaf;
+    let text = snake_string(leaf.load_ref()?)?;
+    text.trim()
+        .parse::<u8>()
+        .map_err(|_| TonError::BadReply(format!("this jetton states its decimals as {text:?}")))
+}
+
+/// A string as TEP-64 stores one: a tag byte, then bytes that carry on into a
+/// reference when a cell runs out of room.
+fn snake_string(cell: &Arc<Cell>) -> Result<String, TonError> {
+    let mut s = crate::dict::Slice::new(cell);
+    if s.load_uint(8)? != STRING_SNAKE {
+        return Err(TonError::BadReply(
+            "a metadata string is not in the expected form".into(),
+        ));
+    }
+    let mut bytes = s.load_rest_bytes()?;
+    let mut cur = cell.clone();
+    // Continuation cells carry no tag of their own. Bounded because a cell tree
+    // that referred to itself would otherwise be read forever.
+    for _ in 0..32 {
+        let Some(next) = cur.refs().first().cloned() else {
+            break;
+        };
+        let mut s = crate::dict::Slice::new(&next);
+        bytes.extend(s.load_rest_bytes()?);
+        cur = next;
+    }
+    String::from_utf8(bytes).map_err(|_| TonError::BadReply("a metadata string is not text".into()))
+}
+
+#[cfg(test)]
+mod metadata_tests {
+    use super::*;
+
+    /// The exact bytes `get_jetton_data` returned for TON's USDT master.
+    ///
+    /// Two entries under a 256-bit key: a URI, and the decimals. Reading either
+    /// one means walking a radix tree whose edges use two of the three label
+    /// encodings, so this is not a test of a happy path so much as of the
+    /// dictionary itself.
+    const USDT_CONTENT: &str = "te6cckEBBwEAfQABAwDAAQIBIAIDAUO/+HLr21FNnJfCg7fwrlF5Ap4rYRnDlGJxnk9G7Y90E+ZABAFDv/dAfpePAaQHEUEbGst3Opa92T+oO7XKhDUBPIxLOskfQAYBAgAFAD5odHRwczovL3RldGhlci50by91c2R0LXRvbi5qc29uAAQANhfFQ3M=";
+
+    fn content() -> Arc<Cell> {
+        crate::boc::parse(&b64(USDT_CONTENT)).expect("the pinned content cell is malformed")
+    }
+
+    #[test]
+    fn usdt_states_six_decimals_on_chain() {
+        assert_eq!(decimals_from_content(&content()).unwrap(), 6);
+        // Which is what the constant says, read from the token rather than
+        // trusted from this file.
+        assert_eq!(
+            decimals_from_content(&content()).unwrap(),
+            crate::chain_consts::USDT_DECIMALS
+        );
+    }
+
+    /// The key is pinned rather than hashed at runtime, so something has to
+    /// check it is the hash it claims to be.
+    #[test]
+    fn the_decimals_key_is_the_hash_of_the_word() {
+        use sha2::{Digest, Sha256};
+        let want: [u8; 32] = Sha256::digest(b"decimals").into();
+        assert_eq!(KEY_DECIMALS, want);
+    }
+
+    /// A key that is not in the dictionary is a miss, not a parse failure -
+    /// and the walk has to reach that answer rather than matching something
+    /// else on the way.
+    #[test]
+    fn a_key_that_is_not_there_is_a_miss() {
+        use sha2::{Digest, Sha256};
+        let symbol: [u8; 32] = Sha256::digest(b"symbol").into();
+        let c = content();
+        let mut s = crate::dict::Slice::new(&c);
+        assert_eq!(s.load_uint(8).unwrap(), CONTENT_ONCHAIN);
+        assert!(
+            crate::dict::lookup_maybe_empty(&mut s, 256, &symbol)
+                .unwrap()
+                .is_none(),
+            "TON's USDT does not publish its symbol on chain"
+        );
+
+        // And the URI, which is there, is found - so the miss above is the
+        // absence of the key and not a walk that fails on everything.
+        let uri: [u8; 32] = Sha256::digest(b"uri").into();
+        let mut s = crate::dict::Slice::new(&c);
+        s.load_uint(8).unwrap();
+        let mut leaf = crate::dict::lookup_maybe_empty(&mut s, 256, &uri)
+            .unwrap()
+            .expect("the URI is in the dictionary");
+        assert_eq!(
+            snake_string(leaf.load_ref().unwrap()).unwrap(),
+            "https://tether.to/usdt-ton.json"
+        );
+    }
+
+    fn b64(s: &str) -> Vec<u8> {
+        let mut out = Vec::new();
+        let (mut acc, mut bits) = (0u32, 0u32);
+        for ch in s.bytes() {
+            let v = match ch {
+                b'A'..=b'Z' => ch - b'A',
+                b'a'..=b'z' => ch - b'a' + 26,
+                b'0'..=b'9' => ch - b'0' + 52,
+                b'+' => 62,
+                b'/' => 63,
+                b'=' => break,
+                _ => panic!("not base64"),
+            } as u32;
+            acc = (acc << 6) | v;
+            bits += 6;
+            if bits >= 8 {
+                bits -= 8;
+                out.push((acc >> bits) as u8);
+            }
+        }
+        out
+    }
+}

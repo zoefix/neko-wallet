@@ -637,8 +637,12 @@ fn finish_signing(
     let client = app.chain_client(req.chain());
     let tx = tx.clone();
     let raw = signed.raw;
+    // What this transfer will be called once it lands. Every chain but TON is
+    // told it by the node; TON's node returns only an acknowledgement, and the
+    // identifier is the message's own hash, which is known before it is sent.
+    let local_id = signed.id;
     tokio::spawn(async move {
-        let res = crate::chain::broadcast(&client, raw).await;
+        let res = crate::chain::broadcast(&client, raw, local_id).await;
         let _ = tx.send(crate::event::AppEvent::Broadcast { req: id, res });
     });
 }
@@ -723,7 +727,8 @@ fn cycle_setting(app: &mut App, forward: bool, tx: &Sender) {
         | SettingRow::NodeUrl
         | SettingRow::SolanaRpc
         | SettingRow::BitcoinApi
-        | SettingRow::EthRpc => begin_edit(app, tx),
+        | SettingRow::EthRpc
+        | SettingRow::TonApi => begin_edit(app, tx),
     }
 }
 
@@ -740,7 +745,8 @@ fn begin_edit(app: &mut App, _tx: &Sender) {
         SettingRow::NodeUrl
         | SettingRow::SolanaRpc
         | SettingRow::BitcoinApi
-        | SettingRow::EthRpc => st.editing = Some(Field::new(false)),
+        | SettingRow::EthRpc
+        | SettingRow::TonApi => st.editing = Some(Field::new(false)),
         _ => {}
     }
 }
@@ -767,7 +773,8 @@ fn apply_text_setting(app: &mut App, row: crate::nav::SettingRow, value: &str) {
         SettingRow::NodeUrl
         | SettingRow::SolanaRpc
         | SettingRow::BitcoinApi
-        | SettingRow::EthRpc => set_node_url(app, row, value),
+        | SettingRow::EthRpc
+        | SettingRow::TonApi => set_node_url(app, row, value),
         _ => {}
     }
 }
@@ -785,6 +792,7 @@ fn set_node_url(app: &mut App, row: crate::nav::SettingRow, value: &str) {
         SettingRow::SolanaRpc => (keys::SOLANA_RPC, neko_i18n::Key::Settings_SolanaRpcSaved),
         SettingRow::BitcoinApi => (keys::BITCOIN_API, neko_i18n::Key::Settings_BitcoinApiSaved),
         SettingRow::EthRpc => (keys::ETH_RPC, neko_i18n::Key::Settings_EthRpcSaved),
+        SettingRow::TonApi => (keys::TON_API, neko_i18n::Key::Settings_TonApiSaved),
         _ => (keys::NODE_URL, neko_i18n::Key::Settings_NodeSaved),
     };
 
@@ -799,6 +807,7 @@ fn set_node_url(app: &mut App, row: crate::nav::SettingRow, value: &str) {
         SettingRow::SolanaRpc => app.solana_rpc = stored,
         SettingRow::BitcoinApi => app.bitcoin_api = stored,
         SettingRow::EthRpc => app.eth_rpc = stored,
+        SettingRow::TonApi => app.ton_api = stored,
         _ => app.node_url = stored,
     }
     if let Some(s) = app.session.as_ref() {

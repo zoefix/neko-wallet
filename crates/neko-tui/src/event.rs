@@ -78,6 +78,25 @@ pub enum Quote {
         selection: Box<neko_btc::coins::Selection>,
         change_to: neko_hd::BtcAddress,
     },
+    Ton {
+        params: Box<neko_core::TonTxParams>,
+        /// GRAM pays every fee, whatever is being sent - and a token transfer
+        /// needs a good deal more of it than a plain one, because coin has to
+        /// travel with the message to pay for the hops it sets off.
+        /// `None` means the balance could not be read, not that it is zero.
+        gram_balance: Option<u128>,
+        sending_native: bool,
+        amount: u128,
+        /// What the chain will charge, in nanotons, over and above the amount.
+        ///
+        /// Two figures rather than one: `fee` is what the message itself costs
+        /// and is deducted from the wallet, while `attached` is coin that
+        /// travels with a token transfer to pay for the hops it sets off and
+        /// is *mostly refunded*. Adding them would overstate the cost of
+        /// sending USDT by roughly the whole of the second figure.
+        fee: u128,
+        attached: u128,
+    },
 }
 
 impl Quote {
@@ -93,6 +112,7 @@ impl Quote {
             }
             Quote::Solana { .. } => neko_core::ChainId::Solana,
             Quote::Bitcoin { .. } => neko_core::ChainId::Bitcoin,
+            Quote::Ton { .. } => neko_core::ChainId::Ton,
         }
     }
 
@@ -111,6 +131,7 @@ impl Quote {
                 change_to: *change_to,
                 fee: selection.fee,
             })),
+            Quote::Ton { params, .. } => neko_core::ChainTxParams::Ton(params.clone()),
         }
     }
 }

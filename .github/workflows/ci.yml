@@ -163,25 +163,36 @@ jobs:
           #                             a node cannot say what an address
           #                             holds, so there is no version of this
           #                             that asks nobody
+          #   toncenter.com             the same shape as Bitcoin's: reading a
+          #                             TON balance means running a contract's
+          #                             own method, which needs a full node's
+          #                             index behind it. Configurable, and its
+          #                             optional key only raises a rate limit
           #   nodereal.io               BNB Chain and Ethereum history, only
           #                             when the user supplies a key; never
           #                             contacted without one
           #   tronscan / bscscan /      explorer links, copied for the user to
           #   solscan / etherscan /     open - this wallet never fetches them
-          #   mempool.space
+          #   mempool.space / tonviewer
+          #   tether.to                 named by TON's USDT as where its own
+          #                             metadata lives. Read out of the
+          #                             contract and never fetched: the wallet
+          #                             checks the decimals, which are on
+          #                             chain, and does not go looking for the
+          #                             symbol, which is not
           #   my-node / x.example       examples in documentation
           #
           # Notably absent: any price service. Portfolio values are quoted from
           # a swap pool on the chain already being talked to - SunSwap on TRON,
-          # PancakeSwap on BNB Chain, Raydium on Solana, Uniswap on Ethereum -
-          # so showing them costs no new destination. Bitcoin has no exchange on it, so BTC is quoted
+          # PancakeSwap on BNB Chain, Raydium on Solana, Uniswap on Ethereum,
+          # DeDust on TON - so showing them costs no new destination. Bitcoin has no exchange on it, so BTC is quoted
           # from the BTCB pool on BNB Chain: still a chain we already talk to,
           # and the interface says the figure is BTCB's. Solana history needs no
           # indexer either: the cluster already records what every account held
           # before and after each transaction.
           found="$(grep -rhoE 'https?://[a-zA-Z0-9._/-]+' crates/*/src \
                    | sort -u \
-                   | grep -vE 'trongrid\.io|bsc-dataseed|mainnet-beta\.solana\.com|ethereum-rpc\.publicnode\.com|blockstream\.info|nodereal\.io|tronscan\.org|bscscan\.com|solscan\.io|etherscan\.io|mempool\.space|my-node\.example|x\.example' || true)"
+                   | grep -vE 'trongrid\.io|bsc-dataseed|mainnet-beta\.solana\.com|ethereum-rpc\.publicnode\.com|blockstream\.info|nodereal\.io|tronscan\.org|bscscan\.com|solscan\.io|etherscan\.io|mempool\.space|toncenter\.com|tonviewer\.com|tether\.to|my-node\.example|x\.example' || true)"
           if [ -n "$found" ]; then
             echo "::error::unexpected network destinations in the program:"
             printf '%s\n' "$found"

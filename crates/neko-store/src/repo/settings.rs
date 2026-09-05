@@ -23,6 +23,14 @@ pub mod keys {
     /// answer what an address holds - so this is the only server being asked.
     pub const BITCOIN_API: &str = "bitcoin_api";
     pub const ETH_RPC: &str = "eth_rpc";
+    /// toncenter. Like Esplora, this is not an alternative to asking a node -
+    /// reading a TON balance means running a contract's own method, which needs
+    /// a full node's index behind it.
+    pub const TON_API: &str = "ton_api";
+    /// toncenter's key, which raises a rate limit that is otherwise low enough
+    /// to break a balance refresh. A credential, so it is stored with the same
+    /// field-level encryption as the other two.
+    pub const TON_API_KEY: &str = "ton_api_key";
     pub const API_KEY: &str = "trongrid_api_key";
     /// NodeReal / BSCTrace key, for BNB Chain history. A credential, so it is
     /// stored with the same field-level encryption as the TronGrid one.

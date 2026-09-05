@@ -210,6 +210,9 @@ impl Session {
                 ChainId::Bitcoin => {
                     ChainAddress::Bitcoin(neko_hd::bitcoin::address_from_private_key(&sk)?)
                 }
+                ChainId::Ton => ChainAddress::Ton(neko_ton::wallet::address_for(
+                    &neko_hd::ton::public_key(&sk),
+                )?),
             });
         }
 
@@ -228,6 +231,15 @@ impl Session {
             // already implies.
             ChainId::Bitcoin => {
                 ChainAddress::Bitcoin(neko_hd::bitcoin::address_at(&seed, 0, 0, index)?)
+            }
+            // The address is the wallet contract's, not the key's: it is the
+            // hash of the contract's initial code and storage, and the key is
+            // only what goes into that storage.
+            ChainId::Ton => {
+                let sk = neko_hd::ton::private_key_at(&seed, index)?;
+                ChainAddress::Ton(neko_ton::wallet::address_for(&neko_hd::ton::public_key(
+                    &sk,
+                ))?)
             }
         })
     }
@@ -411,6 +423,7 @@ impl Session {
                 ChainId::Tron => neko_tron::usdt_address().as_bytes().to_vec(),
                 ChainId::Bsc => neko_evm::BSC.usdt_address().as_bytes().to_vec(),
                 ChainId::Ethereum => neko_evm::ETHEREUM.usdt_address().as_bytes().to_vec(),
+                ChainId::Ton => neko_ton::usdt_master().as_bytes(),
                 ChainId::Solana => neko_solana::usdt_mint().as_bytes().to_vec(),
                 // Unreachable: Bitcoin has no USDT, so this closure is never
                 // reached for it.
@@ -433,6 +446,7 @@ fn db_chain_id(c: ChainId) -> i64 {
         ChainId::Solana => neko_store::repo::addresses::SOLANA_CHAIN_ID,
         ChainId::Bitcoin => neko_store::repo::addresses::BITCOIN_CHAIN_ID,
         ChainId::Ethereum => neko_store::repo::addresses::ETHEREUM_CHAIN_ID,
+        ChainId::Ton => neko_store::repo::addresses::TON_CHAIN_ID,
     }
 }
 

@@ -21,10 +21,12 @@ pub mod boc;
 pub mod cell;
 pub mod chain_consts;
 pub mod client;
+pub mod dict;
 pub mod error;
 pub mod history;
 pub mod jetton;
 pub mod message;
+pub mod price;
 pub mod wallet;
 
 pub use address::TonAddress;

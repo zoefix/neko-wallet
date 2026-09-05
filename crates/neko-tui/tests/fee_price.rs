@@ -14,6 +14,8 @@ const BSC_MINE: &str = "0x1111111111111111111111111111111111111111";
 const BSC_TO: &str = "0x2222222222222222222222222222222222222222";
 const SOL_MINE: &str = "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9";
 const SOL_TO: &str = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
+const TON_MINE: &str = "EQAzWZa6nM5mJev91wGc7VCSfBoIsYRqKJpV78N8Add9-U9d";
+const TON_TO: &str = "EQDVJucJT96vGh_bYm3e5uzenasiTOwA9orUHQiyhNsKmEcK";
 const BTC_MINE: &str = "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu";
 const BTC_TO: &str = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4";
 /// BTCB's quote, which is what BTC is priced from.
@@ -56,6 +58,7 @@ fn app_at_review(chain: neko_core::ChainId, quote: FeeQuote) -> App {
         neko_core::ChainId::Bsc => (BSC_MINE, BSC_TO),
         neko_core::ChainId::Solana => (SOL_MINE, SOL_TO),
         neko_core::ChainId::Bitcoin => (BTC_MINE, BTC_TO),
+        neko_core::ChainId::Ton => (TON_MINE, TON_TO),
         neko_core::ChainId::Ethereum => (BSC_MINE, BSC_TO),
     };
     let mut st = SendState::new(
@@ -98,6 +101,14 @@ fn app_at_review(chain: neko_core::ChainId, quote: FeeQuote) -> App {
         }),
         // Unused by these tests, which render a quote rather than sign one -
         // the fee shown comes from the FeeQuote, not from here.
+        neko_core::ChainId::Ton => {
+            neko_core::ChainTxParams::Ton(Box::new(neko_core::TonTxParams {
+                seqno: 0,
+                valid_until: 0,
+                deploy: false,
+                jetton_wallet: None,
+            }))
+        }
         neko_core::ChainId::Bitcoin => {
             neko_core::ChainTxParams::Bitcoin(Box::new(neko_core::BtcTxParams {
                 inputs: Vec::new(),

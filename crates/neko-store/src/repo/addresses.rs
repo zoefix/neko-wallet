@@ -15,6 +15,7 @@ pub const BSC_CHAIN_ID: i64 = 2;
 pub const SOLANA_CHAIN_ID: i64 = 3;
 pub const BITCOIN_CHAIN_ID: i64 = 4;
 pub const ETHEREUM_CHAIN_ID: i64 = 5;
+pub const TON_CHAIN_ID: i64 = 6;
 
 /// Lengths Bitcoin's script column may take: 22 for P2WPKH, 23 for P2SH, 25
 /// for P2PKH, 34 for P2WSH and Taproot. Bitcoin is the only chain here whose
@@ -28,11 +29,18 @@ pub const BITCOIN_SCRIPT_LENS: [usize; 4] = [22, 23, 25, 34];
 /// reaching the column that incoming payments are matched on. TRON carries a
 /// `0x41` prefix and is 21 bytes; EVM chains are 20; a Solana address is a
 /// 32-byte Ed25519 public key; Bitcoin is one of four script lengths.
-fn width_is_plausible(chain_id: i64, len: usize) -> bool {
+///
+/// Public so that the migration tests can ask *this* function which widths a
+/// chain accepts rather than repeating the list. A hand-copied list is how the
+/// column's test came to assert that 33 bytes was not an address on any chain,
+/// which stayed true right up until TON.
+pub fn width_is_plausible(chain_id: i64, len: usize) -> bool {
     match chain_id {
         TRON_CHAIN_ID => len == 21,
         BSC_CHAIN_ID | ETHEREUM_CHAIN_ID => len == 20,
         SOLANA_CHAIN_ID => len == 32,
+        // A workchain byte and a 256-bit account.
+        TON_CHAIN_ID => len == 33,
         BITCOIN_CHAIN_ID => BITCOIN_SCRIPT_LENS.contains(&len),
         _ => false,
     }

@@ -33,11 +33,21 @@ pub enum CoreError {
     Solana(#[from] neko_solana::SolanaError),
     #[error("{0}")]
     Btc(#[from] neko_btc::BtcError),
+    #[error("{0}")]
+    Ton(#[from] neko_ton::TonError),
     /// The fee a transaction would actually pay is not the one that was quoted.
     /// On a UTXO chain the fee is implicit, so this catches the difference
     /// between "the change output is missing" and "a miner received it".
     #[error("this transaction would pay {actual} satoshis in fees, not the {quoted} quoted - refusing to sign")]
     FeeMismatch { quoted: u64, actual: u64 },
+    /// TON only, and only because TON can tell: the address is the hash of the
+    /// contract that holds the public key, so a key that does not belong to the
+    /// address it is signing for is provable rather than merely suspected.
+    #[error("this key derives {derived}, not {expected} - refusing to sign")]
+    WrongSigningKey { expected: String, derived: String },
+    /// The token a quote was prepared for is not the token being signed for.
+    #[error("this transfer was quoted against {quoted}, not {asked} - refusing to sign")]
+    WrongToken { quoted: String, asked: String },
     #[error("insufficient {asset}: you have {have}, this needs {need}")]
     Insufficient {
         asset: String,

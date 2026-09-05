@@ -27,6 +27,17 @@ pub struct Toncenter {
     http: reqwest::Client,
 }
 
+/// What a jetton wallet contract says about itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JettonWalletData {
+    pub balance: u128,
+    /// Whose balance this is. Checked against our own address rather than
+    /// assumed.
+    pub owner: TonAddress,
+    /// Which token. Checked against the master the quote verified.
+    pub master: TonAddress,
+}
+
 /// What a wallet needs to know before it can build a message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WalletState {
@@ -162,6 +173,72 @@ impl Toncenter {
         u32::from_str_radix(hex, 16).map_err(|_| TonError::BadReply(format!("seqno {s:?}")))
     }
 
+    /// Run a get-method that answers with integers, in the order it named
+    /// them.
+    ///
+    /// Separate from the cell version because TVM's stack is typed and a
+    /// method that returns a cell where a number was expected is a contract
+    /// that is not the one this code was written against - which should fail
+    /// here rather than be coerced into a plausible figure.
+    pub async fn get_method_ints(
+        &self,
+        addr: &TonAddress,
+        method: &str,
+        args: &[Value],
+    ) -> Result<Vec<u128>, TonError> {
+        self.get_method(addr, method, args)
+            .await?
+            .iter()
+            .map(stack_int)
+            .collect()
+    }
+
+    /// Run a get-method that answers with cells, parsed out of the bags of
+    /// cells the node encodes them as.
+    pub async fn get_method_cells(
+        &self,
+        addr: &TonAddress,
+        method: &str,
+        args: &[Value],
+    ) -> Result<Vec<Arc<Cell>>, TonError> {
+        self.get_method(addr, method, args)
+            .await?
+            .iter()
+            .map(stack_cell)
+            .collect()
+    }
+
+    /// Run a get-method and hand back its stack untouched.
+    ///
+    /// The typed helpers above cover the common shapes; this is for the methods
+    /// that mix them, like a swap estimator answering with an asset *and* two
+    /// amounts.
+    pub async fn get_method(
+        &self,
+        addr: &TonAddress,
+        method: &str,
+        args: &[Value],
+    ) -> Result<Vec<Value>, TonError> {
+        let v = self
+            .call(
+                "/runGetMethod",
+                Some(json!({"address": addr.to_raw_string(), "method": method, "stack": args})),
+            )
+            .await?;
+        // A method that ran and failed is not a method that answered. Without
+        // this check an aborted call reads as an empty stack, which further up
+        // looks like a pool with no assets rather than a call that did not
+        // work.
+        let exit = v.get("exit_code").and_then(Value::as_i64).unwrap_or(0);
+        if exit != 0 {
+            return Err(TonError::Rpc(format!("{method} exited {exit}")));
+        }
+        v.get("stack")
+            .and_then(Value::as_array)
+            .cloned()
+            .ok_or_else(|| TonError::BadReply(format!("{method} returned no stack")))
+    }
+
     /// Where this owner's balance of a jetton lives.
     ///
     /// Asked of the jetton master rather than derived here. It *is* derivable -
@@ -173,62 +250,70 @@ impl Toncenter {
         owner: &TonAddress,
         master: &TonAddress,
     ) -> Result<TonAddress, TonError> {
-        let arg = address_slice(owner)?;
-        let v = self
-            .call(
-                "/runGetMethod",
-                Some(json!({
-                    "address": master.to_raw_string(),
-                    "method": "get_wallet_address",
-                    "stack": [["tvm.Slice", base64(&crate::boc::serialize(&arg)?)]],
-                })),
-            )
+        let arg = slice_arg(&address_slice(owner)?)?;
+        let cells = self
+            .get_method_cells(master, "get_wallet_address", &[arg])
             .await?;
-        let b64 = v
-            .get("stack")
-            .and_then(Value::as_array)
-            .and_then(|a| a.first())
-            .and_then(Value::as_array)
-            .and_then(|e| e.get(1))
-            .and_then(|o| o.get("bytes").or(Some(o)))
-            .and_then(Value::as_str)
+        let cell = cells
+            .first()
             .ok_or_else(|| TonError::BadReply("no address on the stack".into()))?;
-        let raw = decode_base64(b64)
-            .ok_or_else(|| TonError::BadReply("jetton wallet is not base64".into()))?;
-        parse_address_cell(&crate::boc::parse(&raw)?)
+        parse_address_cell(cell)
     }
 
-    /// What a jetton wallet holds. A wallet that has never held the token does
-    /// not exist, and that is a balance of zero rather than a failure.
-    pub async fn jetton_balance(&self, wallet: &TonAddress) -> Result<u128, TonError> {
-        let v = self
-            .call(
-                "/runGetMethod",
-                Some(
-                    json!({"address": wallet.to_raw_string(), "method": "get_wallet_data", "stack": []}),
-                ),
-            )
-            .await;
-        let v = match v {
+    /// What a jetton wallet holds, and who it holds it for.
+    ///
+    /// `None` means the contract is not there, which is what an address that
+    /// has never held this token looks like - a balance of zero rather than a
+    /// failure.
+    ///
+    /// The owner and master come back because they are worth checking. This
+    /// wallet learns its jetton wallet's address by asking the master, and a
+    /// node that answered with somebody else's would send the attached coin
+    /// into a contract that refuses the message. Reading the contract's own
+    /// account of who it belongs to closes that, and costs nothing extra: the
+    /// balance is in the same reply.
+    pub async fn jetton_wallet_data(
+        &self,
+        wallet: &TonAddress,
+    ) -> Result<Option<JettonWalletData>, TonError> {
+        let stack = match self.get_method(wallet, "get_wallet_data", &[]).await {
             Ok(v) => v,
             // The contract is not there, which means nothing was ever sent to
             // it.
-            Err(TonError::Rpc(_)) => return Ok(0),
+            Err(TonError::Rpc(_)) => return Ok(None),
             Err(e) => return Err(e),
         };
-        if v.get("exit_code").and_then(Value::as_i64).unwrap_or(0) != 0 {
-            return Ok(0);
-        }
-        let s = v
-            .get("stack")
-            .and_then(Value::as_array)
-            .and_then(|a| a.first())
-            .and_then(Value::as_array)
-            .and_then(|e| e.get(1))
-            .and_then(Value::as_str)
-            .ok_or_else(|| TonError::BadReply("no balance on the stack".into()))?;
-        u128::from_str_radix(s.trim_start_matches("0x"), 16)
-            .map_err(|_| TonError::BadReply(format!("jetton balance {s:?}")))
+        let at = |i: usize| {
+            stack
+                .get(i)
+                .ok_or_else(|| TonError::BadReply("get_wallet_data returned a short stack".into()))
+        };
+        Ok(Some(JettonWalletData {
+            balance: stack_int(at(0)?)?,
+            owner: parse_address_cell(&stack_cell(at(1)?)?)?,
+            master: parse_address_cell(&stack_cell(at(2)?)?)?,
+        }))
+    }
+
+    /// What a jetton wallet holds, and nothing else.
+    pub async fn jetton_balance(&self, wallet: &TonAddress) -> Result<u128, TonError> {
+        Ok(self
+            .jetton_wallet_data(wallet)
+            .await?
+            .map(|d| d.balance)
+            .unwrap_or(0))
+    }
+
+    /// The precision a jetton states, read from the master's own metadata.
+    ///
+    /// See [`crate::jetton::decimals_from_content`] for why this is the field
+    /// that gets checked and the symbol is not.
+    pub async fn jetton_decimals(&self, master: &TonAddress) -> Result<u8, TonError> {
+        let stack = self.get_method(master, "get_jetton_data", &[]).await?;
+        let content = stack
+            .get(3)
+            .ok_or_else(|| TonError::BadReply("get_jetton_data returned no content cell".into()))?;
+        crate::jetton::decimals_from_content(&stack_cell(content)?)
     }
 
     /// Ask the node what a message will cost, which also makes it parse the
@@ -281,16 +366,83 @@ impl Toncenter {
             .to_string())
     }
 
+    /// What this address has done, newest first.
+    ///
+    /// `archival=true` is not an optimisation to skip. TON's ordinary nodes
+    /// keep only recent blocks, and a wallet that last moved months ago gets
+    /// "cannot find block" rather than an empty list - so the history screen
+    /// fails precisely for the wallets whose history is worth reading.
     pub async fn transactions(&self, addr: &TonAddress, limit: u32) -> Result<Value, TonError> {
         self.call(
             &format!(
-                "/getTransactions?address={}&limit={limit}&archival=false",
+                "/getTransactions?address={}&limit={limit}&archival=true",
                 addr.to_raw_string()
             ),
             None,
         )
         .await
     }
+}
+
+/// One argument to a get-method: a cell, passed as the slice a method expects.
+pub fn slice_arg(c: &Arc<Cell>) -> Result<Value, TonError> {
+    Ok(json!(["tvm.Slice", base64(&crate::boc::serialize(c)?)]))
+}
+
+/// One stack entry as an unsigned integer.
+///
+/// The type tag is checked rather than ignored: TVM's stack is typed, and a
+/// method that answers with a cell where a number was expected is not the
+/// method this code was written against. That should fail here rather than be
+/// coerced into a plausible figure.
+pub fn stack_int(e: &Value) -> Result<u128, TonError> {
+    let (kind, val) = entry(e)?;
+    if kind != "num" && kind != "int" {
+        return Err(TonError::BadReply(format!(
+            "a {kind} is on the stack where a number was expected"
+        )));
+    }
+    let s = val
+        .as_str()
+        .ok_or_else(|| TonError::BadReply("a stack number is not a string".into()))?;
+    if s.starts_with('-') {
+        return Err(TonError::BadReply(format!("a stack number is {s}")));
+    }
+    u128::from_str_radix(s.trim_start_matches("0x"), 16)
+        .map_err(|_| TonError::BadReply(format!("a stack number is {s:?}")))
+}
+
+/// One stack entry as a cell, out of the bag of cells it is encoded as.
+pub fn stack_cell(e: &Value) -> Result<Arc<Cell>, TonError> {
+    let (kind, val) = entry(e)?;
+    if kind != "cell" && kind != "tvm.Cell" {
+        return Err(TonError::BadReply(format!(
+            "a {kind} is on the stack where a cell was expected"
+        )));
+    }
+    let b64 = val
+        .get("bytes")
+        .and_then(Value::as_str)
+        .or_else(|| val.as_str())
+        .ok_or_else(|| TonError::BadReply("a stack cell has no bytes".into()))?;
+    let raw = decode_base64(b64)
+        .ok_or_else(|| TonError::BadReply("a stack cell is not base64".into()))?;
+    crate::boc::parse(&raw)
+}
+
+/// A TVM stack entry is a two-element array: its type, then its value.
+fn entry(e: &Value) -> Result<(&str, &Value), TonError> {
+    let a = e
+        .as_array()
+        .ok_or_else(|| TonError::BadReply("a stack entry is not a pair".into()))?;
+    let kind = a
+        .first()
+        .and_then(Value::as_str)
+        .ok_or_else(|| TonError::BadReply("a stack entry has no type".into()))?;
+    let val = a
+        .get(1)
+        .ok_or_else(|| TonError::BadReply("a stack entry has no value".into()))?;
+    Ok((kind, val))
 }
 
 /// An address on its own, as a cell - which is how a get-method takes one.

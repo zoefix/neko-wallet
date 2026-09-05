@@ -16,6 +16,11 @@ use neko_tui::send::{EvmFee, FeeQuote, SendState, TronFee};
 const BSC_MINE: &str = "0x1111111111111111111111111111111111111111";
 const BSC_TO: &str = "0x2222222222222222222222222222222222222222";
 const SOLANA_MINE: &str = "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9";
+const TON_MINE: &str = "EQAzWZa6nM5mJev91wGc7VCSfBoIsYRqKJpV78N8Add9-U9d";
+const TON_TO: &str = "EQDVJucJT96vGh_bYm3e5uzenasiTOwA9orUHQiyhNsKmEcK";
+const SOLANA_TO: &str = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
+const BTC_TO: &str = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4";
+const TRON_TO: &str = "TNYxHL2s6Wjpx86NRwhekYzc27p3oDYrk6";
 const BTC_MINE: &str = "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu";
 const TRON_MINE: &str = "TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH";
 
@@ -27,13 +32,17 @@ const GAS_PRICE: u128 = 50_000_000;
 const FEE: i128 = GAS_LIMIT as i128 * GAS_PRICE as i128; // 1_260_000_000_000
 
 fn state(asset: neko_core::Asset, balance: Option<i128>) -> SendState {
-    let mine = match asset.chain() {
-        neko_core::ChainId::Tron => TRON_MINE,
-        neko_core::ChainId::Bsc => BSC_MINE,
-        neko_core::ChainId::Solana => SOLANA_MINE,
-        neko_core::ChainId::Bitcoin => BTC_MINE,
+    // Both ends have to belong to the chain being tested. A destination from
+    // the wrong chain does not fail loudly here - the request simply cannot be
+    // built, and the test sees a quote that never arrives.
+    let (mine, to) = match asset.chain() {
+        neko_core::ChainId::Tron => (TRON_MINE, TRON_TO),
+        neko_core::ChainId::Bsc => (BSC_MINE, BSC_TO),
+        neko_core::ChainId::Solana => (SOLANA_MINE, SOLANA_TO),
+        neko_core::ChainId::Bitcoin => (BTC_MINE, BTC_TO),
+        neko_core::ChainId::Ton => (TON_MINE, TON_TO),
         // The same twenty bytes as BNB Chain's, which is the point.
-        neko_core::ChainId::Ethereum => BSC_MINE,
+        neko_core::ChainId::Ethereum => (BSC_MINE, BSC_TO),
     };
     let mut st = SendState::new(
         1,
@@ -42,7 +51,7 @@ fn state(asset: neko_core::Asset, balance: Option<i128>) -> SendState {
         asset,
         asset.symbol().to_string(),
     );
-    BSC_TO.chars().for_each(|c| st.to.push(c));
+    to.chars().for_each(|c| st.to.push(c));
     st.balance = balance;
     st
 }
@@ -491,4 +500,78 @@ fn sending_everything_on_ethereum_produces_an_amount_the_node_accepts() {
     // difference the screen has to explain, since the excess comes back.
     assert_eq!(st.held_back.map(|f| f.raw), Some(e.max_fee_wei() as i128));
     assert!(e.max_fee_wei() > e.fee_wei());
+}
+
+// ── TON attaches coin that comes back, and still has to be held back ────────
+
+/// Sending every GRAM has to reserve the attached coin as well as the fee.
+///
+/// This is the same shape as the EIP-1559 failure above, and it is worth
+/// testing for the same reason: the attached coin is *mostly refunded*, so the
+/// number the screen shows as the cost is smaller than the number the balance
+/// has to cover. Reserving the shown figure leaves a transfer the wallet
+/// contract cannot pay for - and, unlike a node rejecting a transaction, a
+/// TON message that cannot pay is silently not executed.
+///
+/// Driven through `on_app_event` rather than the fee type directly, because
+/// last time the arithmetic was right in both obvious places and the fault was
+/// in which figure got passed between them.
+#[test]
+fn a_ton_maximum_holds_back_the_attached_coin_too() {
+    const GRAM_BALANCE: i128 = 2_000_000_000; // 2 GRAM
+    const TON_FEE: u128 = neko_ton::FEE_TRANSFER;
+    const ATTACHED: u128 = neko_ton::JETTON_TRANSFER_ATTACHED;
+
+    let mut app = app_entering_amount(neko_core::Asset::Gram, GRAM_BALANCE);
+    neko_tui::keys::on_key_send(&mut app, KeyEvent::from(KeyCode::Char('m')), &channel());
+
+    let id = app.next_req();
+    app.inflight = Some(id);
+    app.on_app_event(neko_tui::event::AppEvent::Quoted {
+        req: id,
+        res: Ok(Box::new(neko_tui::event::Quote::Ton {
+            params: Box::new(neko_core::TonTxParams {
+                seqno: 7,
+                valid_until: 0,
+                deploy: false,
+                jetton_wallet: None,
+            }),
+            gram_balance: Some(GRAM_BALANCE as u128),
+            sending_native: true,
+            amount: GRAM_BALANCE as u128,
+            fee: TON_FEE,
+            // A plain GRAM transfer attaches nothing; the figure is set here
+            // anyway, because what is being tested is that whatever is
+            // reserved is what gets held back.
+            attached: ATTACHED,
+        })),
+    });
+
+    let Screen::Send(st) = &app.screen else {
+        unreachable!()
+    };
+    let SendStep::Review { req, quote, .. } = &st.step else {
+        panic!("not at review: the quote did not land");
+    };
+    let held = (TON_FEE + ATTACHED) as i128;
+    assert_eq!(
+        req.amount.raw,
+        GRAM_BALANCE - held,
+        "the fee alone was held back, not the coin that travels with the message"
+    );
+    assert_eq!(st.held_back.map(|f| f.raw), Some(held));
+
+    let Some(q) = quote else { panic!("no quote") };
+    let FeeQuote::Ton(t) = &**q else {
+        panic!("not a TON quote")
+    };
+    assert_eq!(
+        t.affordable(),
+        Some(true),
+        "the screen would still say there is not enough GRAM"
+    );
+    // And the reserve is deliberately larger than what the screen calls the
+    // cost. Those being equal is what the EIP-1559 bug looked like.
+    assert_eq!(q.total().raw, TON_FEE as i128);
+    assert_eq!(q.reserve().raw, held);
 }

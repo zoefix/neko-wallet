@@ -32,6 +32,9 @@ pub const SOLANA_ADDRESS_MAX_LEN: usize = 44;
 /// Bitcoin's range spans two encodings and five script types.
 pub const BTC_ADDRESS_MIN_LEN: usize = 26;
 pub const BTC_ADDRESS_MAX_LEN: usize = 62;
+/// A workchain byte, 32 bytes of hash and a CRC, in base64url. 36 bytes, which
+/// divides by three, so there is no padding and no variation in the length.
+pub const TON_ADDRESS_LEN: usize = 48;
 
 /// The fee, broken down.
 ///
@@ -278,6 +281,73 @@ impl SolanaFee {
     }
 }
 
+/// What a TON transfer costs.
+///
+/// Two figures rather than one, which no other chain here needs. The fee is
+/// what the message costs and is gone. The *attached* coin is something else:
+/// a token transfer is a message to our own jetton wallet contract, which
+/// messages the recipient's, and each hop has to be paid for by coin travelling
+/// with the message. Most of it comes back. Adding the two would say sending
+/// USDT costs about five times what it does; leaving the second out would say a
+/// wallet with 0.02 GRAM can send USDT, and it cannot.
+///
+/// This is the surprising cost on this chain, the way rent is Solana's: sending
+/// a token needs GRAM, in a quantity that dwarfs the fee, and most of it is a
+/// deposit rather than a charge.
+pub struct TonFee {
+    /// Nanotons the message itself costs.
+    pub fee: u128,
+    /// Nanotons that travel with a token transfer to pay for its hops, and are
+    /// mostly refunded. Zero for a plain GRAM transfer.
+    pub attached: u128,
+    /// `None` when the balance could not be read. Distinct from zero: one is a
+    /// fact about the account, the other is our own failure.
+    pub gram_balance: Option<u128>,
+    /// Whether the amount and the fee come out of the same balance.
+    pub sending_native: bool,
+    pub amount: u128,
+    /// Whether this transfer also deploys the wallet contract. Its code travels
+    /// with the first message a wallet ever sends, and that costs more.
+    pub deploy: bool,
+}
+
+impl TonFee {
+    pub fn fee_amount(&self) -> Amount {
+        Amount::new(self.fee as i128, neko_ton::GRAM_DECIMALS)
+    }
+
+    /// Shown on its own, because it is the part nobody expects and it is not a
+    /// charge.
+    pub fn attached_amount(&self) -> Amount {
+        Amount::new(self.attached as i128, neko_ton::GRAM_DECIMALS)
+    }
+
+    /// What the balance has to cover: the fee, the attached coin, and - when
+    /// GRAM is what is being sent - the amount itself.
+    pub fn gram_needed(&self) -> u128 {
+        let base = self.fee.saturating_add(self.attached);
+        if self.sending_native {
+            base.saturating_add(self.amount)
+        } else {
+            base
+        }
+    }
+
+    /// `None` while the balance is unknown - never guessed.
+    pub fn affordable(&self) -> Option<bool> {
+        self.gram_balance.map(|b| b >= self.gram_needed())
+    }
+
+    pub fn shortfall(&self) -> Option<Amount> {
+        self.gram_balance.map(|b| {
+            Amount::new(
+                self.gram_needed().saturating_sub(b) as i128,
+                neko_ton::GRAM_DECIMALS,
+            )
+        })
+    }
+}
+
 /// What a Bitcoin transfer costs.
 ///
 /// The odd one out, because on this chain the fee is not a property of the
@@ -334,6 +404,7 @@ pub enum FeeQuote {
     Evm(EvmFee),
     Solana(SolanaFee),
     Bitcoin(BtcFee),
+    Ton(TonFee),
 }
 
 impl FeeQuote {
@@ -353,6 +424,13 @@ impl FeeQuote {
     pub fn reserve(&self) -> Amount {
         match self {
             FeeQuote::Evm(e) => e.max_fee(),
+            // A token transfer has to have the attached coin available even
+            // though most of it returns, so "send everything" must hold it
+            // back. This is the same trap EIP-1559's ceiling was.
+            FeeQuote::Ton(t) => Amount::new(
+                t.fee.saturating_add(t.attached) as i128,
+                neko_ton::GRAM_DECIMALS,
+            ),
             other => other.total(),
         }
     }
@@ -364,6 +442,9 @@ impl FeeQuote {
             FeeQuote::Evm(e) => e.fee(),
             FeeQuote::Solana(s) => s.fee(),
             FeeQuote::Bitcoin(b) => b.fee_amount(),
+            // The fee alone. The attached coin is shown beside it rather than
+            // added into it, because it comes back.
+            FeeQuote::Ton(t) => t.fee_amount(),
         }
     }
 
@@ -378,6 +459,7 @@ impl FeeQuote {
             FeeQuote::Evm(e) => e.native_balance.map(|v| v as i128),
             FeeQuote::Solana(s) => s.sol_balance.map(|v| v as i128),
             FeeQuote::Bitcoin(b) => Some(b.balance as i128),
+            FeeQuote::Ton(t) => t.gram_balance.map(|v| v as i128),
         }
     }
 
@@ -395,6 +477,7 @@ impl FeeQuote {
             // the fact would invalidate the selection that produced this fee.
             // "Send everything" is a different selection, not an adjustment.
             FeeQuote::Bitcoin(_) => {}
+            FeeQuote::Ton(t) => t.amount = amount.max(0) as u128,
         }
     }
 
@@ -410,6 +493,10 @@ impl FeeQuote {
             FeeQuote::Solana(_) => false,
             // Inputs minus outputs, both already decided.
             FeeQuote::Bitcoin(_) => false,
+            // A fixed allowance rather than a quote: TON's fees are small and
+            // fixed in shape, and this is deliberately generous. It is the one
+            // figure here that really is a ceiling.
+            FeeQuote::Ton(_) => true,
         }
     }
 
@@ -422,6 +509,9 @@ impl FeeQuote {
             FeeQuote::Solana(_) => false,
             // Bitcoin has no free transactions at all.
             FeeQuote::Bitcoin(_) => false,
+            // And a TON message is charged gas and storage by the contract it
+            // runs.
+            FeeQuote::Ton(_) => false,
         }
     }
 }
@@ -631,6 +721,9 @@ impl SendState {
             // 26 to 35 characters, a bech32 P2WPKH is 42, and a P2WSH or
             // Taproot address is 62.
             ChainId::Bitcoin => (BTC_ADDRESS_MIN_LEN..=BTC_ADDRESS_MAX_LEN).contains(&n),
+            // A TON address is a workchain byte and 32 bytes of hash with a
+            // checksum, base64url'd - always the same length, unlike base58.
+            ChainId::Ton => n == TON_ADDRESS_LEN,
         };
         if !complete {
             return None;

@@ -15,6 +15,7 @@ neko-tron   = { path = "../neko-tron" }
 neko-evm    = { path = "../neko-evm" }
 neko-solana = { path = "../neko-solana" }
 neko-btc    = { path = "../neko-btc" }
+neko-ton    = { path = "../neko-ton" }
 rusqlite.workspace = true
 zeroize.workspace = true
 thiserror.workspace = true

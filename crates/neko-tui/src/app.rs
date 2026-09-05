@@ -111,10 +111,19 @@ pub struct App {
     pub bitcoin_api: Option<String>,
     /// Ethereum's node. `None` means the public one, which rate-limits.
     pub eth_rpc: Option<String>,
+    /// toncenter. `None` means the public endpoint. Configurable for the same
+    /// reason as Esplora: reading a TON balance means running a contract's own
+    /// method, so this server is not an alternative to asking the chain - it is
+    /// the only one being asked.
+    pub ton_api: Option<String>,
     pub api_key: Option<String>,
     /// NodeReal key for BNB Chain history. Balances and transfers work without
     /// it; only history needs an indexer.
     pub bsc_api_key: Option<String>,
+    /// toncenter key. Optional - it raises a rate limit rather than unlocking
+    /// anything, and unlike the BNB Chain key it is balances rather than
+    /// history that hit that limit.
+    pub ton_api_key: Option<String>,
     /// `(symbol, decimals, amount)` in minimal units for the address on screen.
     pub balances: Option<Vec<(String, u8, i128)>>,
     pub balances_req: Option<ReqId>,
@@ -170,8 +179,10 @@ impl App {
             solana_rpc: None,
             bitcoin_api: None,
             eth_rpc: None,
+            ton_api: None,
             api_key: std::env::var("TRONGRID_API_KEY").ok(),
             bsc_api_key: std::env::var("NODEREAL_API_KEY").ok(),
+            ton_api_key: std::env::var("TONCENTER_API_KEY").ok(),
             balances: None,
             balances_req: None,
             prices: neko_core::Prices::default(),
@@ -659,6 +670,7 @@ impl App {
             neko_core::ChainId::Solana => self.solana_rpc.as_deref(),
             neko_core::ChainId::Bitcoin => self.bitcoin_api.as_deref(),
             neko_core::ChainId::Ethereum => self.eth_rpc.as_deref(),
+            neko_core::ChainId::Ton => self.ton_api.as_deref(),
             neko_core::ChainId::Bsc => None,
         };
         let key = match chain {
@@ -669,6 +681,9 @@ impl App {
             // Neither Solana's public cluster nor Esplora needs a key. Both
             // rate-limit, which costs a retry rather than a screen.
             neko_core::ChainId::Solana | neko_core::ChainId::Bitcoin => None,
+            // toncenter's public limit is low enough that a balance refresh
+            // can hit it; a key raises it. Optional, like the others.
+            neko_core::ChainId::Ton => self.ton_api_key.clone(),
         };
         crate::chain::Client::for_chain(chain, url, key)
     }
@@ -781,6 +796,21 @@ impl App {
                         sending_native,
                         amount,
                     }),
+                    crate::event::Quote::Ton {
+                        params: ref p,
+                        gram_balance,
+                        sending_native,
+                        amount,
+                        fee,
+                        attached,
+                    } => crate::send::FeeQuote::Ton(crate::send::TonFee {
+                        fee,
+                        attached,
+                        gram_balance,
+                        sending_native,
+                        amount,
+                        deploy: p.deploy,
+                    }),
                     crate::event::Quote::Bitcoin {
                         fee_rate,
                         balance,
@@ -842,13 +872,16 @@ impl App {
             return;
         }
         self.inflight = None;
-        let explorer = neko_tron::EXPLORER_TX.to_string();
         let Screen::Send(s) = &mut self.screen else {
             return;
         };
+        // The explorer belongs to the chain that was sent on. This used to be
+        // TRON's for all six, so a Solana signature was offered as a tronscan
+        // link that could only ever say "not found".
+        let chain = s.asset.chain();
         s.step = match res {
             Ok(txid) => crate::send::SendStep::Done {
-                explorer: format!("{explorer}{txid}"),
+                explorer: chain.explorer_tx(&txid),
                 txid,
             },
             Err(e) => crate::send::SendStep::Failed(e),
@@ -878,6 +911,9 @@ impl App {
         if let Ok(v) = s.setting(keys::ETH_RPC) {
             self.eth_rpc = v.filter(|u| !u.is_empty());
         }
+        if let Ok(v) = s.setting(keys::TON_API) {
+            self.ton_api = v.filter(|u| !u.is_empty());
+        }
         // An env var still wins, so a throwaway key can be supplied per run.
         if self.api_key.is_none() {
             if let Ok(Some(k)) = s.secret_setting(keys::API_KEY) {
@@ -887,6 +923,11 @@ impl App {
         if self.bsc_api_key.is_none() {
             if let Ok(Some(k)) = s.secret_setting(keys::BSC_API_KEY) {
                 self.bsc_api_key = Some(k.to_string());
+            }
+        }
+        if self.ton_api_key.is_none() {
+            if let Ok(Some(k)) = s.secret_setting(keys::TON_API_KEY) {
+                self.ton_api_key = Some(k.to_string());
             }
         }
         // A stored choice outranks OS detection: the user said what they
@@ -911,6 +952,13 @@ impl App {
             let _ = s.set_secret_setting(neko_store::repo::settings::keys::BSC_API_KEY, key);
         }
         self.bsc_api_key = Some(key.to_string()).filter(|k| !k.is_empty());
+    }
+
+    pub fn set_ton_api_key(&mut self, key: &str) {
+        if let Some(s) = self.session.as_ref() {
+            let _ = s.set_secret_setting(neko_store::repo::settings::keys::TON_API_KEY, key);
+        }
+        self.ton_api_key = Some(key.to_string()).filter(|k| !k.is_empty());
     }
 
     pub fn set_api_key(&mut self, key: &str) {
@@ -966,6 +1014,10 @@ impl App {
                 .eth_rpc
                 .clone()
                 .unwrap_or_else(|| neko_evm::ETHEREUM.default_rpc.into()),
+            SettingRow::TonApi => self
+                .ton_api
+                .clone()
+                .unwrap_or_else(|| neko_ton::DEFAULT_API.into()),
             SettingRow::AutoLock => neko_i18n::tf(
                 neko_i18n::Key::Settings_Minutes,
                 &[("n", &(self.autolock.as_secs() / 60).to_string())],

@@ -19,14 +19,16 @@ pub enum ChainId {
     Solana,
     Bitcoin,
     Ethereum,
+    Ton,
 }
 
-pub const CHAINS: [ChainId; 5] = [
+pub const CHAINS: [ChainId; 6] = [
     ChainId::Tron,
     ChainId::Bsc,
     ChainId::Solana,
     ChainId::Bitcoin,
     ChainId::Ethereum,
+    ChainId::Ton,
 ];
 
 impl ChainId {
@@ -38,6 +40,7 @@ impl ChainId {
             ChainId::Solana => "solana",
             ChainId::Bitcoin => "bitcoin",
             ChainId::Ethereum => "ethereum",
+            ChainId::Ton => "ton",
         }
     }
 
@@ -52,6 +55,8 @@ impl ChainId {
             ChainId::Solana => "Solana",
             ChainId::Bitcoin => "Bitcoin",
             ChainId::Ethereum => "Ethereum",
+            // The network, which kept its name when the coin did not.
+            ChainId::Ton => "TON",
         }
     }
 
@@ -67,6 +72,7 @@ impl ChainId {
             // 60, the same as BNB Chain's: every EVM chain shares Ethereum's
             // coin type, so one phrase gives the same address on all of them.
             ChainId::Ethereum => neko_hd::derive::COIN_TYPE_EVM,
+            ChainId::Ton => neko_hd::COIN_TYPE_TON,
         }
     }
 
@@ -77,6 +83,9 @@ impl ChainId {
             ChainId::Solana => "SOL",
             ChainId::Bitcoin => "BTC",
             ChainId::Ethereum => "ETH",
+            // Renamed from Toncoin on 15 June 2026, back to the name it had in
+            // Telegram's 2018 whitepaper. Only the ticker changed.
+            ChainId::Ton => "GRAM",
         }
     }
 
@@ -87,6 +96,7 @@ impl ChainId {
             ChainId::Tron => neko_tron::TRX_DECIMALS,
             ChainId::Bsc => neko_evm::BSC.native_decimals,
             ChainId::Ethereum => neko_evm::ETHEREUM.native_decimals,
+            ChainId::Ton => neko_ton::GRAM_DECIMALS,
             ChainId::Solana => neko_solana::SOL_DECIMALS,
             ChainId::Bitcoin => neko_btc::BTC_DECIMALS,
         }
@@ -123,6 +133,10 @@ impl ChainId {
                 contract: neko_evm::ETHEREUM.usdt_address(),
                 decimals: neko_evm::ETHEREUM.usdt_decimals,
             }),
+            ChainId::Ton => Some(Asset::Jetton {
+                master: neko_ton::usdt_master(),
+                decimals: neko_ton::USDT_DECIMALS,
+            }),
         }
     }
 
@@ -145,7 +159,7 @@ impl ChainId {
         match self {
             ChainId::Bsc => Some(neko_evm::BSC),
             ChainId::Ethereum => Some(neko_evm::ETHEREUM),
-            ChainId::Tron | ChainId::Solana | ChainId::Bitcoin => None,
+            ChainId::Tron | ChainId::Solana | ChainId::Bitcoin | ChainId::Ton => None,
         }
     }
 
@@ -156,6 +170,7 @@ impl ChainId {
             ChainId::Solana => Asset::Sol,
             ChainId::Bitcoin => Asset::Btc,
             ChainId::Ethereum => Asset::Eth,
+            ChainId::Ton => Asset::Gram,
         }
     }
 
@@ -167,6 +182,7 @@ impl ChainId {
             ChainId::Solana => format!("https://solscan.io/tx/{id}"),
             ChainId::Bitcoin => format!("{}{id}", neko_btc::EXPLORER_TX),
             ChainId::Ethereum => format!("{}{id}", neko_evm::ETHEREUM.explorer_tx),
+            ChainId::Ton => format!("{}{id}", neko_ton::EXPLORER_TX),
         }
     }
 }
@@ -184,6 +200,7 @@ pub enum ChainAddress {
     /// Ethereum send form has to be a decision rather than a coincidence that
     /// happens to parse.
     Ethereum(neko_hd::EvmAddress),
+    Ton(neko_ton::TonAddress),
 }
 
 impl ChainAddress {
@@ -194,6 +211,7 @@ impl ChainAddress {
             ChainAddress::Solana(_) => ChainId::Solana,
             ChainAddress::Bitcoin(_) => ChainId::Bitcoin,
             ChainAddress::Ethereum(_) => ChainId::Ethereum,
+            ChainAddress::Ton(_) => ChainId::Ton,
         }
     }
 
@@ -220,6 +238,9 @@ impl ChainAddress {
             ChainId::Ethereum => neko_hd::EvmAddress::parse(s)
                 .map(ChainAddress::Ethereum)
                 .map_err(|_| CoreError::BadAddress),
+            ChainId::Ton => neko_ton::TonAddress::parse(s)
+                .map(ChainAddress::Ton)
+                .map_err(|_| CoreError::BadAddress),
         }
     }
 
@@ -235,6 +256,7 @@ impl ChainAddress {
             // address types that share the same 20 bytes.
             ChainAddress::Bitcoin(a) => a.as_bytes(),
             ChainAddress::Ethereum(a) => a.as_bytes().to_vec(),
+            ChainAddress::Ton(a) => a.as_bytes(),
         }
     }
 
@@ -254,6 +276,9 @@ impl ChainAddress {
                 .map_err(|_| CoreError::BadAddress),
             ChainId::Ethereum => neko_hd::EvmAddress::from_bytes(b)
                 .map(ChainAddress::Ethereum)
+                .map_err(|_| CoreError::BadAddress),
+            ChainId::Ton => neko_ton::TonAddress::from_bytes(b)
+                .map(ChainAddress::Ton)
                 .map_err(|_| CoreError::BadAddress),
         }
     }
@@ -282,6 +307,13 @@ impl ChainAddress {
         }
     }
 
+    pub fn as_ton(&self) -> Result<neko_ton::TonAddress, CoreError> {
+        match self {
+            ChainAddress::Ton(a) => Ok(*a),
+            _ => Err(CoreError::WrongChain),
+        }
+    }
+
     pub fn as_bitcoin(&self) -> Result<neko_hd::BtcAddress, CoreError> {
         match self {
             ChainAddress::Bitcoin(a) => Ok(*a),
@@ -298,6 +330,7 @@ impl std::fmt::Display for ChainAddress {
             ChainAddress::Solana(a) => write!(f, "{a}"),
             ChainAddress::Bitcoin(a) => write!(f, "{a}"),
             ChainAddress::Ethereum(a) => write!(f, "{a}"),
+            ChainAddress::Ton(a) => write!(f, "{a}"),
         }
     }
 }
@@ -329,6 +362,13 @@ pub enum Asset {
         contract: neko_hd::EvmAddress,
         decimals: u8,
     },
+    Gram,
+    /// A jetton. `master` is the token's own contract; the balance lives in a
+    /// separate per-holder wallet contract derived from both.
+    Jetton {
+        master: neko_ton::TonAddress,
+        decimals: u8,
+    },
 }
 
 impl Asset {
@@ -339,6 +379,7 @@ impl Asset {
             Asset::Sol | Asset::SplToken { .. } => ChainId::Solana,
             Asset::Btc => ChainId::Bitcoin,
             Asset::Eth | Asset::Erc20 { .. } => ChainId::Ethereum,
+            Asset::Gram | Asset::Jetton { .. } => ChainId::Ton,
         }
     }
 
@@ -347,12 +388,14 @@ impl Asset {
             Asset::Trx => neko_tron::TRX_DECIMALS,
             Asset::Bnb => neko_evm::BSC.native_decimals,
             Asset::Eth => neko_evm::ETHEREUM.native_decimals,
+            Asset::Gram => neko_ton::GRAM_DECIMALS,
             Asset::Sol => neko_solana::SOL_DECIMALS,
             Asset::Btc => neko_btc::BTC_DECIMALS,
             Asset::Trc20 { decimals, .. }
             | Asset::Bep20 { decimals, .. }
             | Asset::SplToken { decimals, .. }
-            | Asset::Erc20 { decimals, .. } => decimals,
+            | Asset::Erc20 { decimals, .. }
+            | Asset::Jetton { decimals, .. } => decimals,
         }
     }
 
@@ -363,12 +406,14 @@ impl Asset {
             Asset::Sol => "SOL",
             Asset::Btc => "BTC",
             Asset::Eth => "ETH",
+            Asset::Gram => "GRAM",
             // Only USDT is known so far; when a second token is added this
             // has to carry its symbol rather than assume.
             Asset::Trc20 { .. }
             | Asset::Bep20 { .. }
             | Asset::SplToken { .. }
-            | Asset::Erc20 { .. } => "USDT",
+            | Asset::Erc20 { .. }
+            | Asset::Jetton { .. } => "USDT",
         }
     }
 
@@ -390,7 +435,9 @@ impl Asset {
             | Asset::SplToken { .. }
             | Asset::Btc
             | Asset::Eth
-            | Asset::Erc20 { .. } => None,
+            | Asset::Erc20 { .. }
+            | Asset::Gram
+            | Asset::Jetton { .. } => None,
         }
     }
 
@@ -402,7 +449,7 @@ impl Asset {
     pub fn is_native(self) -> bool {
         matches!(
             self,
-            Asset::Trx | Asset::Bnb | Asset::Sol | Asset::Btc | Asset::Eth
+            Asset::Trx | Asset::Bnb | Asset::Sol | Asset::Btc | Asset::Eth | Asset::Gram
         )
     }
 }

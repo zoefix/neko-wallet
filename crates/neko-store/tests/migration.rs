@@ -286,11 +286,12 @@ fn the_column_accepts_every_bitcoin_script_length() {
         .unwrap_or_else(|e| panic!("a {len}-byte script was refused: {e}"));
     }
 
-    // And the widening did not open the column to anything at all.
-    for bad in [19usize, 21 + 1, 26, 33, 35, 64] {
-        if neko_store::repo::addresses::BITCOIN_SCRIPT_LENS.contains(&bad)
-            || [20, 21, 32].contains(&bad)
-        {
+    // And the widening did not open the column to anything at all. Which
+    // widths are legitimate is asked of the validator rather than listed here:
+    // this loop used to say 33 bytes was not an address on any chain, and it
+    // was right until TON arrived.
+    for bad in [0usize, 19, 24, 26, 31, 35, 64] {
+        if (1..=6).any(|c| neko_store::repo::addresses::width_is_plausible(c, bad)) {
             continue;
         }
         assert!(
@@ -336,4 +337,125 @@ fn the_migration_registers_bitcoin_with_one_asset() {
         .unwrap();
     assert_eq!(sym, "BTC");
     assert_eq!(dec, 8, "satoshis: 1e8");
+}
+
+/// TON's address is a workchain byte plus a 256-bit account, and both halves
+/// are stored. The hash alone would make `0:abc…` and `-1:abc…` - a wallet and
+/// something on the masterchain - compare equal.
+#[test]
+fn the_column_accepts_a_ton_address_only_at_full_width() {
+    let conn = v1_with_a_funded_wallet();
+    neko_store::migrate::run(&conn).unwrap();
+    conn.execute(
+        "INSERT INTO accounts (id, wallet_id, chain_id, account_index) VALUES (6, 7, 6, 0)",
+        [],
+    )
+    .unwrap();
+
+    conn.execute(
+        "INSERT INTO addresses (account_id, deriv_index, change, address, address_raw)
+         VALUES (6, 0, 0, 'EQAzWZa6nM5mJev91wGc7VCSfBoIsYRqKJpV78N8Add9-U9d', ?1)",
+        rusqlite::params![vec![0u8; 33]],
+    )
+    .expect("a 33-byte TON address was refused");
+
+    // The hash without its workchain is not a TON address, and 32 bytes is
+    // Solana's width - so the column takes it, and `width_is_plausible`
+    // is what refuses it for this chain.
+    assert!(!neko_store::repo::addresses::width_is_plausible(
+        neko_store::repo::addresses::TON_CHAIN_ID,
+        32
+    ));
+}
+
+/// GRAM, not TON: the coin was renamed on 15 June 2026 and the network was not.
+#[test]
+fn the_migration_registers_ton_with_gram() {
+    let conn = v1_with_a_funded_wallet();
+    neko_store::migrate::run(&conn).unwrap();
+
+    let (slug, coin): (String, i64) = conn
+        .query_row("SELECT slug, coin_type FROM chains WHERE id = 6", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .expect("no ton row in chains");
+    assert_eq!(slug, "ton");
+    assert_eq!(coin, 607, "TON is SLIP-44 coin type 607");
+
+    let (sym, dec): (String, i64) = conn
+        .query_row(
+            "SELECT symbol, decimals FROM assets WHERE chain_id = 6 AND contract IS NULL",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .expect("no native asset for ton");
+    assert_eq!(sym, "GRAM", "the coin is GRAM; the chain is TON");
+    assert_eq!(dec, 9, "nanotons: 1e9");
+}
+
+/// The step a database in the field actually takes.
+///
+/// Every other test here starts at version 1 and runs the whole chain, which
+/// exercises 5 → 6 but not on a database that has *only* ever been at 5. This
+/// one does, because that is the file with money in it.
+#[test]
+fn a_database_at_five_upgrades_to_six_with_its_data() {
+    let conn = v1_with_a_funded_wallet();
+
+    // Brought to 5 the way a released build would have - foreign keys
+    // suspended included. Without that the `DROP TABLE addresses` inside
+    // 0003 and 0004 cascades into `balances` and quietly empties it, which is
+    // exactly what `migrate::run` turns the pragma off to prevent.
+    conn.execute_batch("PRAGMA foreign_keys = OFF;").unwrap();
+    for sql in [
+        include_str!("../migrations/0002_bsc.sql"),
+        include_str!("../migrations/0003_solana.sql"),
+        include_str!("../migrations/0004_bitcoin.sql"),
+        include_str!("../migrations/0005_ethereum.sql"),
+    ] {
+        conn.execute_batch(sql).unwrap();
+    }
+    conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+    assert_eq!(neko_store::vault_row::schema_version(&conn).unwrap(), 5);
+
+    // A Bitcoin address, so the rebuild has a row of a second width to carry.
+    conn.execute(
+        "INSERT INTO accounts (id, wallet_id, chain_id, account_index) VALUES (9, 7, 4, 0)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO addresses (id, account_id, deriv_index, change, address, address_raw)
+         VALUES (21, 9, 0, 0, 'bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu', ?1)",
+        rusqlite::params![vec![2u8; 22]],
+    )
+    .unwrap();
+
+    assert_eq!(neko_store::migrate::run(&conn).unwrap(), 6);
+    assert_eq!(neko_store::vault_row::schema_version(&conn).unwrap(), 6);
+
+    // Both addresses came through with their ids, so `balances` still points
+    // at something.
+    let n: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM addresses WHERE id IN (11, 21)",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(n, 2, "the rebuild lost a row");
+    let amount: i128 = conn
+        .query_row(
+            "SELECT amount FROM balances WHERE address_id = 11",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(amount, 8_655_007, "the cached balance was lost");
+
+    // And the chain that was the point of the migration is there.
+    let slug: String = conn
+        .query_row("SELECT slug FROM chains WHERE id = 6", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(slug, "ton");
 }

@@ -41,6 +41,10 @@ pub enum Client {
         history_key: Option<String>,
     },
     Solana(Box<neko_solana::client::Rpc>),
+    /// TON. The one client here that must ask a contract rather than the node:
+    /// a wallet's sequence number and a jetton balance both live inside code,
+    /// and are read by running it.
+    Ton(Box<neko_ton::client::Toncenter>),
     Bitcoin {
         esplora: Box<neko_btc::client::Esplora>,
         /// Only the price uses this.
@@ -68,6 +72,13 @@ impl Client {
                 history_key: api_key.filter(|k| !k.is_empty()),
             },
             ChainId::Solana => Client::Solana(Box::new(neko_solana::client::Rpc::new(url))),
+            // toncenter's public endpoint rate-limits hard enough to matter,
+            // and takes a key to raise that - so unlike Solana's, this url and
+            // key travel together.
+            ChainId::Ton => Client::Ton(Box::new(neko_ton::client::Toncenter::new(
+                url,
+                api_key.filter(|k| !k.is_empty()),
+            ))),
             ChainId::Bitcoin => Client::Bitcoin {
                 esplora: Box::new(neko_btc::client::Esplora::new(url)),
                 bsc: Box::new(neko_evm::client::Rpc::new(neko_evm::BSC, None)),
@@ -82,6 +93,7 @@ impl Client {
         match self {
             Client::Solana(rpc) => Some(rpc.url()),
             Client::Bitcoin { esplora, .. } => Some(esplora.endpoint()),
+            Client::Ton(api) => Some(api.endpoint()),
             _ => None,
         }
     }
@@ -98,6 +110,7 @@ impl Client {
             }
             Client::Solana(_) => ChainId::Solana,
             Client::Bitcoin { .. } => ChainId::Bitcoin,
+            Client::Ton(_) => ChainId::Ton,
         }
     }
 }
@@ -114,6 +127,7 @@ pub async fn quote(c: &Client, req: &TransferRequest) -> Result<Quote, String> {
         Client::Evm { rpc, .. } => evm_quote(rpc, req).await,
         Client::Solana(rpc) => solana_quote(rpc, req).await,
         Client::Bitcoin { esplora, .. } => bitcoin_quote(esplora, req).await,
+        Client::Ton(api) => ton_quote(api, req).await,
     }
 }
 
@@ -229,6 +243,107 @@ async fn solana_quote(
         amount: u64::try_from(req.amount.raw).map_err(|_| "amount is too large".to_string())?,
         rent,
     })
+}
+
+/// What a TON transfer costs, and what it has to be told before it is built.
+///
+/// Three things here have no equivalent on the account chains:
+///
+/// * **The wallet may not exist.** An address can hold GRAM before its contract
+///   is deployed, and the first message out has to carry that contract's code.
+///   Getting this wrong in either direction is fatal to the message: code on a
+///   deployed wallet is rejected, and no code on an undeployed one leaves
+///   nothing that can run.
+/// * **`seqno` instead of a nonce.** A stale one is not rejected as a double
+///   spend; the message is ignored, which looks exactly like a transfer that
+///   vanished.
+/// * **A token transfer needs GRAM attached to it**, to pay for the hops
+///   between two jetton wallet contracts. Most of it comes back, which is why
+///   the quote keeps it apart from the fee rather than adding the two.
+async fn ton_quote(
+    api: &neko_ton::client::Toncenter,
+    req: &TransferRequest,
+) -> Result<Quote, String> {
+    let from = req.from.as_ton().map_err(|e| e.to_string())?;
+    let state = api.wallet_state(&from).await.map_err(|e| e.to_string())?;
+
+    let (jetton_wallet, attached) = match req.asset {
+        Asset::Gram => (None, 0),
+        Asset::Jetton { master, decimals } => {
+            // Same reasoning as the other four chains': ask the contract what
+            // it is before trusting a built-in address. Only the precision can
+            // be had here - see `neko_ton::jetton::decimals_from_content` for
+            // why the symbol is not fetched.
+            let chain_decimals = api
+                .jetton_decimals(&master)
+                .await
+                .map_err(|e| format!("could not verify the jetton master {master}: {e}"))?;
+            if chain_decimals != decimals {
+                return Err(format!(
+                    "jetton master {master} reports {chain_decimals} decimals, expected {decimals} - refusing to send"
+                ));
+            }
+            // Where *our* balance of it lives. Asked of the master rather than
+            // derived here, because the code that goes into that address
+            // belongs to the token.
+            let wallet = api
+                .jetton_wallet(&from, &master)
+                .await
+                .map_err(|e| e.to_string())?;
+
+            // And the contract at that address is asked whose it is. A wallet
+            // that does not exist yet holds nothing, so there is nothing to
+            // send and nothing to check; one that exists and belongs to
+            // somebody else is a node answering with the wrong address, and
+            // the transfer must not be built against it.
+            if let Some(d) = api
+                .jetton_wallet_data(&wallet)
+                .await
+                .map_err(|e| e.to_string())?
+            {
+                if d.owner != from || d.master != master {
+                    return Err(format!(
+                        "{wallet} says it holds {} for {}, not {master} for {from} - refusing to send",
+                        d.master, d.owner
+                    ));
+                }
+            }
+            (Some((master, wallet)), neko_ton::JETTON_TRANSFER_ATTACHED)
+        }
+        _ => return Err("that asset is not on TON".into()),
+    };
+
+    Ok(Quote::Ton {
+        params: Box::new(neko_core::TonTxParams {
+            seqno: state.seqno,
+            valid_until: valid_until(),
+            deploy: !state.deployed,
+            jetton_wallet,
+        }),
+        gram_balance: Some(state.balance),
+        sending_native: matches!(req.asset, Asset::Gram),
+        amount: u128::try_from(req.amount.raw).map_err(|_| "amount is too large".to_string())?,
+        // Not quoted: TON's fees are small, fixed in shape, and the chain
+        // charges what it charges. The figure is an upper bound used to check a
+        // balance covers the transfer - a node estimate would be more precise
+        // and would also expire, and being a fraction of a cent generous costs
+        // less than a message that fails for being a nanoton short.
+        fee: neko_ton::FEE_TRANSFER,
+        attached,
+    })
+}
+
+/// When a signed message stops being valid.
+///
+/// TON signs over this, which the account chains have no equivalent of: a
+/// message that sat in somebody's hands cannot be replayed a day later. Two
+/// minutes is the wallet standard, and is long enough for a password prompt.
+fn valid_until() -> u32 {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    (now + neko_ton::message::VALID_FOR_SECS as u64) as u32
 }
 
 /// A blockhash for the signature about to be taken.
@@ -431,6 +546,13 @@ pub async fn native_price(c: &Client) -> Result<i128, String> {
             bsc.btcb_price_in_usdt().await.map_err(|e| e.to_string())?,
             neko_evm::BSC.usdt_decimals,
         ),
+        // Already normalised by the pool reader, like Solana's.
+        Client::Ton(api) => (
+            neko_ton::price::gram_in_usdt(api, neko_core::PRICE_SCALE)
+                .await
+                .map_err(|e| e.to_string())? as u128,
+            neko_core::PRICE_SCALE,
+        ),
     };
     Ok(rescale(
         raw as i128,
@@ -450,12 +572,24 @@ fn rescale(v: i128, from: u8, to: u8) -> i128 {
     }
 }
 
-pub async fn broadcast(c: &Client, raw: Vec<u8>) -> Result<String, String> {
+/// Hand the signed bytes to the chain, and answer with what this transfer will
+/// be called.
+///
+/// `local_id` is the identifier derived while signing. Five chains ignore it in
+/// favour of the node's own answer; TON uses it, because there the node returns
+/// an acknowledgement and the message hash is the only name the transfer has
+/// until a contract has run.
+pub async fn broadcast(c: &Client, raw: Vec<u8>, local_id: String) -> Result<String, String> {
     match c {
         Client::Tron(t) => t.broadcast(&raw).await.map_err(|e| e.to_string()),
         Client::Evm { rpc, .. } => rpc.send_raw(&raw).await.map_err(|e| e.to_string()),
         Client::Solana(rpc) => rpc.send(&raw).await.map_err(|e| e.to_string()),
         Client::Bitcoin { esplora, .. } => esplora.broadcast(&raw).await.map_err(|e| e.to_string()),
+        Client::Ton(api) => api
+            .send(&raw)
+            .await
+            .map(|_| local_id)
+            .map_err(|e| e.to_string()),
     }
 }
 
@@ -513,6 +647,29 @@ pub async fn wallet_assets(
                 // Six here, six on TRON, eighteen on BNB Chain. One token name,
                 // three precisions.
                 ("USDT".to_string(), neko_solana::USDT_DECIMALS, usdt as i128),
+            ])
+        }
+        Client::Ton(api) => {
+            let a = addr.as_ton().map_err(|e| e.to_string())?;
+            let master = neko_ton::usdt_master();
+            let state = api.wallet_state(&a).await.map_err(|e| e.to_string())?;
+            // A jetton balance lives in a contract of its own, one per holder
+            // per token, and an address that has never held USDT has no such
+            // contract. That reads as zero here - correct, and the same figure
+            // a failed lookup gives, which must not discard the GRAM we have.
+            let usdt = match api.jetton_wallet(&a, &master).await {
+                Ok(w) => api.jetton_balance(&w).await.unwrap_or(0),
+                Err(_) => 0,
+            };
+            Ok(vec![
+                (
+                    "GRAM".to_string(),
+                    neko_ton::GRAM_DECIMALS,
+                    state.balance as i128,
+                ),
+                // Six here, six on TRON, Ethereum and Solana, eighteen on BNB
+                // Chain. One token name, two precisions.
+                ("USDT".to_string(), neko_ton::USDT_DECIMALS, usdt as i128),
             ])
         }
         Client::Bitcoin { esplora, .. } => {
@@ -630,6 +787,39 @@ pub async fn history(
                     } else {
                         neko_tron::TxStatus::Success
                     },
+                })
+                .collect())
+        }
+        Client::Ton(api) => {
+            // No indexer needed, and no token rows either: a jetton movement is
+            // an opcode inside a message between two contracts neither of which
+            // is this address, so it does not appear in what this address did.
+            // Left out rather than guessed at - the balance still shows what is
+            // held.
+            let a = addr.as_ton().map_err(|e| e.to_string())?;
+            let raw = api
+                .transactions(&a, limit)
+                .await
+                .map_err(|e| e.to_string())?;
+            let rows = neko_ton::history::parse(&raw, &a, neko_ton::GRAM_DECIMALS, "GRAM")
+                .map_err(|e| e.to_string())?;
+            Ok(rows
+                .into_iter()
+                .map(|t| neko_tron::HistoryEntry {
+                    txid: t.hash,
+                    block_ts: t.block_time * 1000,
+                    symbol: t.symbol,
+                    decimals: t.decimals,
+                    amount: t.amount,
+                    direction: match t.direction {
+                        neko_ton::history::Direction::In => neko_tron::Direction::In,
+                        neko_ton::history::Direction::Out => neko_tron::Direction::Out,
+                    },
+                    counterparty: t.counterparty,
+                    // A transaction in this list has already executed. There is
+                    // no pending state to report: a message that has not been
+                    // processed is not here at all.
+                    status: neko_tron::TxStatus::Success,
                 })
                 .collect())
         }

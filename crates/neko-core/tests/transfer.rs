@@ -1,7 +1,8 @@
 //! Transfer construction and signing, end to end from a real vault.
 
 use neko_core::{
-    Amount, Asset, ChainAddress, ChainId, ChainTxParams, NewWalletSpec, TransferRequest, VaultFile,
+    Amount, Asset, ChainAddress, ChainId, ChainTxParams, CoreError, NewWalletSpec, TransferRequest,
+    VaultFile,
 };
 use neko_tron::tx::TxParams;
 use neko_vault::profile;
@@ -251,4 +252,126 @@ fn amounts_that_break_f64_survive_the_whole_path() {
         Amount::new(req.amount.raw, 6).to_display_string(),
         "9,007,199,254.740993"
     );
+}
+
+// ── TON checks the key against the address before it signs ─────────────────
+
+const TON_ADDR: &str = "EQAzWZa6nM5mJev91wGc7VCSfBoIsYRqKJpV78N8Add9-U9d";
+const TON_TO: &str = "EQDVJucJT96vGh_bYm3e5uzenasiTOwA9orUHQiyhNsKmEcK";
+
+fn ton_params() -> ChainTxParams {
+    ChainTxParams::Ton(Box::new(neko_core::TonTxParams {
+        seqno: 3,
+        valid_until: 1_800_000_000,
+        deploy: false,
+        jetton_wallet: None,
+    }))
+}
+
+/// The ordinary case, so the refusals below are about what they claim to be.
+#[test]
+fn a_gram_transfer_signs_for_its_own_address() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = session(dir.path());
+    let id = s.list_wallets().unwrap()[0].id;
+
+    let req = TransferRequest::parse(
+        id,
+        ChainAddress::parse(ChainId::Ton, TON_ADDR).unwrap(),
+        TON_TO,
+        "0.5",
+        Asset::Gram,
+    )
+    .unwrap();
+    assert_eq!(req.amount.raw, 500_000_000, "GRAM is nine decimals");
+
+    let signed = s.sign_transfer(&req, &ton_params()).unwrap();
+    assert_eq!(signed.id.len(), 64, "the id is a message hash in hex");
+    assert!(!signed.raw.is_empty());
+}
+
+/// A TON address is the hash of the contract holding a public key, so the two
+/// can be checked against each other before anything is signed.
+///
+/// No other chain here can do this. Everywhere else a mismatched key produces a
+/// perfectly valid signature by somebody else, and the failure only shows up as
+/// a message the contract ignores - which is indistinguishable from a transfer
+/// that vanished.
+#[test]
+fn signing_for_an_address_this_key_does_not_own_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = session(dir.path());
+    let id = s.list_wallets().unwrap()[0].id;
+
+    // A real TON address, and not this wallet's.
+    let someone_else = ChainAddress::parse(ChainId::Ton, TON_TO).unwrap();
+    let req = TransferRequest::parse(id, someone_else, TON_ADDR, "0.5", Asset::Gram).unwrap();
+
+    match s.sign_transfer(&req, &ton_params()) {
+        Err(CoreError::WrongSigningKey { expected, derived }) => {
+            assert_eq!(expected, TON_TO);
+            assert_eq!(derived, TON_ADDR, "the key derives this wallet's address");
+        }
+        Err(e) => panic!("refused for the wrong reason: {e}"),
+        Ok(_) => panic!("signed a message for an address this key does not own"),
+    }
+}
+
+/// A jetton wallet address cannot be checked offline - it is a contract's hash,
+/// obtained by asking the master. So the master travels with it, and signing
+/// refuses an address that was derived from a different token.
+#[test]
+fn a_jetton_wallet_quoted_for_another_token_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = session(dir.path());
+    let id = s.list_wallets().unwrap()[0].id;
+
+    let usdt = ChainId::Ton.usdt().expect("TON has a USDT");
+    let req = TransferRequest::parse(
+        id,
+        ChainAddress::parse(ChainId::Ton, TON_ADDR).unwrap(),
+        TON_TO,
+        "10",
+        usdt,
+    )
+    .unwrap();
+    assert_eq!(req.amount.raw, 10_000_000, "USDT is six decimals on TON");
+
+    // Quoted against some other jetton master, with a wallet address under it.
+    let other = neko_ton::TonAddress::parse(TON_TO).unwrap();
+    let params = ChainTxParams::Ton(Box::new(neko_core::TonTxParams {
+        seqno: 3,
+        valid_until: 1_800_000_000,
+        deploy: false,
+        jetton_wallet: Some((other, other)),
+    }));
+
+    match s.sign_transfer(&req, &params) {
+        Err(CoreError::WrongToken { quoted, asked }) => {
+            assert_eq!(quoted, TON_TO);
+            assert_eq!(asked, neko_ton::USDT_MASTER);
+        }
+        Err(e) => panic!("refused for the wrong reason: {e}"),
+        Ok(_) => panic!("signed a transfer into another token's wallet contract"),
+    }
+}
+
+/// And without a jetton wallet at all there is nothing to send to. Refused
+/// rather than defaulted to the recipient's own address, which is a real
+/// address that would not credit them.
+#[test]
+fn a_jetton_transfer_without_a_wallet_address_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = session(dir.path());
+    let id = s.list_wallets().unwrap()[0].id;
+
+    let req = TransferRequest::parse(
+        id,
+        ChainAddress::parse(ChainId::Ton, TON_ADDR).unwrap(),
+        TON_TO,
+        "10",
+        ChainId::Ton.usdt().unwrap(),
+    )
+    .unwrap();
+    assert!(s.sign_transfer(&req, &ton_params()).is_err());
 }

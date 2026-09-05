@@ -1390,6 +1390,91 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                             )));
                         }
                     }
+                    crate::send::FeeQuote::Ton(n) => {
+                        lines.push(Line::from(vec![
+                            Span::styled(fee_label(t(Key::Send_GramBalance)), theme::hint()),
+                            match n.gram_balance {
+                                Some(v) => Span::raw(format!(
+                                    "{} GRAM",
+                                    neko_core::Amount::new(v as i128, neko_ton::GRAM_DECIMALS)
+                                        .to_display_string_trim(crate::chain::BALANCE_FRAC)
+                                )),
+                                // A failed lookup is not zero, and must not be
+                                // rendered as though it were.
+                                None => {
+                                    Span::styled(t(Key::Common_Unknown).to_string(), theme::hint())
+                                }
+                            },
+                        ]));
+                        // The cost with no equivalent on the other five chains,
+                        // and the one people are surprised by: coin that
+                        // travels with the message to pay for the hops between
+                        // two contracts, most of which comes back.
+                        if n.attached > 0 {
+                            let attached = n
+                                .attached_amount()
+                                .to_display_string_trim(crate::chain::BALANCE_FRAC);
+                            lines.push(Line::from(vec![
+                                Span::styled(fee_label(t(Key::Send_Attached)), theme::hint()),
+                                Span::styled(
+                                    format!("{attached} GRAM"),
+                                    Style::default().fg(theme::WARN),
+                                ),
+                            ]));
+                            for key in [Key::Send_AttachedNote, Key::Send_AttachedNote2] {
+                                lines.push(Line::from(Span::styled(
+                                    format!(
+                                        "                {}",
+                                        tf(
+                                            key,
+                                            &[("asset", &st.asset_label), ("amount", &attached)]
+                                        )
+                                    ),
+                                    theme::hint(),
+                                )));
+                            }
+                        }
+                        // The first message out of a wallet carries the
+                        // contract's own code. Worth saying, because it is why
+                        // the first transfer costs more than the next one.
+                        if n.deploy {
+                            lines.push(Line::from(vec![
+                                Span::styled(fee_label(t(Key::Send_Deploying)), theme::hint()),
+                                Span::styled(
+                                    t(Key::Send_DeployingValue).to_string(),
+                                    Style::default().fg(theme::WARN),
+                                ),
+                            ]));
+                            for key in [Key::Send_DeployingNote, Key::Send_DeployingNote2] {
+                                lines.push(Line::from(Span::styled(
+                                    format!("                {}", t(key)),
+                                    theme::hint(),
+                                )));
+                            }
+                        }
+                        if n.affordable() == Some(false) {
+                            let short = n
+                                .shortfall()
+                                .unwrap_or(neko_core::Amount::new(0, neko_ton::GRAM_DECIMALS));
+                            lines.push(Line::from(Span::styled(
+                                format!(
+                                    "     {}",
+                                    tf(
+                                        Key::Send_NeedMoreGram,
+                                        &[
+                                            (
+                                                "amount",
+                                                &short.to_display_string_trim(
+                                                    crate::chain::BALANCE_FRAC,
+                                                ),
+                                            )
+                                        ]
+                                    )
+                                ),
+                                Style::default().fg(theme::DANGER),
+                            )));
+                        }
+                    }
                     crate::send::FeeQuote::Bitcoin(b) => {
                         lines.push(Line::from(vec![
                             Span::styled(fee_label(t(Key::Send_FeeRate)), theme::hint()),
@@ -1458,7 +1543,8 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                     // Both pay a validator rather than destroying anything.
                     crate::send::FeeQuote::Evm(_)
                     | crate::send::FeeQuote::Solana(_)
-                    | crate::send::FeeQuote::Bitcoin(_) => "",
+                    | crate::send::FeeQuote::Bitcoin(_)
+                    | crate::send::FeeQuote::Ton(_) => "",
                 };
                 let mut total_line = vec![
                     Span::styled(fee_label(t(Key::Send_Total)), theme::hint()),
@@ -1782,6 +1868,9 @@ fn draw_settings(f: &mut Frame, area: Rect, app: &App, st: &SettingsState) {
     } else if matches!(st.row(), SettingRow::BitcoinApi) {
         lines.extend(hint_lines(t(Key::Settings_BitcoinApiNote), inner.width));
         lines.extend(hint_lines(t(Key::Settings_BitcoinApiNote2), inner.width));
+    } else if matches!(st.row(), SettingRow::TonApi) {
+        lines.extend(hint_lines(t(Key::Settings_TonApiNote), inner.width));
+        lines.extend(hint_lines(t(Key::Settings_TonApiNote2), inner.width));
     } else if app.api_key.is_none() {
         lines.extend(hint_lines(t(Key::Settings_ApiKeyNote), inner.width));
         lines.extend(hint_lines(t(Key::Settings_ApiKeyNote2), inner.width));

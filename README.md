@@ -8,7 +8,7 @@ A self-custody encrypted crypto wallet for the terminal. Your whole wallet is
 one encrypted file — carry it on a USB stick, keep it on a network drive, copy
 it anywhere. Unlocked by an email and a password that are stored nowhere.
 
-Multi-chain by design: TRON, Ethereum, BNB Chain, Solana and Bitcoin.
+Multi-chain by design: TRON, Ethereum, BNB Chain, Solana, Bitcoin and TON.
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
@@ -140,6 +140,7 @@ phrase, or a new thing to back up.
 | Solana | working | SOL, USDT (SPL) |
 | Bitcoin | working | BTC |
 | Ethereum | working | ETH, USDT (ERC20) |
+| TON | working | GRAM, USDT (jetton) |
 
 The same phrase gives a different address on each — that is correct and
 universal, not a bug. Solana has no agreed derivation path; this wallet uses
@@ -163,6 +164,24 @@ contracts, and **six decimals on Ethereum against eighteen on BNB Chain**.
 Ethereum builds EIP-1559 transactions, so the screen shows what a transfer
 is expected to cost alongside the ceiling it reserves; the difference is
 refunded.
+
+TON derives at `m/44'/607'/0'` and is the one chain here where **the address
+is not derived from the key**. A wallet on TON is a smart contract, and its
+address is the hash of that contract's own initial code and storage. The
+consequences are visible rather than hidden: the first transfer out of a
+wallet carries the contract's code, because until then the address holds a
+balance and nothing that can spend it; and sending USDT needs GRAM, because a
+token transfer is a message between two contracts and each hop has to be paid
+for by coin travelling with it — most of which comes back. The send screen
+shows that attached amount separately from the fee rather than adding them.
+
+Because the address depends on the wallet contract, **this wallet's TON
+addresses will not match Tonkeeper's or Telegram's for the same phrase unless
+they are also using v4R2 with the standard subwallet id**, which is the
+common default but not a guarantee. The coin is GRAM: it was renamed from
+Toncoin on 15 June 2026, back to the name it had in Telegram's 2018
+whitepaper. Only the ticker changed — the network is still TON, and addresses
+and balances are untouched.
 
 Chain-specific code is confined to one crate. Key derivation, storage,
 encryption, and the interface are shared and chain-agnostic, and the database
@@ -456,11 +475,12 @@ changes a derived address or a transaction id fails immediately.
 neko-crypto   Argon2id / XChaCha20-Poly1305 / HKDF. No IO, no SQL, no async.
 neko-vault    key hierarchy, KDF profiles, password policy, normalization
 neko-store    SQLCipher, migrations, field-level envelopes  (never derives keys)
-neko-hd       BIP39 / BIP32 / BIP44 and SLIP-0010; TRON, EVM and Solana addresses
+neko-hd       BIP39 / BIP32 / BIP44 and SLIP-0010; TRON, EVM, Solana and TON keys
 neko-tron     TRON only: protobuf, transaction building and signing, node client
 neko-evm      Ethereum and BNB Chain: RLP, EIP-155 and EIP-1559 signing, ABI, JSON-RPC
 neko-solana   Solana: Ed25519, the wire format, token accounts, cluster RPC
 neko-btc      Bitcoin: bech32, segwit v0 signing, coin selection, Esplora
+neko-ton      TON: cells and bags of cells, wallet v4R2, jettons, toncenter
 neko-core     the facade the UI talks to
 neko-i18n     compile-time-checked translation tables
 neko-tui      ratatui interface

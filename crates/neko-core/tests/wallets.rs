@@ -368,3 +368,59 @@ fn wallet_secrets_do_not_leak_into_the_file() {
         );
     }
 }
+
+/// The address a stored wallet reports for each chain, from one phrase.
+///
+/// Six different addresses, five of them a function of the key alone. TON's is
+/// not: it is the hash of the wallet contract that holds the key, so it depends
+/// on the contract version and subwallet id as well - which is why it is pinned
+/// here rather than assumed to follow from the derivation path.
+#[test]
+fn one_phrase_gives_each_chain_its_own_address() {
+    use neko_core::ChainId;
+    let dir = tempfile::tempdir().unwrap();
+    let (v, path) = vault(dir.path());
+    let mut s = v.create(EMAIL, PW, neko_vault::profile::TESTONLY).unwrap();
+    let id = s
+        .create_wallet(
+            "w",
+            NewWalletSpec::ImportMnemonic {
+                phrase: LEDGER_PHRASE,
+                passphrase: None,
+            },
+        )
+        .unwrap();
+    let _ = &path;
+
+    for (chain, want) in [
+        (ChainId::Tron, "TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH"),
+        (ChainId::Bsc, "0x9858EfFD232B4033E47d90003D41EC34EcaEda94"),
+        (
+            ChainId::Ethereum,
+            "0x9858EfFD232B4033E47d90003D41EC34EcaEda94",
+        ),
+        (
+            ChainId::Solana,
+            "HAgk14JpMQLgt6rVgv7cBQFJWFto5Dqxi472uT3DKpqk",
+        ),
+        (
+            ChainId::Bitcoin,
+            "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu",
+        ),
+        (
+            ChainId::Ton,
+            "EQAzWZa6nM5mJev91wGc7VCSfBoIsYRqKJpV78N8Add9-U9d",
+        ),
+    ] {
+        let got = s.address_of(id, chain, 0).unwrap();
+        assert_eq!(got.to_string(), want, "{chain:?} derived the wrong address");
+    }
+
+    // The two EVM chains share coin type 60 and so share an address. That is
+    // correct and universal, and the assertion above would pass if one of them
+    // were silently deriving nothing, so it is stated directly.
+    assert_eq!(
+        s.address_of(id, ChainId::Bsc, 0).unwrap().to_string(),
+        s.address_of(id, ChainId::Ethereum, 0).unwrap().to_string()
+    );
+}

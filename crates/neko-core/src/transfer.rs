@@ -24,9 +24,36 @@ use crate::session::Session;
 #[derive(Debug, Clone)]
 pub enum ChainTxParams {
     Tron(Box<neko_tron::tx::TxParams>),
+    Ton(Box<TonTxParams>),
     Evm(neko_evm::tx::TxParams),
     Solana(neko_solana::tx::TxParams),
     Bitcoin(Box<BtcTxParams>),
+}
+
+/// What TON needs told before a message can be built.
+///
+/// `seqno` is the wallet contract's own counter and takes a nonce's place, but
+/// unlike a nonce a stale one is not rejected - the message is ignored, which
+/// looks exactly like a transfer that vanished. `valid_until` is signed over,
+/// so a message that sat too long cannot be replayed later.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TonTxParams {
+    pub seqno: u32,
+    pub valid_until: u32,
+    /// Whether the wallet contract still has to be deployed. Its code travels
+    /// with the first message a wallet ever sends, and including it afterwards
+    /// is rejected.
+    pub deploy: bool,
+    /// For a token transfer: the jetton master the quote verified, and our own
+    /// jetton wallet under it. The message goes to that wallet, not to the
+    /// recipient.
+    ///
+    /// The master travels with the address because the address alone cannot be
+    /// checked offline - it is a contract's hash, derived by asking the master
+    /// itself. Carrying both lets signing refuse a wallet that was derived from
+    /// some *other* token, which is the one way a verified quote could still
+    /// move the wrong thing.
+    pub jetton_wallet: Option<(neko_ton::TonAddress, neko_ton::TonAddress)>,
 }
 
 /// Which coins a Bitcoin transfer spends, and what comes back.
@@ -111,7 +138,11 @@ impl TransferRequest {
             | Asset::Eth
             | Asset::Sol
             | Asset::SplToken { .. }
-            | Asset::Btc => Ok(None),
+            | Asset::Btc
+            // TON has no calldata either: a body is a cell, built by the chain
+            // crate rather than encoded here.
+            | Asset::Gram
+            | Asset::Jetton { .. } => Ok(None),
             Asset::Trc20 { .. } => Ok(Some(neko_tron::tx::encode_trc20_transfer(
                 self.to.as_tron()?,
                 self.amount.raw as u128,
@@ -250,6 +281,56 @@ impl Session {
                 ));
                 sign_solana(from, ixs, p, &key)
             }
+            (Asset::Gram, ChainTxParams::Ton(p)) => {
+                let to = req.to.as_ton()?;
+                let amount = u128::try_from(req.amount.raw)
+                    .map_err(|_| neko_ton::TonError::AmountTooLarge)?;
+                // The form the destination was written in decides whether a
+                // failure returns the coins. Respecting what was pasted is the
+                // predictable choice: a bounceable address sent to a wallet
+                // that does not exist yet comes back rather than arriving.
+                let inner = neko_ton::message::internal_message(&to, amount, to.bounceable, None)?;
+                sign_ton(req, p, inner, &key)
+            }
+            (Asset::Jetton { master, .. }, ChainTxParams::Ton(p)) => {
+                let from = req.from.as_ton()?;
+                let to = req.to.as_ton()?;
+                let amount = u128::try_from(req.amount.raw)
+                    .map_err(|_| neko_ton::TonError::AmountTooLarge)?;
+                let (quoted_master, jetton_wallet) = p
+                    .jetton_wallet
+                    .ok_or_else(|| neko_ton::TonError::NoJettonWallet("USDT".into()))?;
+                // The quote asked *this* master where our balance lives. If the
+                // asset being signed for is a different token, the address in
+                // hand is the wrong contract and the transfer would move the
+                // wrong balance - so it is refused rather than sent.
+                if quoted_master != master {
+                    return Err(CoreError::WrongToken {
+                        quoted: quoted_master.to_string(),
+                        asked: master.to_string(),
+                    });
+                }
+
+                // The body goes to *our* jetton wallet, which messages the
+                // recipient's. `to` is the recipient's own address - their
+                // jetton wallet is a real address that would not credit them.
+                let body = neko_ton::jetton::transfer_body(
+                    amount,
+                    &to,
+                    &from,
+                    neko_ton::JETTON_FORWARD_AMOUNT,
+                )?;
+                // Coin travels with it to pay for both hops, and whatever is
+                // unused comes back to `from`. This is why sending USDT here
+                // costs GRAM.
+                let inner = neko_ton::message::internal_message(
+                    &jetton_wallet,
+                    neko_ton::JETTON_TRANSFER_ATTACHED,
+                    true,
+                    Some(body),
+                )?;
+                sign_ton(req, p, inner, &key)
+            }
             (Asset::Btc, ChainTxParams::Bitcoin(p)) => {
                 let to = req.to.as_bitcoin()?;
                 let amount = u64::try_from(req.amount.raw)
@@ -321,6 +402,9 @@ impl Session {
             // the other chains use would produce a perfectly valid key for an
             // address that holds nothing.
             ChainId::Solana => neko_hd::solana::private_key_at(&seed, index)?,
+            // SLIP-0010 at m/44'/607'/0'. TON's own wallets use a different
+            // scheme entirely - see `neko_hd::ton`.
+            ChainId::Ton => neko_hd::ton::private_key_at(&seed, index)?,
             // BIP84, and the purpose level *is* the script type: deriving under
             // 44' and building a segwit script produces an address that is
             // valid, empty, and unspendable by the key that made it.
@@ -367,5 +451,65 @@ fn sign_solana(
     Ok(SignedTransfer {
         id: signed.id(),
         raw: signed.serialize()?,
+    })
+}
+
+/// Wrap an internal message in a signed external one.
+///
+/// The signature covers the hash of the body cell, and the internal message is
+/// a reference inside it - so the destination and the amount are signed over by
+/// being part of the tree.
+fn sign_ton(
+    req: &TransferRequest,
+    p: &TonTxParams,
+    inner: std::sync::Arc<neko_ton::cell::Cell>,
+    key: &Zeroizing<[u8; 32]>,
+) -> Result<SignedTransfer, CoreError> {
+    use neko_ton::{message, wallet};
+
+    let from = req.from.as_ton()?;
+
+    // A TON wallet's address *is* the hash of the contract holding this public
+    // key, so the key can be checked against the address before anything is
+    // signed. Nowhere else here can do this: on the other chains a mismatched
+    // key produces a valid signature by somebody else, and the failure only
+    // shows up as a message the contract silently ignores - which looks exactly
+    // like a transfer that vanished.
+    let pk = neko_hd::ton::public_key(key);
+    let derived = wallet::address_for(&pk)?;
+    if derived != from {
+        return Err(CoreError::WrongSigningKey {
+            expected: from.to_string(),
+            derived: derived.to_string(),
+        });
+    }
+
+    let body = message::signing_body(
+        wallet::DEFAULT_SUBWALLET_ID,
+        p.valid_until,
+        p.seqno,
+        message::MODE_ORDINARY,
+        inner,
+    )?;
+    let signed = message::signed_body(body, key)?;
+
+    // The contract's code travels with the first message a wallet ever sends,
+    // and only that one.
+    let init = if p.deploy {
+        Some(wallet::state_init(
+            wallet::code()?,
+            wallet::initial_data(&pk, wallet::DEFAULT_SUBWALLET_ID)?,
+        )?)
+    } else {
+        None
+    };
+    let ext = message::external_message(&from, init, signed)?;
+
+    Ok(SignedTransfer {
+        // The *message* hash. A transaction's own hash does not exist until the
+        // contract has run, so there is nothing else to hand somebody yet - and
+        // explorers find a message by this.
+        id: hex::encode(ext.hash()),
+        raw: neko_ton::boc::serialize(&ext)?,
     })
 }

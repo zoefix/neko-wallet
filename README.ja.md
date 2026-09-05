@@ -9,7 +9,7 @@
 どこへでもコピーできます。メールアドレスとパスワードで解錠しますが、
 その 2 つはどこにも保存されていません。
 
-マルチチェーン設計：TRON、Ethereum、BNB Chain、Solana、Bitcoin。
+マルチチェーン設計：TRON、Ethereum、BNB Chain、Solana、Bitcoin、TON。
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
@@ -140,7 +140,22 @@ BIP44 の導出パスはそのためのものです。チェーンを増やす�
 | Solana | 動作 | SOL、USDT (SPL) |
 | Bitcoin | 動作 | BTC |
 | Ethereum | 動作 | ETH、USDT (ERC20) |
-| Bitcoin | 画面には出るが未実装 | — |
+| TON | 動作 | GRAM、USDT (jetton) |
+
+TON はここで唯一、**アドレスが鍵から導出されない**チェーンです。TON のウォレットは
+スマートコントラクトそのものであり、アドレスはそのコントラクトの初期コードとストレージの
+ハッシュです。そこから来る二つのことは隠さず画面に出しています。ウォレットからの最初の
+送金はコントラクトのコードを一緒に運びます —— それまでそのアドレスは残高を持つだけで、
+動かせるものが何もないからです。そして USDT を送るには GRAM が要ります。トークン送金は
+二つのコントラクト間のメッセージで、各ホップはメッセージに同送されたコインで動くからです —— その大半は戻ってきます。送金画面はこの同送額を手数料とは別に表示し、
+足し合わせません。
+
+アドレスがウォレットコントラクトに依存するため、**同じフレーズでも、ここでの TON
+アドレスは Tonkeeper や Telegram のものと一致するとは限りません** —— 相手も v4R2 と
+標準の subwallet id を使っている場合を除きます。よくある既定値ですが、保証ではありません。
+コインの名前は GRAM です。2026 年 6 月 15 日に Toncoin から、Telegram の 2018 年
+ホワイトペーパーで使われていた名前に戻りました。変わったのはティッカーだけで、
+ネットワークは今も TON、アドレスと残高はそのままです。
 
 チェーン固有のコードは 1 つのクレートに閉じ込めてあります。鍵導出・保存・暗号化・
 インターフェースは共通でチェーン非依存であり、データベースは最初のマイグレーションから
@@ -424,6 +439,7 @@ neko-tron     TRON 専用: protobuf、取引の組み立てと署名、ノード
 neko-evm      Ethereum と BNB Chain: RLP、EIP-155 と EIP-1559 署名、ABI、JSON-RPC
 neko-solana   Solana: Ed25519、取引エンコード、トークン口座、クラスタ RPC
 neko-btc      Bitcoin: bech32、segwit v0 署名、コイン選択、Esplora
+neko-ton      TON: cell と BoC、ウォレット v4R2、jetton、toncenter
 neko-core     UI が話す唯一のファサード
 neko-i18n     コンパイル時に検査される翻訳テーブル
 neko-tui      ratatui のインターフェース
