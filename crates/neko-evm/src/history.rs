@@ -113,35 +113,25 @@ impl Bsctrace {
         limit: usize,
     ) -> Result<Vec<Transfer>, EvmError> {
         let who_s = who.to_string();
-        let categories = json!(["external", "20"]);
-        let contracts = json!([token.to_string()]);
 
-        let out_v = self
-            .call(json!({
-                "fromAddress": who_s,
-                "category": categories,
-                "contractAddresses": contracts,
-                "withMetadata": true,
-                "excludeZeroValue": false,
-                "order": "desc",
-            }))
-            .await;
-        let in_v = self
-            .call(json!({
-                "toAddress": who_s,
-                "category": categories,
-                "contractAddresses": contracts,
-                "withMetadata": true,
-                "excludeZeroValue": false,
-                "order": "desc",
-            }))
-            .await;
+        // No `contractAddresses` filter. It looks like the obvious way to ask
+        // for one token, and it silently drops every *native* transfer with it
+        // - a native transfer has no contract, so nothing matches. Coin
+        // transfers were missing from history entirely because of this.
+        //
+        // Filtering here is also the stronger check. The reply carries a
+        // contract address per row, and that is what a token is; `asset` is a
+        // name the token itself chose, and this address's history contains
+        // `꒤SDT` and `U឵S឵DΤ` - Unicode lookalikes of USDT, from contracts
+        // nobody should be shown as USDT.
+        let out_v = self.call(request("fromAddress", &who_s)).await;
+        let in_v = self.call(request("toAddress", &who_s)).await;
 
         let mut all = Vec::new();
         let mut errors = Vec::new();
         for r in [out_v, in_v] {
             match r {
-                Ok(v) => all.extend(parse(&v, self.chain)),
+                Ok(v) => all.extend(parse(&v, self.chain, token)),
                 Err(e) => errors.push(e),
             }
         }
@@ -163,25 +153,54 @@ impl Bsctrace {
 
 /// Read the provider's reply, skipping anything malformed rather than failing
 /// the whole page: one odd row must not hide a history.
-pub fn parse(result: &Value, chain: crate::EvmChain) -> Vec<Transfer> {
+pub fn parse(result: &Value, chain: crate::EvmChain, token: EvmAddress) -> Vec<Transfer> {
     let Some(rows) = result.get("transfers").and_then(Value::as_array) else {
         return Vec::new();
     };
-    rows.iter().filter_map(|t| parse_one(t, chain)).collect()
+    rows.iter()
+        .filter_map(|t| parse_one(t, chain, token))
+        .collect()
 }
 
-fn parse_one(t: &Value, chain: crate::EvmChain) -> Option<Transfer> {
+/// What is asked of the provider, for one direction.
+///
+/// No `contractAddresses`. See `transfers`: constraining it drops every native
+/// transfer, because a native transfer has no contract to match.
+pub fn request(direction: &str, address: &str) -> Value {
+    json!({
+        direction: address,
+        "category": ["external", "20"],
+        "withMetadata": true,
+        // A zero-value transfer is a way to get an address into somebody's
+        // history, so it is worth seeing rather than filtering away.
+        "excludeZeroValue": false,
+        "order": "desc",
+    })
+}
+
+/// The address a native transfer reports instead of a contract.
+const NO_CONTRACT: &str = "0x0000000000000000000000000000000000000000";
+
+fn parse_one(t: &Value, chain: crate::EvmChain, token: EvmAddress) -> Option<Transfer> {
     let category = t.get("category")?.as_str()?;
     // The precision comes from the chain, not from a constant: USDT is six
     // decimals on Ethereum and eighteen on BNB Chain. Anything that is not the
     // native coin or that token is skipped rather than shown with a made-up
     // scale.
+    let contract = t
+        .get("contractAddress")
+        .and_then(Value::as_str)
+        .unwrap_or(NO_CONTRACT);
+
     let (symbol, decimals) = match category {
         "external" | "internal" => (chain.native_symbol.to_string(), chain.native_decimals),
-        "20" => (
-            t.get("asset")?.as_str().unwrap_or("USDT").to_string(),
-            chain.usdt_decimals,
-        ),
+        // Matched on the contract, and the symbol comes from *our* constant
+        // rather than from the row. A token can call itself anything, and
+        // several in this address's history call themselves USDT in characters
+        // that are not the ones in USDT.
+        "20" if contract.eq_ignore_ascii_case(&token.to_string()) => {
+            ("USDT".to_string(), chain.usdt_decimals)
+        }
         _ => return None,
     };
     Some(Transfer {
@@ -191,7 +210,13 @@ fn parse_one(t: &Value, chain: crate::EvmChain) -> Option<Transfer> {
         amount: parse_value(t.get("value")?.as_str()?)?,
         symbol,
         decimals,
-        block_ts: t.get("blockTimeStamp").and_then(Value::as_i64).unwrap_or(0),
+        // Seconds, and every other chain here reports milliseconds. Without
+        // the conversion every EVM transfer was dated to January 1970.
+        block_ts: t
+            .get("blockTimeStamp")
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+            .saturating_mul(1000),
         // Absent means the provider did not say; treating that as failure
         // would mark real transfers as failed.
         success: t
@@ -251,13 +276,16 @@ mod tests {
             "blockTimeStamp": 1620515273,
             "receiptsStatus": 1
         }]});
-        let got = parse(&v, crate::BSC);
+        let got = parse(&v, crate::BSC, crate::BSC.usdt_address());
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].symbol, "BNB");
         assert_eq!(got[0].decimals, 18);
         assert_eq!(got[0].amount, 9_895_000_000_000_000);
         assert!(got[0].success);
-        assert_eq!(got[0].block_ts, 1620515273);
+        // Milliseconds. The provider reports seconds and every other chain
+        // here reports milliseconds, so the conversion happens once, here -
+        // without it every EVM transfer was dated to January 1970.
+        assert_eq!(got[0].block_ts, 1_620_515_273_000);
     }
 
     #[test]
@@ -273,7 +301,7 @@ mod tests {
             "blockTimeStamp": 1788469375,
             "receiptsStatus": 1
         }]});
-        let got = parse(&v, crate::BSC);
+        let got = parse(&v, crate::BSC, crate::BSC.usdt_address());
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].symbol, "USDT");
         // Eighteen here, six on TRON. The number travels with the transfer.
@@ -293,7 +321,7 @@ mod tests {
             {"category": "external", "from": "0xa", "to": "0xb",
              "value": "0x1", "hash": "0x3", "blockTimeStamp": 5, "receiptsStatus": 0},
         ]});
-        let got = parse(&v, crate::BSC);
+        let got = parse(&v, crate::BSC, crate::BSC.usdt_address());
         assert_eq!(got.len(), 1, "a good row was lost among bad ones");
         assert_eq!(got[0].hash, "0x3");
         assert!(!got[0].success, "a failed transfer was shown as successful");
@@ -306,11 +334,128 @@ mod tests {
                 "category": "20", "from": "0xa", "to": "0xb",
                 "value": "0x1", "asset": "USDT", "blockTimeStamp": 1
             }]}),
-            crate::BSC
+            crate::BSC,
+            crate::BSC.usdt_address()
         )
         .is_empty());
 
-        assert!(parse(&serde_json::json!({}), crate::BSC).is_empty());
-        assert!(parse(&serde_json::json!({"transfers": "nope"}), crate::BSC).is_empty());
+        assert!(parse(
+            &serde_json::json!({}),
+            crate::BSC,
+            crate::BSC.usdt_address()
+        )
+        .is_empty());
+        assert!(parse(
+            &serde_json::json!({"transfers": "nope"}),
+            crate::BSC,
+            crate::BSC.usdt_address()
+        )
+        .is_empty());
+    }
+}
+
+/// Two faults that between them hid the user's own coin transfer and dressed
+/// somebody else's token up as USDT.
+#[cfg(test)]
+mod filtering {
+    use super::*;
+
+    fn usdt() -> EvmAddress {
+        crate::ETHEREUM.usdt_address()
+    }
+
+    fn row(category: &str, contract: &str, asset: &str, value: &str) -> Value {
+        serde_json::json!({
+            "category": category,
+            "contractAddress": contract,
+            "asset": asset,
+            "from": "0xa41811cf4d41e306310cb82b47258c22b80475cc",
+            "to": "0x74224e8d997f1c438cbfd2ce147c8bbdcd5fa0c8",
+            "value": value,
+            "hash": "0x83187425445cbfde9cacdf1cfe3ff3acd9cab055a57174fdb27cb5b10f337210",
+            "blockTimeStamp": 1_788_575_867i64,
+            "receiptsStatus": 1,
+        })
+    }
+
+    /// Asking the provider to filter by contract looks like the obvious way to
+    /// want one token, and it drops every native transfer with it - a native
+    /// transfer has no contract, so nothing matches. Coin transfers were
+    /// missing from history entirely.
+    #[test]
+    fn the_request_does_not_constrain_the_contract() {
+        let r = request("fromAddress", "0xabc");
+        assert_eq!(r["fromAddress"], "0xabc");
+        assert_eq!(r["category"], serde_json::json!(["external", "20"]));
+        assert!(
+            r.get("contractAddresses").is_none(),
+            "constraining the contract server-side hides every native transfer"
+        );
+    }
+
+    /// The transfer the user actually made, as the provider reported it.
+    #[test]
+    fn a_native_transfer_survives() {
+        let v = serde_json::json!({"transfers": [row(
+            "external",
+            "0x0000000000000000000000000000000000000000",
+            "ETH",
+            "0x06d492a3e1a134",
+        )]});
+        let got = parse(&v, crate::ETHEREUM, usdt());
+        assert_eq!(got.len(), 1, "the coin transfer was dropped");
+        assert_eq!(got[0].symbol, "ETH");
+        assert_eq!(got[0].decimals, 18);
+        assert_eq!(got[0].amount, 1_922_576_140_050_740);
+        assert_eq!(
+            got[0].block_ts, 1_788_575_867_000,
+            "seconds, not milliseconds"
+        );
+    }
+
+    /// A token is what its contract is, not what it calls itself.
+    ///
+    /// These two names are from this wallet's own history: `꒤SDT` and
+    /// `U឵S឵DΤ` are Unicode lookalikes of USDT from contracts that are not
+    /// Tether's. Shown as USDT they would make a scam transfer indistinguishable
+    /// from a real one.
+    #[test]
+    fn a_token_that_calls_itself_usdt_is_not_usdt() {
+        for (contract, name) in [
+            ("0xde7a933accd1a2e7d8c6f5ab4b77afd74b6f34f3", "\u{a4a4}SDT"),
+            ("0xde7a933accd1a2e7d8c6f5ab4b77afd74b6f34f3", "USDT"),
+            ("0x1111111111111111111111111111111111111111", "USDT"),
+        ] {
+            let v = serde_json::json!({"transfers": [row("20", contract, name, "0x47b760")]});
+            assert!(
+                parse(&v, crate::ETHEREUM, usdt()).is_empty(),
+                "{name:?} from {contract} was accepted as USDT"
+            );
+        }
+
+        // ...and the real one is, whatever it calls itself.
+        let v = serde_json::json!({"transfers": [row(
+            "20",
+            "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+            "anything at all",
+            "0x47b760",
+        )]});
+        let got = parse(&v, crate::ETHEREUM, usdt());
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].symbol, "USDT", "the name comes from us, not the row");
+        assert_eq!(got[0].decimals, 6, "six on Ethereum, eighteen on BNB Chain");
+        assert_eq!(got[0].amount, 4_700_000);
+    }
+
+    /// Case is not part of an address, and providers disagree about it.
+    #[test]
+    fn the_contract_match_ignores_case() {
+        let v = serde_json::json!({"transfers": [row(
+            "20",
+            "0xdac17f958d2ee523a2206206994597c13d831ec7",
+            "USDT",
+            "0x1",
+        )]});
+        assert_eq!(parse(&v, crate::ETHEREUM, usdt()).len(), 1);
     }
 }

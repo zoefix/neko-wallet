@@ -1939,7 +1939,17 @@ fn draw_history(f: &mut Frame, area: Rect, app: &App, h: &HistoryState) {
             for (i, e) in rows.iter().enumerate().skip(h.offset).take(h.page) {
                 let sel = i == h.selected;
                 let incoming = e.direction == neko_tron::Direction::In;
-                let sign = if incoming { "+" } else { "-" };
+                // A zero-value transfer moved nothing, and `-0` reads as a
+                // number somebody should worry about. They are real - a
+                // zero-value token transfer is a way to get an address into
+                // somebody's history - so it is shown, without a sign.
+                let sign = if e.amount == 0 {
+                    " "
+                } else if incoming {
+                    "+"
+                } else {
+                    "-"
+                };
                 let dir_style = if incoming {
                     Style::default().fg(theme::OK)
                 } else {
