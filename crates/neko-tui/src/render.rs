@@ -2190,9 +2190,10 @@ const VALUE_COL: usize = 18;
 fn not_final_key(chain: neko_core::ChainId) -> Key {
     match chain {
         neko_core::ChainId::Tron => Key::Send_NotFinalTron,
-        neko_core::ChainId::Bsc | neko_core::ChainId::Ethereum | neko_core::ChainId::Polygon => {
-            Key::Send_NotFinalEvm
-        }
+        neko_core::ChainId::Bsc
+        | neko_core::ChainId::Ethereum
+        | neko_core::ChainId::Polygon
+        | neko_core::ChainId::Base => Key::Send_NotFinalEvm,
         neko_core::ChainId::Solana => Key::Send_NotFinalSolana,
         neko_core::ChainId::Bitcoin => Key::Send_NotFinalBitcoin,
         neko_core::ChainId::Ton => Key::Send_NotFinalTon,

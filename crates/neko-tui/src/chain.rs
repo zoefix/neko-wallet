@@ -46,6 +46,13 @@ pub enum Client {
         /// the box.
         history_key: Option<String>,
         etherscan_key: Option<String>,
+        /// A second connection, used only to price this chain's coin.
+        ///
+        /// `Some` where the coin cannot be priced where it lives: Base's own
+        /// WETH/USDT pool holds about seventeen dollars, and its coin is ETH,
+        /// which Ethereum prices deeply. The same shape as Bitcoin's, and for
+        /// the same reason - balances, fees and transfers never touch it.
+        price_rpc: Option<Box<neko_evm::client::Rpc>>,
     },
     Solana(Box<neko_solana::client::Rpc>),
     /// TON. The one client here that must ask a contract rather than the node:
@@ -83,14 +90,20 @@ impl Client {
             ChainId::Tron => Client::Tron(Box::new(TronGrid::new(url, api_key))),
             // The TronGrid key is not a BscScan key; passing it here would only
             // be misleading. BNB Chain's public RPC needs no key at all.
-            ChainId::Bsc | ChainId::Ethereum | ChainId::Polygon => Client::Evm {
-                rpc: Box::new(neko_evm::client::Rpc::new(
-                    chain.evm().expect("every EVM chain has parameters"),
-                    url,
-                )),
-                history_key: api_key.filter(|k| !k.is_empty()),
-                etherscan_key: etherscan_key.filter(|k| !k.is_empty()),
-            },
+            ChainId::Bsc | ChainId::Ethereum | ChainId::Polygon | ChainId::Base => {
+                let evm = chain.evm().expect("every EVM chain has parameters");
+                Client::Evm {
+                    rpc: Box::new(neko_evm::client::Rpc::new(evm, url)),
+                    history_key: api_key.filter(|k| !k.is_empty()),
+                    etherscan_key: etherscan_key.filter(|k| !k.is_empty()),
+                    // Built only when the chain says its coin is priced
+                    // somewhere else, and pointed at that chain's default node
+                    // rather than at the url configured for this one.
+                    price_rpc: evm
+                        .prices_on
+                        .map(|_| Box::new(neko_evm::client::Rpc::new(evm.price_chain(), None))),
+                }
+            }
             ChainId::Solana => Client::Solana(Box::new(neko_solana::client::Rpc::new(url))),
             // toncenter's public endpoint rate-limits hard enough to matter,
             // and takes a key to raise that - so unlike Solana's, this url and
@@ -472,14 +485,15 @@ async fn evm_quote(rpc: &neko_evm::client::Rpc, req: &TransferRequest) -> Result
 
     let chain = rpc.chain();
     let (to, value, data) = match req.asset {
-        Asset::Bnb | Asset::Eth | Asset::Pol => (
+        Asset::Bnb | Asset::Eth | Asset::Pol | Asset::BaseEth => (
             req.to.as_evm().map_err(|e| e.to_string())?,
             req.amount.raw as u128,
             Vec::new(),
         ),
         Asset::Bep20 { contract, decimals }
         | Asset::Erc20 { contract, decimals }
-        | Asset::PolygonErc20 { contract, decimals } => {
+        | Asset::PolygonErc20 { contract, decimals }
+        | Asset::BaseErc20 { contract, decimals } => {
             // Same reasoning as TRON's: ask the contract what it is before
             // trusting a built-in address.
             let (symbol, chain_decimals) = rpc
@@ -520,7 +534,10 @@ async fn evm_quote(rpc: &neko_evm::client::Rpc, req: &TransferRequest) -> Result
         chain: Box::new(chain),
         params,
         native_balance,
-        sending_native: matches!(req.asset, Asset::Bnb | Asset::Eth | Asset::Pol),
+        sending_native: matches!(
+            req.asset,
+            Asset::Bnb | Asset::Eth | Asset::Pol | Asset::BaseEth
+        ),
         amount: req.amount.raw as u128,
     })
 }
@@ -545,15 +562,22 @@ pub async fn native_price(c: &Client) -> Result<i128, String> {
             t.trx_price_in_usdt().await.map_err(|e| e.to_string())?,
             neko_tron::USDT_DECIMALS,
         ),
-        Client::Evm { rpc, .. } => (
-            rpc.native_price_in_usdt()
-                .await
-                .map_err(|e| e.to_string())?,
-            // Six on Ethereum, eighteen on BNB Chain: the pool answers in its
-            // own chain's USDT, and storing either figure directly would value
-            // one of them a million million times wrong.
-            rpc.chain().usdt_decimals,
-        ),
+        // Priced on this chain, unless it has none of its own - see
+        // `price_rpc`. The scale comes from whichever chain answered, not from
+        // the one being displayed: Base's coin is quoted in Ethereum's USDT.
+        Client::Evm { rpc, price_rpc, .. } => {
+            let pricing = price_rpc.as_deref().unwrap_or(rpc.as_ref());
+            (
+                pricing
+                    .native_price_in_usdt()
+                    .await
+                    .map_err(|e| e.to_string())?,
+                // Six on Ethereum, eighteen on BNB Chain: the pool answers in
+                // its own chain's USDT, and storing either figure directly
+                // would value one of them a million million times wrong.
+                pricing.chain().usdt_decimals,
+            )
+        }
         // Already normalised by the pool reader, which is handed the scale it
         // should answer at rather than a chain's own USDT precision.
         Client::Solana(rpc) => (
@@ -742,6 +766,7 @@ pub async fn history(
             rpc,
             history_key,
             etherscan_key,
+            ..
         } => {
             // A node's RPC cannot answer "what has this address done"; that
             // needs an index. Three of them, tried in the order of what the

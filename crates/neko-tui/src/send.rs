@@ -162,7 +162,9 @@ impl TronFee {
 /// about twice what it does, so both figures are carried and the screen shows
 /// the one that is true.
 pub struct EvmFee {
-    pub chain: neko_evm::EvmChain,
+    /// Boxed: a dozen static strings, and an unboxed copy makes every other
+    /// variant of `FeeQuote` as large as the heaviest.
+    pub chain: Box<neko_evm::EvmChain>,
     pub gas_limit: u64,
     pub fees: neko_evm::tx::Fees,
     /// `None` when the balance could not be read. Distinct from zero: one is a
@@ -772,7 +774,9 @@ impl SendState {
         let n = dest.chars().count();
         let complete = match self.chain() {
             ChainId::Tron => n == TRON_ADDRESS_LEN,
-            ChainId::Bsc | ChainId::Ethereum | ChainId::Polygon => n == EVM_ADDRESS_LEN,
+            ChainId::Bsc | ChainId::Ethereum | ChainId::Polygon | ChainId::Base => {
+                n == EVM_ADDRESS_LEN
+            }
             // A Solana address is 32 bytes in base58, and base58 shortens a
             // value with leading zero bytes - so there is no single length to
             // compare against, only a range.

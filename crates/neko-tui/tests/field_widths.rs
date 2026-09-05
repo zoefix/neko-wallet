@@ -15,9 +15,10 @@ use neko_tui::send::{SendState, SendStep};
 fn longest_address(chain: neko_core::ChainId) -> &'static str {
     match chain {
         neko_core::ChainId::Tron => "TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH",
-        neko_core::ChainId::Bsc | neko_core::ChainId::Ethereum | neko_core::ChainId::Polygon => {
-            "0xA41811CF4D41e306310CB82B47258C22b80475cC"
-        }
+        neko_core::ChainId::Bsc
+        | neko_core::ChainId::Ethereum
+        | neko_core::ChainId::Polygon
+        | neko_core::ChainId::Base => "0xA41811CF4D41e306310CB82B47258C22b80475cC",
         neko_core::ChainId::Solana => "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
         // P2WSH: 62 characters, the longest string this wallet ever has to
         // show in a field.

@@ -21,9 +21,10 @@ pub enum ChainId {
     Ethereum,
     Ton,
     Polygon,
+    Base,
 }
 
-pub const CHAINS: [ChainId; 7] = [
+pub const CHAINS: [ChainId; 8] = [
     ChainId::Tron,
     ChainId::Bsc,
     ChainId::Solana,
@@ -31,6 +32,7 @@ pub const CHAINS: [ChainId; 7] = [
     ChainId::Ethereum,
     ChainId::Ton,
     ChainId::Polygon,
+    ChainId::Base,
 ];
 
 impl ChainId {
@@ -44,6 +46,7 @@ impl ChainId {
             ChainId::Ethereum => "ethereum",
             ChainId::Ton => "ton",
             ChainId::Polygon => "polygon",
+            ChainId::Base => "base",
         }
     }
 
@@ -61,6 +64,7 @@ impl ChainId {
             // The network, which kept its name when the coin did not.
             ChainId::Ton => "TON",
             ChainId::Polygon => "Polygon",
+            ChainId::Base => "Base",
         }
     }
 
@@ -75,7 +79,7 @@ impl ChainId {
             ChainId::Bitcoin => neko_hd::COIN_TYPE_BTC,
             // 60, the same as BNB Chain's: every EVM chain shares Ethereum's
             // coin type, so one phrase gives the same address on all of them.
-            ChainId::Ethereum | ChainId::Polygon => neko_hd::derive::COIN_TYPE_EVM,
+            ChainId::Ethereum | ChainId::Polygon | ChainId::Base => neko_hd::derive::COIN_TYPE_EVM,
             ChainId::Ton => neko_hd::COIN_TYPE_TON,
         }
     }
@@ -93,6 +97,9 @@ impl ChainId {
             // Renamed from MATIC in September 2024, and the chain says so
             // itself: the wrapped native contract reports WPOL.
             ChainId::Polygon => neko_evm::POLYGON.native_symbol,
+            // ETH, the same coin as Ethereum's. Only the chain id separates a
+            // transfer on one from a transfer on the other.
+            ChainId::Base => neko_evm::BASE.native_symbol,
         }
     }
 
@@ -104,6 +111,7 @@ impl ChainId {
             ChainId::Bsc => neko_evm::BSC.native_decimals,
             ChainId::Ethereum => neko_evm::ETHEREUM.native_decimals,
             ChainId::Polygon => neko_evm::POLYGON.native_decimals,
+            ChainId::Base => neko_evm::BASE.native_decimals,
             ChainId::Ton => neko_ton::GRAM_DECIMALS,
             ChainId::Solana => neko_solana::SOL_DECIMALS,
             ChainId::Bitcoin => neko_btc::BTC_DECIMALS,
@@ -147,6 +155,10 @@ impl ChainId {
                 contract: neko_evm::POLYGON.usdt_address(),
                 decimals: neko_evm::POLYGON.usdt_decimals,
             }),
+            ChainId::Base => Some(Asset::BaseErc20 {
+                contract: neko_evm::BASE.usdt_address(),
+                decimals: neko_evm::BASE.usdt_decimals,
+            }),
             ChainId::Ton => Some(Asset::Jetton {
                 master: neko_ton::usdt_master(),
                 decimals: neko_ton::USDT_DECIMALS,
@@ -174,6 +186,7 @@ impl ChainId {
             ChainId::Bsc => Some(neko_evm::BSC),
             ChainId::Ethereum => Some(neko_evm::ETHEREUM),
             ChainId::Polygon => Some(neko_evm::POLYGON),
+            ChainId::Base => Some(neko_evm::BASE),
             ChainId::Tron | ChainId::Solana | ChainId::Bitcoin | ChainId::Ton => None,
         }
     }
@@ -198,6 +211,7 @@ impl ChainId {
             ChainId::Bitcoin => Asset::Btc,
             ChainId::Ethereum => Asset::Eth,
             ChainId::Polygon => Asset::Pol,
+            ChainId::Base => Asset::BaseEth,
             ChainId::Ton => Asset::Gram,
         }
     }
@@ -211,6 +225,7 @@ impl ChainId {
             ChainId::Bitcoin => format!("{}{id}", neko_btc::EXPLORER_TX),
             ChainId::Ethereum => format!("{}{id}", neko_evm::ETHEREUM.explorer_tx),
             ChainId::Polygon => format!("{}{id}", neko_evm::POLYGON.explorer_tx),
+            ChainId::Base => format!("{}{id}", neko_evm::BASE.explorer_tx),
             ChainId::Ton => format!("{}{id}", neko_ton::EXPLORER_TX),
         }
     }
@@ -233,6 +248,7 @@ pub enum ChainAddress {
     /// to the other two EVM chains' and the *chain* is what makes a
     /// destination right or wrong.
     Polygon(neko_hd::EvmAddress),
+    Base(neko_hd::EvmAddress),
     Ton(neko_ton::TonAddress),
 }
 
@@ -245,6 +261,7 @@ impl ChainAddress {
             ChainAddress::Bitcoin(_) => ChainId::Bitcoin,
             ChainAddress::Ethereum(_) => ChainId::Ethereum,
             ChainAddress::Polygon(_) => ChainId::Polygon,
+            ChainAddress::Base(_) => ChainId::Base,
             ChainAddress::Ton(_) => ChainId::Ton,
         }
     }
@@ -275,6 +292,9 @@ impl ChainAddress {
             ChainId::Polygon => neko_hd::EvmAddress::parse(s)
                 .map(ChainAddress::Polygon)
                 .map_err(|_| CoreError::BadAddress),
+            ChainId::Base => neko_hd::EvmAddress::parse(s)
+                .map(ChainAddress::Base)
+                .map_err(|_| CoreError::BadAddress),
             ChainId::Ton => neko_ton::TonAddress::parse(s)
                 .map(ChainAddress::Ton)
                 .map_err(|_| CoreError::BadAddress),
@@ -294,6 +314,7 @@ impl ChainAddress {
             ChainAddress::Bitcoin(a) => a.as_bytes(),
             ChainAddress::Ethereum(a) => a.as_bytes().to_vec(),
             ChainAddress::Polygon(a) => a.as_bytes().to_vec(),
+            ChainAddress::Base(a) => a.as_bytes().to_vec(),
             ChainAddress::Ton(a) => a.as_bytes(),
         }
     }
@@ -318,6 +339,9 @@ impl ChainAddress {
             ChainId::Polygon => neko_hd::EvmAddress::from_bytes(b)
                 .map(ChainAddress::Polygon)
                 .map_err(|_| CoreError::BadAddress),
+            ChainId::Base => neko_hd::EvmAddress::from_bytes(b)
+                .map(ChainAddress::Base)
+                .map_err(|_| CoreError::BadAddress),
             ChainId::Ton => neko_ton::TonAddress::from_bytes(b)
                 .map(ChainAddress::Ton)
                 .map_err(|_| CoreError::BadAddress),
@@ -336,7 +360,10 @@ impl ChainAddress {
     /// the right one.
     pub fn as_evm(&self) -> Result<neko_hd::EvmAddress, CoreError> {
         match self {
-            ChainAddress::Evm(a) | ChainAddress::Ethereum(a) | ChainAddress::Polygon(a) => Ok(*a),
+            ChainAddress::Evm(a)
+            | ChainAddress::Ethereum(a)
+            | ChainAddress::Polygon(a)
+            | ChainAddress::Base(a) => Ok(*a),
             _ => Err(CoreError::WrongChain),
         }
     }
@@ -371,6 +398,7 @@ impl std::fmt::Display for ChainAddress {
             ChainAddress::Solana(a) => write!(f, "{a}"),
             ChainAddress::Bitcoin(a) => write!(f, "{a}"),
             ChainAddress::Polygon(a) => write!(f, "{a}"),
+            ChainAddress::Base(a) => write!(f, "{a}"),
             ChainAddress::Ethereum(a) => write!(f, "{a}"),
             ChainAddress::Ton(a) => write!(f, "{a}"),
         }
@@ -407,6 +435,15 @@ pub enum Asset {
     Gram,
     /// Polygon's coin, renamed from MATIC in September 2024.
     Pol,
+    /// Base's coin, which is ETH - the same asset as [`Asset::Eth`], on a
+    /// different chain. Its own variant for the same reason Polygon's token
+    /// has one: `chain()` has to answer Base.
+    BaseEth,
+    /// A token on Base.
+    BaseErc20 {
+        contract: neko_hd::EvmAddress,
+        decimals: u8,
+    },
     /// A token on Polygon. Technically an ERC-20 like Ethereum's, and
     /// deliberately not the same variant: [`Asset::Erc20`] means *Ethereum's*,
     /// and one variant for both would make `chain()` answer Ethereum for a
@@ -433,6 +470,7 @@ impl Asset {
             Asset::Btc => ChainId::Bitcoin,
             Asset::Eth | Asset::Erc20 { .. } => ChainId::Ethereum,
             Asset::Pol | Asset::PolygonErc20 { .. } => ChainId::Polygon,
+            Asset::BaseEth | Asset::BaseErc20 { .. } => ChainId::Base,
             Asset::Gram | Asset::Jetton { .. } => ChainId::Ton,
         }
     }
@@ -443,6 +481,7 @@ impl Asset {
             Asset::Bnb => neko_evm::BSC.native_decimals,
             Asset::Eth => neko_evm::ETHEREUM.native_decimals,
             Asset::Pol => neko_evm::POLYGON.native_decimals,
+            Asset::BaseEth => neko_evm::BASE.native_decimals,
             Asset::Gram => neko_ton::GRAM_DECIMALS,
             Asset::Sol => neko_solana::SOL_DECIMALS,
             Asset::Btc => neko_btc::BTC_DECIMALS,
@@ -451,6 +490,7 @@ impl Asset {
             | Asset::SplToken { decimals, .. }
             | Asset::Erc20 { decimals, .. }
             | Asset::PolygonErc20 { decimals, .. }
+            | Asset::BaseErc20 { decimals, .. }
             | Asset::Jetton { decimals, .. } => decimals,
         }
     }
@@ -463,6 +503,7 @@ impl Asset {
             Asset::Btc => "BTC",
             Asset::Eth => "ETH",
             Asset::Pol => "POL",
+            Asset::BaseEth => "ETH",
             Asset::Gram => "GRAM",
             // Only USDT is known so far; when a second token is added this
             // has to carry its symbol rather than assume.
@@ -474,6 +515,7 @@ impl Asset {
             // people mean by USDT and it is shown as USDT; the name the
             // contract has is what the send path checks against the chain.
             | Asset::PolygonErc20 { .. }
+            | Asset::BaseErc20 { .. }
             | Asset::Jetton { .. } => "USDT",
         }
     }
@@ -499,6 +541,8 @@ impl Asset {
             | Asset::Erc20 { .. }
             | Asset::Pol
             | Asset::PolygonErc20 { .. }
+            | Asset::BaseEth
+            | Asset::BaseErc20 { .. }
             | Asset::Gram
             | Asset::Jetton { .. } => None,
         }
@@ -518,6 +562,7 @@ impl Asset {
                 | Asset::Btc
                 | Asset::Eth
                 | Asset::Pol
+                | Asset::BaseEth
                 | Asset::Gram
         )
     }

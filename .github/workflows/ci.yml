@@ -159,7 +159,8 @@ jobs:
           #   trongrid.io, bsc-dataseed,  the chain nodes, all configurable
           #   mainnet-beta.solana.com,
           #   ethereum-rpc.publicnode.com,
-          #   polygon-bor-rpc.publicnode.com
+          #   polygon-bor-rpc.publicnode.com,
+          #   base-rpc.publicnode.com
           #   blockstream.info          Bitcoin's is an *indexer*, not a node:
           #                             a node cannot say what an address
           #                             holds, so there is no version of this
@@ -190,7 +191,7 @@ jobs:
           #   tronscan / bscscan /      explorer links, copied for the user to
           #   solscan / etherscan /     open - this wallet never fetches them
           #   mempool.space / tonviewer
-          #   polygonscan
+          #   polygonscan / basescan
           #   tether.to                 named by TON's USDT as where its own
           #                             metadata lives. Read out of the
           #                             contract and never fetched: the wallet
@@ -211,7 +212,7 @@ jobs:
           # before and after each transaction.
           found="$(grep -rhoE 'https?://[a-zA-Z0-9._/-]+' crates/*/src \
                    | sort -u \
-                   | grep -vE 'trongrid\.io|bsc-dataseed|mainnet-beta\.solana\.com|ethereum-rpc\.publicnode\.com|polygon-bor-rpc\.publicnode\.com|polygonscan\.com|blockstream\.info|nodereal\.io|tronscan\.org|bscscan\.com|solscan\.io|etherscan\.io|mempool\.space|blockscout\.com|api\.etherscan\.io|toncenter\.com|tonviewer\.com|tether\.to|my-node\.example|x\.example|example\.invalid' || true)"
+                   | grep -vE 'trongrid\.io|bsc-dataseed|mainnet-beta\.solana\.com|ethereum-rpc\.publicnode\.com|polygon-bor-rpc\.publicnode\.com|polygonscan\.com|base-rpc\.publicnode\.com|basescan\.org|blockstream\.info|nodereal\.io|tronscan\.org|bscscan\.com|solscan\.io|etherscan\.io|mempool\.space|blockscout\.com|api\.etherscan\.io|toncenter\.com|tonviewer\.com|tether\.to|my-node\.example|x\.example|example\.invalid' || true)"
           if [ -n "$found" ]; then
             echo "::error::unexpected network destinations in the program:"
             printf '%s\n' "$found"

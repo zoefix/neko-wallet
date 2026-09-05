@@ -9,7 +9,7 @@
 どこへでもコピーできます。メールアドレスとパスワードで解錠しますが、
 その 2 つはどこにも保存されていません。
 
-マルチチェーン設計：TRON、Ethereum、BNB Chain、Polygon、Solana、Bitcoin、TON。
+マルチチェーン設計：TRON、Ethereum、BNB Chain、Polygon、Base、Solana、Bitcoin、TON。
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
@@ -141,6 +141,7 @@ BIP44 の導出パスはそのためのものです。チェーンを増やす�
 | Bitcoin | 動作 | BTC |
 | Ethereum | 動作 | ETH、USDT (ERC20) |
 | Polygon | 動作 | POL、USDT (ERC20) |
+| Base | 動作 | ETH、USDT (ERC20) |
 | TON | 動作 | GRAM、USDT (jetton) |
 
 Polygon も同じコインタイプを使うため、同じフレーズは 3 つの EVM チェーンで
@@ -158,6 +159,14 @@ USDT として表示します。署名前にチェーンと照合するのは、
 
 設定の **Etherscan API キー**は任意で、1 つでここの EVM チェーンすべてをまかないます。
 設定されていれば他より優先されます。
+
+Base は 4 つ目の EVM チェーンで、アドレスはやはり同じです。コインは ETH ——
+Ethereum と同じ資産で、両チェーンの送金を分けるのはチェーン ID だけです。できないのは
+そのコインの値付けです。Base 自身の Uniswap V2 WETH/USDT ペアは存在しますが、
+**合計で 17 ドルほど**しかなく、1 ETH の価値を尋ねると 17 という答えが返ります。
+Base の流動性は Aerodrome と Uniswap V3 にあり、どちらも同じインターフェースでは
+ないため、価格は Ethereum のプールから読みます。同じ資産で、しかも既に通信している
+チェーンです。BTC と同じ取り引きです。履歴は Polygon と同様 Blockscout から取得します。
 
 TON はここで唯一、**アドレスが鍵から導出されない**チェーンです。TON のウォレットは
 スマートコントラクトそのものであり、アドレスはそのコントラクトの初期コードとストレージの
@@ -453,7 +462,7 @@ neko-vault    鍵の階層、KDF プロファイル、パスワード方針、�
 neko-store    SQLCipher、マイグレーション、フィールド単位の封筒（鍵は導出しない）
 neko-hd       BIP39 / BIP32 / BIP44 と SLIP-0010、TRON / EVM / Solana アドレス
 neko-tron     TRON 専用: protobuf、取引の組み立てと署名、ノードクライアント
-neko-evm      Ethereum、BNB Chain、Polygon: RLP、EIP-155 と EIP-1559 署名、ABI、JSON-RPC
+neko-evm      Ethereum、BNB Chain、Polygon、Base: RLP、EIP-155/1559 署名、ABI、JSON-RPC
 neko-solana   Solana: Ed25519、取引エンコード、トークン口座、クラスタ RPC
 neko-btc      Bitcoin: bech32、segwit v0 署名、コイン選択、Esplora
 neko-ton      TON: cell と BoC、ウォレット v4R2、jetton、toncenter

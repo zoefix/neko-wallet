@@ -8,7 +8,7 @@ A self-custody encrypted crypto wallet for the terminal. Your whole wallet is
 one encrypted file — carry it on a USB stick, keep it on a network drive, copy
 it anywhere. Unlocked by an email and a password that are stored nowhere.
 
-Multi-chain by design: TRON, Ethereum, BNB Chain, Polygon, Solana, Bitcoin and TON.
+Multi-chain by design: TRON, Ethereum, BNB Chain, Polygon, Base, Solana, Bitcoin and TON.
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
@@ -141,6 +141,7 @@ phrase, or a new thing to back up.
 | Bitcoin | working | BTC |
 | Ethereum | working | ETH, USDT (ERC20) |
 | Polygon | working | POL, USDT (ERC20) |
+| Base | working | ETH, USDT (ERC20) |
 | TON | working | GRAM, USDT (jetton) |
 
 The same phrase gives a different address on each — that is correct and
@@ -182,6 +183,16 @@ same reason: `eth_getLogs` caps at ten thousand blocks, which on a chain with
 
 Setting an **Etherscan API key** is optional and covers every EVM chain here
 with one key; when it is set it is used in preference to the others.
+
+Base is the fourth EVM chain and shares that address again. Its coin is ETH —
+the same asset as Ethereum's, so only the chain id separates a transfer on one
+from a transfer on the other. What it cannot do is price that coin: its
+Uniswap-V2 WETH/USDT pair exists and holds about **seventeen dollars in
+total**, so asking it what an ether is worth returns roughly seventeen. Base's
+liquidity is on Aerodrome and Uniswap V3, neither of which speaks the same
+interface, so the price is read from Ethereum's pool instead — the same asset,
+on a chain this wallet already talks to. That is the trade BTC already makes.
+History comes from Blockscout, as Polygon's does.
 
 TON derives at `m/44'/607'/0'` and is the one chain here where **the address
 is not derived from the key**. A wallet on TON is a smart contract, and its
@@ -501,7 +512,7 @@ neko-vault    key hierarchy, KDF profiles, password policy, normalization
 neko-store    SQLCipher, migrations, field-level envelopes  (never derives keys)
 neko-hd       BIP39 / BIP32 / BIP44 and SLIP-0010; TRON, EVM, Solana and TON keys
 neko-tron     TRON only: protobuf, transaction building and signing, node client
-neko-evm      Ethereum, BNB Chain and Polygon: RLP, EIP-155 and EIP-1559 signing, ABI, JSON-RPC
+neko-evm      Ethereum, BNB Chain, Polygon and Base: RLP, EIP-155/1559 signing, ABI, JSON-RPC
 neko-solana   Solana: Ed25519, the wire format, token accounts, cluster RPC
 neko-btc      Bitcoin: bech32, segwit v0 signing, coin selection, Esplora
 neko-ton      TON: cells and bags of cells, wallet v4R2, jettons, toncenter

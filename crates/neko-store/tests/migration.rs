@@ -417,6 +417,7 @@ fn a_database_one_version_behind_catches_up_with_its_data() {
         include_str!("../migrations/0004_bitcoin.sql"),
         include_str!("../migrations/0005_ethereum.sql"),
         include_str!("../migrations/0006_ton.sql"),
+        include_str!("../migrations/0007_polygon.sql"),
     ] {
         conn.execute_batch(sql).unwrap();
     }
@@ -477,7 +478,7 @@ fn a_database_one_version_behind_catches_up_with_its_data() {
             |r| r.get(0),
         )
         .expect("the newest chain is not registered");
-    assert_eq!(slug, "polygon");
+    assert_eq!(slug, "base");
 }
 
 /// Polygon is the third chain to share Ethereum's coin type, and the first
@@ -515,4 +516,42 @@ fn the_migration_registers_polygon_with_pol() {
         .collect::<Result<_, _>>()
         .unwrap();
     assert_eq!(types, vec![60, 60, 60]);
+}
+
+/// Base is the fourth chain to share Ethereum's coin type, and the second
+/// whose coin is called ETH.
+#[test]
+fn the_migration_registers_base_with_eth() {
+    let conn = v1_with_a_funded_wallet();
+    neko_store::migrate::run(&conn).unwrap();
+
+    let (slug, coin): (String, i64) = conn
+        .query_row("SELECT slug, coin_type FROM chains WHERE id = 8", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .expect("no base row in chains");
+    assert_eq!(slug, "base");
+    assert_eq!(coin, 60);
+
+    let (sym, dec): (String, i64) = conn
+        .query_row(
+            "SELECT symbol, decimals FROM assets WHERE chain_id = 8 AND contract IS NULL",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .expect("no native asset for base");
+    assert_eq!(sym, "ETH", "the same coin as Ethereum's, on another chain");
+    assert_eq!(dec, 18);
+
+    // Two chains, one symbol. `assets` is keyed on (chain_id, symbol), so this
+    // is only legal because the symbol is not global - and a schema that
+    // assumed it was would have rejected this row.
+    let n: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM assets WHERE symbol = 'ETH' AND contract IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(n, 2, "Ethereum and Base both call their coin ETH");
 }

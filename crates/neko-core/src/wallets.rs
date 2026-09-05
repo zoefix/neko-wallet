@@ -207,6 +207,7 @@ impl Session {
                 ChainId::Polygon => {
                     ChainAddress::Polygon(derive::evm_address_from_private_key(&sk)?)
                 }
+                ChainId::Base => ChainAddress::Base(derive::evm_address_from_private_key(&sk)?),
                 ChainId::Solana => {
                     ChainAddress::Solana(neko_hd::solana::address_from_private_key(&sk)?)
                 }
@@ -229,6 +230,8 @@ impl Session {
             // And Polygon's, which is the same address again. Three EVM chains,
             // one coin type, one set of twenty bytes.
             ChainId::Polygon => ChainAddress::Polygon(derive::evm_address_at(&seed, 0, index)?),
+            // Four EVM chains now, one coin type, one set of twenty bytes.
+            ChainId::Base => ChainAddress::Base(derive::evm_address_at(&seed, 0, index)?),
             // SLIP-0010, hardened at every level, so the account level is what
             // varies rather than a change/index pair that cannot exist here.
             ChainId::Solana => ChainAddress::Solana(neko_hd::solana::address_at(&seed, index)?),
@@ -430,6 +433,7 @@ impl Session {
                 ChainId::Bsc => neko_evm::BSC.usdt_address().as_bytes().to_vec(),
                 ChainId::Ethereum => neko_evm::ETHEREUM.usdt_address().as_bytes().to_vec(),
                 ChainId::Polygon => neko_evm::POLYGON.usdt_address().as_bytes().to_vec(),
+                ChainId::Base => neko_evm::BASE.usdt_address().as_bytes().to_vec(),
                 ChainId::Ton => neko_ton::usdt_master().as_bytes(),
                 ChainId::Solana => neko_solana::usdt_mint().as_bytes().to_vec(),
                 // Unreachable: Bitcoin has no USDT, so this closure is never
@@ -455,6 +459,7 @@ fn db_chain_id(c: ChainId) -> i64 {
         ChainId::Ethereum => neko_store::repo::addresses::ETHEREUM_CHAIN_ID,
         ChainId::Ton => neko_store::repo::addresses::TON_CHAIN_ID,
         ChainId::Polygon => neko_store::repo::addresses::POLYGON_CHAIN_ID,
+        ChainId::Base => neko_store::repo::addresses::BASE_CHAIN_ID,
     }
 }
 

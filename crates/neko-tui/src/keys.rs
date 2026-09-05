@@ -743,6 +743,7 @@ fn cycle_setting(app: &mut App, forward: bool, tx: &Sender) {
         | SettingRow::BitcoinApi
         | SettingRow::EthRpc
         | SettingRow::PolygonRpc
+        | SettingRow::BaseRpc
         | SettingRow::TonApi => begin_edit(app, tx),
     }
 }
@@ -765,6 +766,7 @@ fn begin_edit(app: &mut App, _tx: &Sender) {
         | SettingRow::BitcoinApi
         | SettingRow::EthRpc
         | SettingRow::PolygonRpc
+        | SettingRow::BaseRpc
         | SettingRow::TonApi => st.editing = Some(Field::new(false)),
         _ => {}
     }
@@ -813,6 +815,7 @@ fn apply_text_setting(app: &mut App, row: crate::nav::SettingRow, value: &str) {
         | SettingRow::BitcoinApi
         | SettingRow::EthRpc
         | SettingRow::PolygonRpc
+        | SettingRow::BaseRpc
         | SettingRow::TonApi => set_node_url(app, row, value),
         _ => {}
     }
@@ -846,6 +849,7 @@ fn set_node_url(app: &mut App, row: crate::nav::SettingRow, value: &str) {
         SettingRow::BitcoinApi => (keys::BITCOIN_API, neko_i18n::Key::Settings_BitcoinApiSaved),
         SettingRow::EthRpc => (keys::ETH_RPC, neko_i18n::Key::Settings_EthRpcSaved),
         SettingRow::PolygonRpc => (keys::POLYGON_RPC, neko_i18n::Key::Settings_PolygonRpcSaved),
+        SettingRow::BaseRpc => (keys::BASE_RPC, neko_i18n::Key::Settings_BaseRpcSaved),
         SettingRow::TonApi => (keys::TON_API, neko_i18n::Key::Settings_TonApiSaved),
         _ => (keys::NODE_URL, neko_i18n::Key::Settings_NodeSaved),
     };
@@ -862,6 +866,7 @@ fn set_node_url(app: &mut App, row: crate::nav::SettingRow, value: &str) {
         SettingRow::BitcoinApi => app.bitcoin_api = stored,
         SettingRow::EthRpc => app.eth_rpc = stored,
         SettingRow::PolygonRpc => app.polygon_rpc = stored,
+        SettingRow::BaseRpc => app.base_rpc = stored,
         SettingRow::TonApi => app.ton_api = stored,
         _ => app.node_url = stored,
     }

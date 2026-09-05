@@ -61,6 +61,15 @@ pub struct EvmChain {
     /// every chain here. Saying so is better than naming a host that does not
     /// resolve and reporting it as the network being down.
     pub history_host: Option<&'static str>,
+    /// Where this chain's coin is priced, when it cannot be priced here.
+    ///
+    /// The chain id of another chain, or `None` to use this one's own pool.
+    /// Base is the reason: its coin is ETH, and its Uniswap-V2 WETH/USDT pool
+    /// holds about seventeen dollars in total, so `getAmountsOut` there
+    /// answers with a number that is not a price. The same coin has a deep
+    /// pool on Ethereum, which this wallet already talks to - the same trade
+    /// BTC already makes, quoted from BTCB on a chain that has an exchange.
+    pub prices_on: Option<u64>,
     /// A Blockscout instance for this chain, which indexes both coin and token
     /// movements and asks for no key.
     ///
@@ -90,6 +99,7 @@ pub const BSC: EvmChain = EvmChain {
     wrapped_native: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
     tx_type: TxType::Legacy,
     history_host: Some("https://bsc-mainnet.nodereal.io/v1"),
+    prices_on: None,
     blockscout: None,
 };
 
@@ -114,6 +124,7 @@ pub const ETHEREUM: EvmChain = EvmChain {
     wrapped_native: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
     tx_type: TxType::Eip1559,
     history_host: Some("https://eth-mainnet.nodereal.io/v1"),
+    prices_on: None,
     blockscout: None,
 };
 
@@ -150,8 +161,65 @@ pub const POLYGON: EvmChain = EvmChain {
     // hundreds of gwei is ordinary.
     tx_type: TxType::Eip1559,
     history_host: None,
+    prices_on: None,
     blockscout: Some("https://polygon.blockscout.com"),
 };
+
+/// Base.
+///
+/// An OP-stack rollup, and the fourth EVM chain here. Two things it does not
+/// share with the others:
+///
+/// * **Its coin is ETH**, the same ETH as Ethereum's, so one phrase gives one
+///   address and one coin across both - only the chain id separates a transfer
+///   on one from a transfer on the other.
+/// * **It cannot price that coin.** Its Uniswap-V2 WETH/USDT pair exists and
+///   holds 0.0069 WETH against 17 USDT, so asking it what an ETH is worth
+///   returns about seventeen. The liquidity here is on Aerodrome and Uniswap
+///   V3, neither of which speaks `getAmountsOut`. So the price comes from
+///   Ethereum, where the same asset has a pool worth millions.
+///
+/// Gas is paid in ETH and costs almost nothing: a base fee of five thousandths
+/// of a gwei is ordinary.
+pub const BASE: EvmChain = EvmChain {
+    chain_id: 8453,
+    native_symbol: "ETH",
+    native_decimals: 18,
+    // Tether USD, six decimals, and it says so - unlike Polygon's.
+    usdt: "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+    usdt_decimals: 6,
+    usdt_symbol: "USDT",
+    default_rpc: "https://base-rpc.publicnode.com",
+    explorer_tx: "https://basescan.org/tx/",
+    // Present and very nearly empty. Kept because it is the real address, and
+    // never asked for a price: `prices_on` sends that question elsewhere.
+    router: "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
+    wrapped_native: "0x4200000000000000000000000000000000000006",
+    tx_type: TxType::Eip1559,
+    history_host: None,
+    prices_on: Some(1),
+    blockscout: Some("https://base.blockscout.com"),
+};
+
+/// Every chain in this file, so a chain id can be turned back into its
+/// parameters without a chain of `if`s that forgets the newest one.
+pub const ALL: [EvmChain; 4] = [BSC, ETHEREUM, POLYGON, BASE];
+
+pub fn by_chain_id(id: u64) -> Option<EvmChain> {
+    ALL.into_iter().find(|c| c.chain_id == id)
+}
+
+impl EvmChain {
+    /// The chain whose pool prices this one's coin.
+    ///
+    /// Itself, unless [`Self::prices_on`] says otherwise.
+    pub fn price_chain(&self) -> EvmChain {
+        match self.prices_on.and_then(by_chain_id) {
+            Some(c) => c,
+            None => *self,
+        }
+    }
+}
 
 impl EvmChain {
     pub fn usdt_address(&self) -> EvmAddress {
@@ -186,7 +254,7 @@ mod tests {
     /// EIP-55 proves each is well-formed and that no character was transposed.
     #[test]
     fn every_constant_address_is_checksummed() {
-        for c in [BSC, ETHEREUM, POLYGON] {
+        for c in ALL {
             for s in [c.usdt, c.router, c.wrapped_native] {
                 assert_eq!(
                     EvmAddress::parse(s).unwrap().to_string(),
@@ -207,7 +275,8 @@ mod tests {
         assert_eq!(BSC.chain_id, 56);
         assert_eq!(ETHEREUM.chain_id, 1);
         assert_eq!(POLYGON.chain_id, 137);
-        let ids = [BSC.chain_id, ETHEREUM.chain_id, POLYGON.chain_id];
+        assert_eq!(BASE.chain_id, 8453);
+        let ids: Vec<u64> = ALL.iter().map(|c| c.chain_id).collect();
         for (i, a) in ids.iter().enumerate() {
             for b in &ids[i + 1..] {
                 assert_ne!(a, b, "two chains share a chain id");
@@ -220,7 +289,7 @@ mod tests {
             "read from the chain, not assumed"
         );
         assert_eq!(POLYGON.usdt_decimals, 6);
-        let usdt = [BSC.usdt, ETHEREUM.usdt, POLYGON.usdt];
+        let usdt: Vec<&str> = ALL.iter().map(|c| c.usdt).collect();
         for (i, a) in usdt.iter().enumerate() {
             for b in &usdt[i + 1..] {
                 assert_ne!(a, b, "different contracts entirely");
@@ -238,6 +307,39 @@ mod tests {
         assert_eq!(BSC.usdt_symbol, "USDT");
         assert_eq!(ETHEREUM.usdt_symbol, "USDT");
         assert_eq!(POLYGON.usdt_symbol, "USDT0");
+        assert_eq!(BASE.usdt_symbol, "USDT");
+    }
+
+    /// A coin that cannot be priced where it lives is priced somewhere it can.
+    ///
+    /// Base's own WETH/USDT pool held 0.0069 WETH against 17 USDT when this
+    /// was written, so asking it returns about seventeen dollars for an ether.
+    /// Every other chain here prices its own coin.
+    #[test]
+    fn base_prices_its_coin_on_ethereum() {
+        assert_eq!(BASE.prices_on, Some(ETHEREUM.chain_id));
+        assert_eq!(BASE.price_chain().chain_id, ETHEREUM.chain_id);
+        assert_eq!(BASE.price_chain().usdt_decimals, ETHEREUM.usdt_decimals);
+        // And it is the same coin, which is what makes the substitution honest
+        // rather than approximate.
+        assert_eq!(BASE.native_symbol, ETHEREUM.native_symbol);
+
+        for c in [BSC, ETHEREUM, POLYGON] {
+            assert_eq!(c.prices_on, None, "chain {} moved its pricing", c.chain_id);
+            assert_eq!(c.price_chain().chain_id, c.chain_id);
+        }
+    }
+
+    /// A chain id resolves to exactly one chain, and to the right one.
+    #[test]
+    fn a_chain_id_finds_its_parameters() {
+        for c in ALL {
+            assert_eq!(
+                by_chain_id(c.chain_id).map(|f| f.chain_id),
+                Some(c.chain_id)
+            );
+        }
+        assert_eq!(by_chain_id(999_999), None);
     }
 
     /// Not every chain has an index behind it, and the one without says so.
@@ -245,6 +347,8 @@ mod tests {
     fn a_chain_without_a_transfer_index_admits_it() {
         assert!(BSC.history_host.is_some());
         assert!(ETHEREUM.history_host.is_some());
+        assert_eq!(BASE.history_host, None);
+        assert!(BASE.blockscout.is_some(), "and Base reads from Blockscout");
         assert_eq!(
             POLYGON.history_host, None,
             "NodeReal serves no Polygon endpoint; naming one would fail as a network error"
@@ -257,6 +361,7 @@ mod tests {
     fn the_transaction_format_follows_the_fee_market() {
         assert_eq!(ETHEREUM.tx_type, TxType::Eip1559);
         assert_eq!(POLYGON.tx_type, TxType::Eip1559);
+        assert_eq!(BASE.tx_type, TxType::Eip1559);
         assert_eq!(BSC.tx_type, TxType::Legacy);
     }
 }

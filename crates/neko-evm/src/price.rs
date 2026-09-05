@@ -73,6 +73,16 @@ impl crate::client::Rpc {
     /// assume.
     pub async fn native_price_in_usdt(&self) -> Result<u128, EvmError> {
         let chain = self.chain();
+        // A chain that names somewhere else for its price has no pool worth
+        // reading here, and reading it anyway returns a number rather than an
+        // error - Base's answers about seventeen dollars for an ether. Refused
+        // rather than returned: the caller has to go to `price_chain()`.
+        if let Some(elsewhere) = chain.prices_on {
+            return Err(EvmError::Rpc(format!(
+                "chain {} has no pool for its own coin; it is priced on chain {elsewhere}",
+                chain.chain_id
+            )));
+        }
         let data = amounts_out_call(
             10u128.pow(chain.native_decimals as u32),
             chain.wrapped_native_address(),
@@ -155,5 +165,26 @@ mod tests {
         let w = word_addr(a);
         assert!(w[..12].iter().all(|b| *b == 0));
         assert_eq!(&w[12..], a.as_bytes());
+    }
+}
+
+#[cfg(test)]
+mod pricing_chain {
+    /// Base's pool is not a price, and asking for one has to fail rather than
+    /// answer.
+    ///
+    /// The pair exists - 0.0069 WETH against 17 USDT when this was written -
+    /// so `getAmountsOut` returns a number and nothing about the reply says it
+    /// is meaningless. That number was about 17, for an asset worth 2,447.
+    #[tokio::test]
+    async fn a_chain_that_prices_elsewhere_refuses_to_price_itself() {
+        let rpc = crate::client::Rpc::new(crate::BASE, None);
+        let err = rpc
+            .native_price_in_usdt()
+            .await
+            .expect_err("Base answered with its own empty pool");
+        let msg = err.to_string();
+        assert!(msg.contains("8453"), "{msg}");
+        assert!(msg.contains("priced on chain 1"), "{msg}");
     }
 }

@@ -43,7 +43,9 @@ fn state(asset: neko_core::Asset, balance: Option<i128>) -> SendState {
         neko_core::ChainId::Ton => (TON_MINE, TON_TO),
         // The same twenty bytes as BNB Chain's, which is the point.
         // The same twenty bytes on all three EVM chains, which is the point.
-        neko_core::ChainId::Ethereum | neko_core::ChainId::Polygon => (BSC_MINE, BSC_TO),
+        neko_core::ChainId::Ethereum | neko_core::ChainId::Polygon | neko_core::ChainId::Base => {
+            (BSC_MINE, BSC_TO)
+        }
     };
     let mut st = SendState::new(
         1,
@@ -59,7 +61,7 @@ fn state(asset: neko_core::Asset, balance: Option<i128>) -> SendState {
 
 fn bsc_quote(amount: u128, balance: Option<u128>) -> FeeQuote {
     FeeQuote::Evm(EvmFee {
-        chain: neko_evm::BSC,
+        chain: Box::new(neko_evm::BSC),
         gas_limit: GAS_LIMIT,
         fees: neko_evm::tx::Fees::Legacy {
             gas_price: GAS_PRICE,
@@ -351,7 +353,7 @@ const ETH_MAX_PER_GAS: u128 = 249_444_450;
 
 fn eth_quote(amount: u128) -> FeeQuote {
     FeeQuote::Evm(neko_tui::send::EvmFee {
-        chain: neko_evm::ETHEREUM,
+        chain: Box::new(neko_evm::ETHEREUM),
         gas_limit: ETH_GAS_LIMIT,
         fees: neko_evm::tx::Fees::Eip1559 {
             max_fee_per_gas: ETH_MAX_PER_GAS,
@@ -379,7 +381,7 @@ fn the_reserve_is_the_ceiling_and_the_total_is_the_price() {
     // On a chain with one gas price the two are the same number, and nothing
     // extra is held back.
     let legacy = FeeQuote::Evm(neko_tui::send::EvmFee {
-        chain: neko_evm::BSC,
+        chain: Box::new(neko_evm::BSC),
         gas_limit: GAS_LIMIT,
         fees: neko_evm::tx::Fees::Legacy {
             gas_price: GAS_PRICE,

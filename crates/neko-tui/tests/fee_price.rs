@@ -59,7 +59,9 @@ fn app_at_review(chain: neko_core::ChainId, quote: FeeQuote) -> App {
         neko_core::ChainId::Solana => (SOL_MINE, SOL_TO),
         neko_core::ChainId::Bitcoin => (BTC_MINE, BTC_TO),
         neko_core::ChainId::Ton => (TON_MINE, TON_TO),
-        neko_core::ChainId::Ethereum | neko_core::ChainId::Polygon => (BSC_MINE, BSC_TO),
+        neko_core::ChainId::Ethereum | neko_core::ChainId::Polygon | neko_core::ChainId::Base => {
+            (BSC_MINE, BSC_TO)
+        }
     };
     let mut st = SendState::new(
         1,
@@ -83,16 +85,17 @@ fn app_at_review(chain: neko_core::ChainId, quote: FeeQuote) -> App {
                 fee_limit: 100_000_000,
             }))
         }
-        neko_core::ChainId::Bsc | neko_core::ChainId::Ethereum | neko_core::ChainId::Polygon => {
-            neko_core::ChainTxParams::Evm(neko_evm::tx::TxParams {
-                nonce: 0,
-                gas_limit: 62_395,
-                chain_id: chain.evm().unwrap().chain_id,
-                fees: neko_evm::tx::Fees::Legacy {
-                    gas_price: 50_000_000,
-                },
-            })
-        }
+        neko_core::ChainId::Bsc
+        | neko_core::ChainId::Ethereum
+        | neko_core::ChainId::Polygon
+        | neko_core::ChainId::Base => neko_core::ChainTxParams::Evm(neko_evm::tx::TxParams {
+            nonce: 0,
+            gas_limit: 62_395,
+            chain_id: chain.evm().unwrap().chain_id,
+            fees: neko_evm::tx::Fees::Legacy {
+                gas_price: 50_000_000,
+            },
+        }),
         neko_core::ChainId::Solana => neko_core::ChainTxParams::Solana(neko_solana::tx::TxParams {
             recent_blockhash: [0x22; 32],
             compute_unit_limit: neko_solana::COMPUTE_UNITS_TOKEN_WITH_ATA,
@@ -132,7 +135,7 @@ fn app_at_review(chain: neko_core::ChainId, quote: FeeQuote) -> App {
 /// The exact quote from a real BEP-20 transfer: 62,395 gas at 0.05 gwei.
 fn bsc_quote() -> FeeQuote {
     FeeQuote::Evm(EvmFee {
-        chain: neko_evm::BSC,
+        chain: Box::new(neko_evm::BSC),
         gas_limit: 62_395,
         fees: neko_evm::tx::Fees::Legacy {
             gas_price: 50_000_000,

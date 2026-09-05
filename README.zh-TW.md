@@ -8,7 +8,7 @@
 插隨身碟帶走、放雲端硬碟、隨便拷到哪裡都行。用一個信箱加一個密碼解鎖，
 而這兩樣東西哪裡都沒有儲存。
 
-多鏈架構：TRON、Ethereum、BNB Chain、Polygon、Solana、Bitcoin、TON。
+多鏈架構：TRON、Ethereum、BNB Chain、Polygon、Base、Solana、Bitcoin、TON。
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
@@ -132,6 +132,7 @@ neko-wallet
 | Bitcoin | 可用 | BTC |
 | Ethereum | 可用 | ETH、USDT (ERC20) |
 | Polygon | 可用 | POL、USDT (ERC20) |
+| Base | 可用 | ETH、USDT (ERC20) |
 | TON | 可用 | GRAM、USDT (jetton) |
 
 Polygon 也用同一個幣種編號，所以同一句助記詞在三條 EVM 鏈上是**同一個位址**。
@@ -145,6 +146,13 @@ Polygon 也用同一個幣種編號，所以同一句助記詞在三條 EVM 鏈�
 何況原生轉帳根本不產生日誌。
 
 設定裡的 **Etherscan API 金鑰**是可選的，一把就夠這裡所有 EVM 鏈用；填了就優先用它。
+
+Base 是第四條 EVM 鏈，位址還是同一個。它的幣是 ETH —— 跟 Ethereum 是同一種資產，
+兩條鏈上的轉帳只靠 chain id 區分。它做不到的是給這個幣定價：它自己的 Uniswap V2
+WETH/USDT 池子確實存在，但**總共只有十七美元**，去問它一個 ETH 值多少，答案是十七。
+Base 的流動性在 Aerodrome 和 Uniswap V3 上，這兩個都不是同一套介面，所以價格改從
+Ethereum 的池子讀 —— 同一種資產，而且那條鏈本來就在聯繫。這跟 BTC 的做法是一樣的。
+歷史紀錄跟 Polygon 一樣走 Blockscout。
 
 TON 在這裡是唯一一條**位址不是從金鑰算出來的**鏈。TON 上的錢包本身就是一個智慧合約，
 位址是這個合約初始程式碼和儲存的雜湊。由此帶來的兩件事都擺在介面上，而不是等你自己撞上：
@@ -410,7 +418,7 @@ neko-vault    金鑰階層、KDF 檔位、密碼政策、正規化
 neko-store    SQLCipher、遷移、欄位級信封（永不推導金鑰）
 neko-hd       BIP39 / BIP32 / BIP44 與 SLIP-0010；TRON、EVM、Solana 地址編解碼
 neko-tron     僅 TRON：protobuf、交易組裝與簽章、節點用戶端
-neko-evm      Ethereum、BNB Chain 與 Polygon：RLP、EIP-155 與 EIP-1559 簽章、ABI、JSON-RPC
+neko-evm      Ethereum、BNB Chain、Polygon 與 Base：RLP、EIP-155/1559 簽章、ABI、JSON-RPC
 neko-solana   Solana：Ed25519、交易編碼、代幣帳戶、叢集 RPC
 neko-btc      Bitcoin：bech32、隔離見證簽章、選幣、Esplora
 neko-ton      TON：cell 與 BoC、錢包合約 v4R2、jetton、toncenter

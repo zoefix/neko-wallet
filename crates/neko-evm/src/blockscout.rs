@@ -12,6 +12,14 @@
 //!
 //! Two requests, because the chain keeps them apart: coin movements are
 //! transactions, token movements are events inside them.
+//!
+//! One limitation worth knowing. Each endpoint returns its newest fifty rows
+//! and the token this wallet knows is picked out of them here - the server's
+//! own `token=` filter times out on this instance and answers with nothing, so
+//! it is not used. An address buried in junk tokens can therefore have real
+//! transfers pushed out of that window. The filter is on the contract address,
+//! so nothing wrong is ever *shown*; the failure is a row missing, not a row
+//! invented.
 
 use neko_hd::EvmAddress;
 use serde_json::Value;
@@ -43,8 +51,11 @@ impl Blockscout {
                 .or(chain.blockscout)?
                 .trim_end_matches('/')
                 .to_string(),
+            // Longer than the RPC clients': this is an index answering a
+            // question about an address's whole past, not a node reading a
+            // balance, and it takes seconds rather than milliseconds.
             http: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
+                .timeout(std::time::Duration::from_secs(60))
                 .build()
                 .unwrap_or_default(),
         })
@@ -54,21 +65,40 @@ impl Blockscout {
         &self.base
     }
 
+    /// One request, retried: a public instance times out under load often
+    /// enough that a single attempt turns a working history screen into an
+    /// intermittent one.
     async fn get(&self, path: &str) -> Result<Value, EvmError> {
         let url = format!("{}/api/v2/{path}", self.base);
-        let resp = self
-            .http
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| EvmError::Network(e.to_string()))?;
-        let status = resp.status();
-        if !status.is_success() {
-            return Err(EvmError::Rpc(format!("{} answered {status}", self.base)));
+        let mut last = None;
+        for attempt in 0..3u32 {
+            if attempt > 0 {
+                tokio::time::sleep(std::time::Duration::from_secs(1 << (attempt - 1))).await;
+            }
+            let resp = match self.http.get(&url).send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    last = Some(EvmError::Network(e.to_string()));
+                    continue;
+                }
+            };
+            let status = resp.status();
+            if !status.is_success() {
+                // A 4xx is a decision and will be the same next time; a 5xx or
+                // a gateway timeout is worth another attempt.
+                let err = EvmError::Rpc(format!("{} answered {status}", self.base));
+                if status.is_client_error() {
+                    return Err(err);
+                }
+                last = Some(err);
+                continue;
+            }
+            match resp.json().await {
+                Ok(v) => return Ok(v),
+                Err(e) => last = Some(EvmError::BadReply(e.to_string())),
+            }
         }
-        resp.json()
-            .await
-            .map_err(|e| EvmError::BadReply(e.to_string()))
+        Err(last.unwrap_or_else(|| EvmError::Network("no attempt succeeded".into())))
     }
 
     /// Coin and token movements for one address, newest first.
