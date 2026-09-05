@@ -35,6 +35,10 @@ pub enum HdError {
     // this is not a mainnet address this program can pay.
     #[error("not a Bitcoin mainnet address")]
     BadBtcAddress,
+
+    // --- TON. Two text forms, and a testnet that uses the same alphabet.
+    #[error("not a TON mainnet address")]
+    BadTonAddress,
     #[error("not valid base58")]
     BadBase58,
     #[error("mnemonic is not valid BIP39")]

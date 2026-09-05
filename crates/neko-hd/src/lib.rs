@@ -20,7 +20,9 @@ pub mod bitcoin;
 pub mod derive;
 pub mod error;
 pub mod evm;
+pub mod slip10;
 pub mod solana;
+pub mod ton;
 
 pub use address::{Address, ADDRESS_LEN};
 pub use bitcoin::{BtcAddress, COIN_TYPE_BTC};
@@ -32,3 +34,4 @@ pub use derive::{
 pub use error::HdError;
 pub use evm::EvmAddress;
 pub use solana::{SolanaAddress, COIN_TYPE_SOLANA};
+pub use ton::COIN_TYPE_TON;
