@@ -756,7 +756,7 @@ impl App {
                         recipient_is_new,
                         ..
                     } => crate::send::FeeQuote::Tron(crate::send::TronFee {
-                        energy_base: energy.base,
+                        energy_base: energy.base(),
                         energy_penalty: energy.penalty,
                         bandwidth_needed,
                         available: resources.map(|r| {

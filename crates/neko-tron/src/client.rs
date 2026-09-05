@@ -57,17 +57,35 @@ pub struct Resources {
 }
 
 /// An energy estimate, split so the total can be explained.
+///
+/// The two figures are **not** addends. `charged` is the whole cost, and
+/// `penalty` says how much of it is the dynamic-energy surcharge - the node
+/// reports the surcharge as a breakdown of a figure it has already included.
+/// Adding them overstates a USDT transfer by about 77%: the chain charges
+/// 64,285 energy for a transfer to an existing holder, of which 49,635 is
+/// surcharge, and the sum comes to 113,920.
+///
+/// The field is named `charged` rather than `base` for that reason. It was
+/// called `base` once, read as "before the surcharge", and quietly added to.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct EnergyEstimate {
-    /// What the contract call itself costs.
-    pub base: i64,
-    /// The dynamic-energy surcharge applied to popular contracts.
+    /// What the chain will take, surcharge included.
+    pub charged: i64,
+    /// How much of `charged` is the dynamic-energy surcharge applied to
+    /// heavily used contracts.
     pub penalty: i64,
 }
 
 impl EnergyEstimate {
+    /// What the chain will take.
     pub fn total(&self) -> i64 {
-        self.base + self.penalty
+        self.charged
+    }
+
+    /// What the call would have cost without the surcharge. Shown beside it,
+    /// because a fee that is three quarters surcharge is worth explaining.
+    pub fn base(&self) -> i64 {
+        (self.charged - self.penalty).max(0)
     }
 }
 
@@ -331,13 +349,12 @@ impl TronGrid {
             )
             .await?;
         // `energy_penalty` is TRON's dynamic energy model: heavily used
-        // contracts are surcharged on top of their base cost. It is charged in
-        // addition to `energy_used`, and for USDT it is a large fraction of the
-        // total, so reporting only the base would understate the fee badly.
-        Ok(EnergyEstimate {
-            base: v.get("energy_used").and_then(Value::as_i64).unwrap_or(0),
-            penalty: v.get("energy_penalty").and_then(Value::as_i64).unwrap_or(0),
-        })
+        // contracts are surcharged, and USDT is the most used contract there
+        // is. The node reports the surcharge as a *breakdown* of `energy_used`,
+        // not as something to add to it - which the receipts confirm:
+        // `energy_usage_total` 64,285 with `energy_penalty_total` 49,635 is one
+        // charge of 64,285, not two totalling 113,920.
+        Ok(parse_energy(&v))
     }
 
     /// What this account can spend before it has to burn TRX.
@@ -548,9 +565,81 @@ fn be_u128(b: &[u8]) -> u128 {
     u128::from_be_bytes(out)
 }
 
+/// Read an energy estimate out of a `triggerconstantcontract` reply.
+///
+/// Split out so it can be tested against a real reply, because the thing that
+/// goes wrong here is not parsing but arithmetic - and no amount of reading the
+/// two field names tells you whether one contains the other.
+fn parse_energy(v: &Value) -> EnergyEstimate {
+    EnergyEstimate {
+        charged: v.get("energy_used").and_then(Value::as_i64).unwrap_or(0),
+        penalty: v.get("energy_penalty").and_then(Value::as_i64).unwrap_or(0),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The node's two energy figures are a total and a part of it, and this is
+    /// the reply that proves it.
+    ///
+    /// Both of these are real: the `triggerconstantcontract` reply for a USDT
+    /// transfer to an address that already holds the token, and the receipt of
+    /// a transfer that was actually sent. `energy_usage_total` on the receipt
+    /// is 64,285 - the same as `energy_used` here - while
+    /// `energy_penalty_total` is 49,635, the same as `energy_penalty`. One
+    /// charge, described twice.
+    #[test]
+    fn the_energy_penalty_is_part_of_the_total_not_added_to_it() {
+        let reply: Value = serde_json::from_str(
+            r#"{"result":{"result":true},"energy_used":64285,"energy_penalty":49635}"#,
+        )
+        .unwrap();
+        let e = parse_energy(&reply);
+
+        assert_eq!(e.total(), 64_285, "the chain charged 64,285 for this call");
+        assert_ne!(
+            e.total(),
+            113_920,
+            "the surcharge was added to a figure that already contained it"
+        );
+        assert_eq!(
+            e.base(),
+            14_650,
+            "what the call costs without the surcharge"
+        );
+        assert_eq!(e.base() + e.penalty, e.total());
+    }
+
+    /// The same, for a transfer to an address that has never held the token -
+    /// which pays for a storage slot as well. Receipt: `energy_usage_total`
+    /// 130,285 of which `energy_penalty_total` is 100,635.
+    #[test]
+    fn a_first_time_recipient_costs_more_and_still_is_not_a_sum() {
+        let reply: Value = serde_json::from_str(
+            r#"{"result":{"result":true},"energy_used":130285,"energy_penalty":100635}"#,
+        )
+        .unwrap();
+        let e = parse_energy(&reply);
+        assert_eq!(e.total(), 130_285);
+        assert_eq!(e.base(), 29_650, "the documented cost of creating the slot");
+    }
+
+    /// A reply with no surcharge at all - an ordinary contract, or the model
+    /// switched off - must not read as a negative base.
+    #[test]
+    fn no_surcharge_leaves_the_base_alone() {
+        let reply: Value =
+            serde_json::from_str(r#"{"energy_used":29650,"energy_penalty":0}"#).unwrap();
+        let e = parse_energy(&reply);
+        assert_eq!(e.total(), 29_650);
+        assert_eq!(e.base(), 29_650);
+
+        // And a reply that omits them entirely is zero, not a panic.
+        let empty: Value = serde_json::from_str("{}").unwrap();
+        assert_eq!(parse_energy(&empty), EnergyEstimate::default());
+    }
 
     #[test]
     fn business_errors_are_never_retried() {

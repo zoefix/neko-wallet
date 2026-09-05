@@ -145,8 +145,11 @@ fn bsc_quote() -> FeeQuote {
 
 fn tron_quote() -> FeeQuote {
     FeeQuote::Tron(TronFee {
-        energy_base: 64_285,
-        energy_penalty: 113_920 - 64_285,
+        // A real USDT transfer: 64,285 energy charged, of which 49,635 is the
+        // dynamic-energy surcharge. The two are a total and a part of it - see
+        // `neko_tron::EnergyEstimate`.
+        energy_base: 64_285 - 49_635,
+        energy_penalty: 49_635,
         bandwidth_needed: 345,
         available: Some(((0, 131_016), (600, 600))),
         prices: Some((100, 1000)),
@@ -187,9 +190,9 @@ fn a_tron_burn_is_priced_in_usdt() {
     let out = render(&app, 135, 40);
 
     // Bandwidth is covered here, so the burn is energy alone:
-    // 11.392 TRX x 0.330325 = 3.763062 USDT, shown to cents.
-    assert!(out.contains("11.392"), "burn in TRX missing:\n{out}");
-    assert!(out.contains("3.76 USDT"), "burn is not priced:\n{out}");
+    // 64,285 x 100 sun = 6.4285 TRX, x 0.330325 = 2.123494 USDT, to cents.
+    assert!(out.contains("6.4285"), "burn in TRX missing:\n{out}");
+    assert!(out.contains("2.12 USDT"), "burn is not priced:\n{out}");
 }
 
 /// An unknown price is not a free transfer. Saying nothing is the only honest

@@ -43,11 +43,16 @@ pub const TON_ADDRESS_LEN: usize = 48;
 /// an account with staked energy and costly for one without. Showing what is
 /// needed alongside what is held is what makes the number mean anything.
 pub struct TronFee {
-    /// Base cost of the contract call.
+    /// What the contract call would cost without the surcharge.
+    ///
+    /// Derived by subtraction, from a node that reports the total and the
+    /// surcharge within it - see [`neko_tron::EnergyEstimate`]. These two
+    /// fields *are* addends, and the estimate's are not; keeping the split
+    /// here is what lets the screen say where the number comes from.
     pub energy_base: i64,
-    /// TRON's dynamic-energy surcharge on heavily used contracts. For USDT this
-    /// is a large fraction of the total, and it is why the figure looks nothing
-    /// like the numbers quoted in older documentation.
+    /// TRON's dynamic-energy surcharge on heavily used contracts. For USDT it
+    /// is over three quarters of the charge - 49,635 of 64,285 - which is why
+    /// the figure looks nothing like the numbers quoted in older documentation.
     pub energy_penalty: i64,
     pub bandwidth_needed: i64,
     /// `None` when the account's resources could not be read. Distinct from
@@ -60,10 +65,11 @@ pub struct TronFee {
     pub available: Option<((i64, i64), (i64, i64))>,
     /// `None` when the chain's burn prices could not be read.
     pub prices: Option<(i64, i64)>,
-    /// A first-time recipient pays to create a storage slot, which measured
-    /// (mainnet, 2026-09) as 230,920 energy against 113,920 for an address that
-    /// already holds the token — roughly double, not the 15x quoted in older
-    /// documentation.
+    /// A first-time recipient pays to create a storage slot, which real mainnet
+    /// receipts (2026-09) put at 130,285 energy against 64,285 for an address
+    /// that already holds the token — roughly double, not the 15x quoted in
+    /// older documentation. Both figures include the dynamic-energy surcharge,
+    /// which is most of each.
     pub recipient_is_new: bool,
 }
 
@@ -104,6 +110,9 @@ impl TronFee {
 
     /// With holdings unknown, assume none: the resulting figure is an upper
     /// bound, which the UI labels as such rather than passing it off as exact.
+    ///
+    /// The surcharge is added *here*, to a base this side computed, rather than
+    /// to the node's own figure - which already contains it.
     pub fn energy_needed(&self) -> i64 {
         self.energy_base + self.energy_penalty
     }
