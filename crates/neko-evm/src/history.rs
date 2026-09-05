@@ -129,9 +129,9 @@ impl Bsctrace {
 
         let mut all = Vec::new();
         let mut errors = Vec::new();
-        for r in [out_v, in_v] {
+        for (r, outgoing) in [(out_v, true), (in_v, false)] {
             match r {
-                Ok(v) => all.extend(parse(&v, self.chain, token)),
+                Ok(v) => all.extend(parse_direction(&v, self.chain, token, outgoing)),
                 Err(e) => errors.push(e),
             }
         }
@@ -176,6 +176,29 @@ pub fn request(direction: &str, address: &str) -> Value {
         "excludeZeroValue": false,
         "order": "desc",
     })
+}
+
+/// One direction's reply, reduced to the transfers worth listing.
+///
+/// A transfer of nothing, *out* of this address, is not something this address
+/// did. On an EVM chain a token transfer is a contract call carrying zero
+/// native coin, and the provider reports it under both categories - so every
+/// token transfer came back twice: once as itself, and once as "sent 0 ETH"
+/// with the same timestamp.
+///
+/// Incoming zeroes are kept. A zero-value transfer *to* you is how an address
+/// gets into your history, and the dust filter already hides those behind a key
+/// rather than discarding them.
+pub fn parse_direction(
+    result: &Value,
+    chain: crate::EvmChain,
+    token: EvmAddress,
+    outgoing: bool,
+) -> Vec<Transfer> {
+    parse(result, chain, token)
+        .into_iter()
+        .filter(|t| !outgoing || t.amount != 0)
+        .collect()
 }
 
 /// The address a native transfer reports instead of a contract.
@@ -457,5 +480,79 @@ mod filtering {
             "0x1",
         )]});
         assert_eq!(parse(&v, crate::ETHEREUM, usdt()).len(), 1);
+    }
+}
+
+/// One token transfer must produce one row.
+#[cfg(test)]
+mod one_row_per_transfer {
+    use super::*;
+
+    const MINE: &str = "0xa41811cf4d41e306310cb82b47258c22b80475cc";
+    const THEM: &str = "0x74224e8d997f1c438cbfd2ce147c8bbdcd5fa0c8";
+    const HASH: &str = "0x09bb3994d69ac3e1000000000000000000000000000000000000000000000000";
+
+    fn row(
+        category: &str,
+        contract: &str,
+        asset: &str,
+        value: &str,
+        from: &str,
+        to: &str,
+    ) -> Value {
+        serde_json::json!({
+            "category": category, "contractAddress": contract, "asset": asset,
+            "from": from, "to": to, "value": value, "hash": HASH,
+            "blockTimeStamp": 1_788_571_067i64, "receiptsStatus": 1,
+        })
+    }
+
+    /// Exactly what the provider returns for one USDT transfer: the token
+    /// movement, and the transaction that carried it with no coin in it.
+    #[test]
+    fn a_token_transfer_is_not_also_a_zero_coin_transfer() {
+        let v = serde_json::json!({"transfers": [
+            row("external", "0x0000000000000000000000000000000000000000", "ETH", "0x0", MINE, THEM),
+            row("20", "0xdAC17F958D2ee523a2206206994597C13D831ec7", "USDT", "0x47b760", MINE, THEM),
+        ]});
+        let usdt = crate::ETHEREUM.usdt_address();
+
+        // Unfiltered, both rows are there - which is what was on screen.
+        assert_eq!(parse(&v, crate::ETHEREUM, usdt).len(), 2);
+
+        let got = parse_direction(&v, crate::ETHEREUM, usdt, true);
+        assert_eq!(got.len(), 1, "the transfer was listed twice");
+        assert_eq!(got[0].symbol, "USDT");
+        assert_eq!(got[0].amount, 4_700_000);
+    }
+
+    /// A real coin transfer is not a zero, and must survive untouched.
+    #[test]
+    fn a_real_coin_transfer_is_kept() {
+        let v = serde_json::json!({"transfers": [row(
+            "external", "0x0000000000000000000000000000000000000000",
+            "ETH", "0x06d492a3e1a134", MINE, THEM,
+        )]});
+        let got = parse_direction(&v, crate::ETHEREUM, crate::ETHEREUM.usdt_address(), true);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].amount, 1_922_576_140_050_740);
+    }
+
+    /// The other direction keeps its zeroes: a zero-value transfer *to* you is
+    /// how somebody gets their address into your history, and the dust filter
+    /// is what decides whether to show it - not this.
+    #[test]
+    fn an_incoming_zero_is_kept_for_the_dust_filter() {
+        let v = serde_json::json!({"transfers": [row(
+            "20", "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+            "USDT", "0x0", THEM, MINE,
+        )]});
+        let got = parse_direction(&v, crate::ETHEREUM, crate::ETHEREUM.usdt_address(), false);
+        assert_eq!(
+            got.len(),
+            1,
+            "a poisoning attempt was discarded rather than hidden"
+        );
+        assert_eq!(got[0].amount, 0);
     }
 }
