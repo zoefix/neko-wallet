@@ -23,6 +23,7 @@ pub mod keys {
     /// answer what an address holds - so this is the only server being asked.
     pub const BITCOIN_API: &str = "bitcoin_api";
     pub const ETH_RPC: &str = "eth_rpc";
+    pub const POLYGON_RPC: &str = "polygon_rpc";
     /// toncenter. Like Esplora, this is not an alternative to asking a node -
     /// reading a TON balance means running a contract's own method, which needs
     /// a full node's index behind it.

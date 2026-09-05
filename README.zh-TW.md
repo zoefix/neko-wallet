@@ -8,7 +8,7 @@
 插隨身碟帶走、放雲端硬碟、隨便拷到哪裡都行。用一個信箱加一個密碼解鎖，
 而這兩樣東西哪裡都沒有儲存。
 
-多鏈架構：TRON、Ethereum、BNB Chain、Solana、Bitcoin、TON。
+多鏈架構：TRON、Ethereum、BNB Chain、Polygon、Solana、Bitcoin、TON。
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
@@ -131,7 +131,16 @@ neko-wallet
 | Solana | 可用 | SOL、USDT (SPL) |
 | Bitcoin | 可用 | BTC |
 | Ethereum | 可用 | ETH、USDT (ERC20) |
+| Polygon | 可用 | POL、USDT (ERC20) |
 | TON | 可用 | GRAM、USDT (jetton) |
+
+Polygon 也用同一個幣種編號，所以同一句助記詞在三條 EVM 鏈上是**同一個位址**。
+它有兩件自己的事。它的幣叫 **POL**，2024 年 9 月從 MATIC 改名 —— 這一點是鏈自己說的，
+也是這個錢包判斷的依據：包裝後的原生代幣合約報的是 `WPOL`。它的 USDT 合約自稱
+**`USDT0`**，因為 Tether 把 Polygon 上的供應遷到了全鏈版本。它就是大家說的那個 USDT，
+錢包也照 USDT 顯示；簽章前拿去跟鏈核對的，是合約實際叫什麼。Polygon 還是這裡唯一
+**沒有可用轉帳索引**的鏈，所以歷史紀錄介面會直說，而不是叫你去設定一把根本沒用的
+金鑰 —— 餘額、手續費、價格和轉帳都不受影響。
 
 TON 在這裡是唯一一條**位址不是從金鑰算出來的**鏈。TON 上的錢包本身就是一個智慧合約，
 位址是這個合約初始程式碼和儲存的雜湊。由此帶來的兩件事都擺在介面上，而不是等你自己撞上：
@@ -397,7 +406,7 @@ neko-vault    金鑰階層、KDF 檔位、密碼政策、正規化
 neko-store    SQLCipher、遷移、欄位級信封（永不推導金鑰）
 neko-hd       BIP39 / BIP32 / BIP44 與 SLIP-0010；TRON、EVM、Solana 地址編解碼
 neko-tron     僅 TRON：protobuf、交易組裝與簽章、節點用戶端
-neko-evm      Ethereum 與 BNB Chain：RLP、EIP-155 與 EIP-1559 簽章、ABI、JSON-RPC
+neko-evm      Ethereum、BNB Chain 與 Polygon：RLP、EIP-155 與 EIP-1559 簽章、ABI、JSON-RPC
 neko-solana   Solana：Ed25519、交易編碼、代幣帳戶、叢集 RPC
 neko-btc      Bitcoin：bech32、隔離見證簽章、選幣、Esplora
 neko-ton      TON：cell 與 BoC、錢包合約 v4R2、jetton、toncenter

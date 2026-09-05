@@ -20,15 +20,17 @@ pub enum ChainId {
     Bitcoin,
     Ethereum,
     Ton,
+    Polygon,
 }
 
-pub const CHAINS: [ChainId; 6] = [
+pub const CHAINS: [ChainId; 7] = [
     ChainId::Tron,
     ChainId::Bsc,
     ChainId::Solana,
     ChainId::Bitcoin,
     ChainId::Ethereum,
     ChainId::Ton,
+    ChainId::Polygon,
 ];
 
 impl ChainId {
@@ -41,6 +43,7 @@ impl ChainId {
             ChainId::Bitcoin => "bitcoin",
             ChainId::Ethereum => "ethereum",
             ChainId::Ton => "ton",
+            ChainId::Polygon => "polygon",
         }
     }
 
@@ -57,6 +60,7 @@ impl ChainId {
             ChainId::Ethereum => "Ethereum",
             // The network, which kept its name when the coin did not.
             ChainId::Ton => "TON",
+            ChainId::Polygon => "Polygon",
         }
     }
 
@@ -71,7 +75,7 @@ impl ChainId {
             ChainId::Bitcoin => neko_hd::COIN_TYPE_BTC,
             // 60, the same as BNB Chain's: every EVM chain shares Ethereum's
             // coin type, so one phrase gives the same address on all of them.
-            ChainId::Ethereum => neko_hd::derive::COIN_TYPE_EVM,
+            ChainId::Ethereum | ChainId::Polygon => neko_hd::derive::COIN_TYPE_EVM,
             ChainId::Ton => neko_hd::COIN_TYPE_TON,
         }
     }
@@ -86,6 +90,9 @@ impl ChainId {
             // Renamed from Toncoin on 15 June 2026, back to the name it had in
             // Telegram's 2018 whitepaper. Only the ticker changed.
             ChainId::Ton => "GRAM",
+            // Renamed from MATIC in September 2024, and the chain says so
+            // itself: the wrapped native contract reports WPOL.
+            ChainId::Polygon => neko_evm::POLYGON.native_symbol,
         }
     }
 
@@ -96,6 +103,7 @@ impl ChainId {
             ChainId::Tron => neko_tron::TRX_DECIMALS,
             ChainId::Bsc => neko_evm::BSC.native_decimals,
             ChainId::Ethereum => neko_evm::ETHEREUM.native_decimals,
+            ChainId::Polygon => neko_evm::POLYGON.native_decimals,
             ChainId::Ton => neko_ton::GRAM_DECIMALS,
             ChainId::Solana => neko_solana::SOL_DECIMALS,
             ChainId::Bitcoin => neko_btc::BTC_DECIMALS,
@@ -133,6 +141,12 @@ impl ChainId {
                 contract: neko_evm::ETHEREUM.usdt_address(),
                 decimals: neko_evm::ETHEREUM.usdt_decimals,
             }),
+            // Six decimals like Ethereum's, and a contract that calls itself
+            // USDT0 - see `neko_evm::POLYGON`.
+            ChainId::Polygon => Some(Asset::PolygonErc20 {
+                contract: neko_evm::POLYGON.usdt_address(),
+                decimals: neko_evm::POLYGON.usdt_decimals,
+            }),
             ChainId::Ton => Some(Asset::Jetton {
                 master: neko_ton::usdt_master(),
                 decimals: neko_ton::USDT_DECIMALS,
@@ -159,8 +173,21 @@ impl ChainId {
         match self {
             ChainId::Bsc => Some(neko_evm::BSC),
             ChainId::Ethereum => Some(neko_evm::ETHEREUM),
+            ChainId::Polygon => Some(neko_evm::POLYGON),
             ChainId::Tron | ChainId::Solana | ChainId::Bitcoin | ChainId::Ton => None,
         }
+    }
+
+    /// Which of these chains carries this EVM chain id.
+    ///
+    /// The reverse of [`Self::evm`], and it exists so that turning a client
+    /// back into a `ChainId` is a lookup rather than a guess. That code used to
+    /// read "if it is Ethereum's id then Ethereum, otherwise BNB Chain", which
+    /// answered BNB Chain for every EVM chain added after it.
+    pub fn from_evm_chain_id(id: u64) -> Option<Self> {
+        CHAINS
+            .into_iter()
+            .find(|c| c.evm().is_some_and(|e| e.chain_id == id))
     }
 
     pub fn native(self) -> Asset {
@@ -170,6 +197,7 @@ impl ChainId {
             ChainId::Solana => Asset::Sol,
             ChainId::Bitcoin => Asset::Btc,
             ChainId::Ethereum => Asset::Eth,
+            ChainId::Polygon => Asset::Pol,
             ChainId::Ton => Asset::Gram,
         }
     }
@@ -182,6 +210,7 @@ impl ChainId {
             ChainId::Solana => format!("https://solscan.io/tx/{id}"),
             ChainId::Bitcoin => format!("{}{id}", neko_btc::EXPLORER_TX),
             ChainId::Ethereum => format!("{}{id}", neko_evm::ETHEREUM.explorer_tx),
+            ChainId::Polygon => format!("{}{id}", neko_evm::POLYGON.explorer_tx),
             ChainId::Ton => format!("{}{id}", neko_ton::EXPLORER_TX),
         }
     }
@@ -200,6 +229,10 @@ pub enum ChainAddress {
     /// Ethereum send form has to be a decision rather than a coincidence that
     /// happens to parse.
     Ethereum(neko_hd::EvmAddress),
+    /// Likewise its own variant, for the same reason: the bytes are identical
+    /// to the other two EVM chains' and the *chain* is what makes a
+    /// destination right or wrong.
+    Polygon(neko_hd::EvmAddress),
     Ton(neko_ton::TonAddress),
 }
 
@@ -211,6 +244,7 @@ impl ChainAddress {
             ChainAddress::Solana(_) => ChainId::Solana,
             ChainAddress::Bitcoin(_) => ChainId::Bitcoin,
             ChainAddress::Ethereum(_) => ChainId::Ethereum,
+            ChainAddress::Polygon(_) => ChainId::Polygon,
             ChainAddress::Ton(_) => ChainId::Ton,
         }
     }
@@ -238,6 +272,9 @@ impl ChainAddress {
             ChainId::Ethereum => neko_hd::EvmAddress::parse(s)
                 .map(ChainAddress::Ethereum)
                 .map_err(|_| CoreError::BadAddress),
+            ChainId::Polygon => neko_hd::EvmAddress::parse(s)
+                .map(ChainAddress::Polygon)
+                .map_err(|_| CoreError::BadAddress),
             ChainId::Ton => neko_ton::TonAddress::parse(s)
                 .map(ChainAddress::Ton)
                 .map_err(|_| CoreError::BadAddress),
@@ -256,6 +293,7 @@ impl ChainAddress {
             // address types that share the same 20 bytes.
             ChainAddress::Bitcoin(a) => a.as_bytes(),
             ChainAddress::Ethereum(a) => a.as_bytes().to_vec(),
+            ChainAddress::Polygon(a) => a.as_bytes().to_vec(),
             ChainAddress::Ton(a) => a.as_bytes(),
         }
     }
@@ -277,6 +315,9 @@ impl ChainAddress {
             ChainId::Ethereum => neko_hd::EvmAddress::from_bytes(b)
                 .map(ChainAddress::Ethereum)
                 .map_err(|_| CoreError::BadAddress),
+            ChainId::Polygon => neko_hd::EvmAddress::from_bytes(b)
+                .map(ChainAddress::Polygon)
+                .map_err(|_| CoreError::BadAddress),
             ChainId::Ton => neko_ton::TonAddress::from_bytes(b)
                 .map(ChainAddress::Ton)
                 .map_err(|_| CoreError::BadAddress),
@@ -290,12 +331,12 @@ impl ChainAddress {
         }
     }
 
-    /// Either EVM chain's address. The bytes are the same shape; which chain
-    /// they belong to is settled by the variant, and by the caller having asked
-    /// for the right one.
+    /// Any EVM chain's address. The bytes are the same shape; which chain they
+    /// belong to is settled by the variant, and by the caller having asked for
+    /// the right one.
     pub fn as_evm(&self) -> Result<neko_hd::EvmAddress, CoreError> {
         match self {
-            ChainAddress::Evm(a) | ChainAddress::Ethereum(a) => Ok(*a),
+            ChainAddress::Evm(a) | ChainAddress::Ethereum(a) | ChainAddress::Polygon(a) => Ok(*a),
             _ => Err(CoreError::WrongChain),
         }
     }
@@ -329,6 +370,7 @@ impl std::fmt::Display for ChainAddress {
             ChainAddress::Evm(a) => write!(f, "{a}"),
             ChainAddress::Solana(a) => write!(f, "{a}"),
             ChainAddress::Bitcoin(a) => write!(f, "{a}"),
+            ChainAddress::Polygon(a) => write!(f, "{a}"),
             ChainAddress::Ethereum(a) => write!(f, "{a}"),
             ChainAddress::Ton(a) => write!(f, "{a}"),
         }
@@ -363,6 +405,17 @@ pub enum Asset {
         decimals: u8,
     },
     Gram,
+    /// Polygon's coin, renamed from MATIC in September 2024.
+    Pol,
+    /// A token on Polygon. Technically an ERC-20 like Ethereum's, and
+    /// deliberately not the same variant: [`Asset::Erc20`] means *Ethereum's*,
+    /// and one variant for both would make `chain()` answer Ethereum for a
+    /// Polygon balance - which is the quiet kind of wrong that sends a transfer
+    /// to the right address on the wrong chain.
+    PolygonErc20 {
+        contract: neko_hd::EvmAddress,
+        decimals: u8,
+    },
     /// A jetton. `master` is the token's own contract; the balance lives in a
     /// separate per-holder wallet contract derived from both.
     Jetton {
@@ -379,6 +432,7 @@ impl Asset {
             Asset::Sol | Asset::SplToken { .. } => ChainId::Solana,
             Asset::Btc => ChainId::Bitcoin,
             Asset::Eth | Asset::Erc20 { .. } => ChainId::Ethereum,
+            Asset::Pol | Asset::PolygonErc20 { .. } => ChainId::Polygon,
             Asset::Gram | Asset::Jetton { .. } => ChainId::Ton,
         }
     }
@@ -388,6 +442,7 @@ impl Asset {
             Asset::Trx => neko_tron::TRX_DECIMALS,
             Asset::Bnb => neko_evm::BSC.native_decimals,
             Asset::Eth => neko_evm::ETHEREUM.native_decimals,
+            Asset::Pol => neko_evm::POLYGON.native_decimals,
             Asset::Gram => neko_ton::GRAM_DECIMALS,
             Asset::Sol => neko_solana::SOL_DECIMALS,
             Asset::Btc => neko_btc::BTC_DECIMALS,
@@ -395,6 +450,7 @@ impl Asset {
             | Asset::Bep20 { decimals, .. }
             | Asset::SplToken { decimals, .. }
             | Asset::Erc20 { decimals, .. }
+            | Asset::PolygonErc20 { decimals, .. }
             | Asset::Jetton { decimals, .. } => decimals,
         }
     }
@@ -406,6 +462,7 @@ impl Asset {
             Asset::Sol => "SOL",
             Asset::Btc => "BTC",
             Asset::Eth => "ETH",
+            Asset::Pol => "POL",
             Asset::Gram => "GRAM",
             // Only USDT is known so far; when a second token is added this
             // has to carry its symbol rather than assume.
@@ -413,6 +470,10 @@ impl Asset {
             | Asset::Bep20 { .. }
             | Asset::SplToken { .. }
             | Asset::Erc20 { .. }
+            // Polygon's contract calls itself USDT0. It is the same token
+            // people mean by USDT and it is shown as USDT; the name the
+            // contract has is what the send path checks against the chain.
+            | Asset::PolygonErc20 { .. }
             | Asset::Jetton { .. } => "USDT",
         }
     }
@@ -436,6 +497,8 @@ impl Asset {
             | Asset::Btc
             | Asset::Eth
             | Asset::Erc20 { .. }
+            | Asset::Pol
+            | Asset::PolygonErc20 { .. }
             | Asset::Gram
             | Asset::Jetton { .. } => None,
         }
@@ -449,7 +512,13 @@ impl Asset {
     pub fn is_native(self) -> bool {
         matches!(
             self,
-            Asset::Trx | Asset::Bnb | Asset::Sol | Asset::Btc | Asset::Eth | Asset::Gram
+            Asset::Trx
+                | Asset::Bnb
+                | Asset::Sol
+                | Asset::Btc
+                | Asset::Eth
+                | Asset::Pol
+                | Asset::Gram
         )
     }
 }

@@ -9,7 +9,7 @@
 どこへでもコピーできます。メールアドレスとパスワードで解錠しますが、
 その 2 つはどこにも保存されていません。
 
-マルチチェーン設計：TRON、Ethereum、BNB Chain、Solana、Bitcoin、TON。
+マルチチェーン設計：TRON、Ethereum、BNB Chain、Polygon、Solana、Bitcoin、TON。
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
@@ -140,7 +140,19 @@ BIP44 の導出パスはそのためのものです。チェーンを増やす�
 | Solana | 動作 | SOL、USDT (SPL) |
 | Bitcoin | 動作 | BTC |
 | Ethereum | 動作 | ETH、USDT (ERC20) |
+| Polygon | 動作 | POL、USDT (ERC20) |
 | TON | 動作 | GRAM、USDT (jetton) |
+
+Polygon も同じコインタイプを使うため、同じフレーズは 3 つの EVM チェーンで
+**同じアドレス**になります。固有の点が 2 つあります。コインは **POL** で、2024 年 9 月に
+MATIC から改称されました。それはチェーン自身が示しており、このウォレットの判断根拠でも
+あります。ラップされたネイティブトークンのコントラクトが `WPOL` と答えるからです。
+USDT のコントラクトは **`USDT0`** と名乗ります。Tether が Polygon 上の供給をオムニ
+チェーン版へ移したためです。これは誰もが USDT と呼んでいるものそのもので、ウォレットも
+USDT として表示します。署名前にチェーンと照合するのは、コントラクトが実際に名乗る名前
+です。Polygon はここで唯一、**利用できる転送インデックスがない**チェーンでもあるので、
+履歴画面は役に立たないキーを求めるのではなく、そのことをそのまま伝えます。残高・手数料・
+価格・送金は影響を受けません。
 
 TON はここで唯一、**アドレスが鍵から導出されない**チェーンです。TON のウォレットは
 スマートコントラクトそのものであり、アドレスはそのコントラクトの初期コードとストレージの
@@ -436,7 +448,7 @@ neko-vault    鍵の階層、KDF プロファイル、パスワード方針、�
 neko-store    SQLCipher、マイグレーション、フィールド単位の封筒（鍵は導出しない）
 neko-hd       BIP39 / BIP32 / BIP44 と SLIP-0010、TRON / EVM / Solana アドレス
 neko-tron     TRON 専用: protobuf、取引の組み立てと署名、ノードクライアント
-neko-evm      Ethereum と BNB Chain: RLP、EIP-155 と EIP-1559 署名、ABI、JSON-RPC
+neko-evm      Ethereum、BNB Chain、Polygon: RLP、EIP-155 と EIP-1559 署名、ABI、JSON-RPC
 neko-solana   Solana: Ed25519、取引エンコード、トークン口座、クラスタ RPC
 neko-btc      Bitcoin: bech32、segwit v0 署名、コイン選択、Esplora
 neko-ton      TON: cell と BoC、ウォレット v4R2、jetton、toncenter

@@ -772,7 +772,7 @@ impl SendState {
         let n = dest.chars().count();
         let complete = match self.chain() {
             ChainId::Tron => n == TRON_ADDRESS_LEN,
-            ChainId::Bsc | ChainId::Ethereum => n == EVM_ADDRESS_LEN,
+            ChainId::Bsc | ChainId::Ethereum | ChainId::Polygon => n == EVM_ADDRESS_LEN,
             // A Solana address is 32 bytes in base58, and base58 shortens a
             // value with leading zero bytes - so there is no single length to
             // compare against, only a range.

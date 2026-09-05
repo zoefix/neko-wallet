@@ -64,9 +64,9 @@ impl Client {
             ChainId::Tron => Client::Tron(Box::new(TronGrid::new(url, api_key))),
             // The TronGrid key is not a BscScan key; passing it here would only
             // be misleading. BNB Chain's public RPC needs no key at all.
-            ChainId::Bsc | ChainId::Ethereum => Client::Evm {
+            ChainId::Bsc | ChainId::Ethereum | ChainId::Polygon => Client::Evm {
                 rpc: Box::new(neko_evm::client::Rpc::new(
-                    chain.evm().expect("both EVM chains have parameters"),
+                    chain.evm().expect("every EVM chain has parameters"),
                     url,
                 )),
                 history_key: api_key.filter(|k| !k.is_empty()),
@@ -101,13 +101,11 @@ impl Client {
     pub fn chain(&self) -> ChainId {
         match self {
             Client::Tron(_) => ChainId::Tron,
-            Client::Evm { rpc, .. } => {
-                if rpc.chain().chain_id == neko_evm::ETHEREUM.chain_id {
-                    ChainId::Ethereum
-                } else {
-                    ChainId::Bsc
-                }
-            }
+            // Looked up rather than guessed: this was an if/else that answered
+            // BNB Chain for anything that was not Ethereum, so a third EVM
+            // chain would have reported itself as the second.
+            Client::Evm { rpc, .. } => ChainId::from_evm_chain_id(rpc.chain().chain_id)
+                .expect("this client was built from a ChainId"),
             Client::Solana(_) => ChainId::Solana,
             Client::Bitcoin { .. } => ChainId::Bitcoin,
             Client::Ton(_) => ChainId::Ton,
@@ -454,12 +452,14 @@ async fn evm_quote(rpc: &neko_evm::client::Rpc, req: &TransferRequest) -> Result
 
     let chain = rpc.chain();
     let (to, value, data) = match req.asset {
-        Asset::Bnb | Asset::Eth => (
+        Asset::Bnb | Asset::Eth | Asset::Pol => (
             req.to.as_evm().map_err(|e| e.to_string())?,
             req.amount.raw as u128,
             Vec::new(),
         ),
-        Asset::Bep20 { contract, decimals } | Asset::Erc20 { contract, decimals } => {
+        Asset::Bep20 { contract, decimals }
+        | Asset::Erc20 { contract, decimals }
+        | Asset::PolygonErc20 { contract, decimals } => {
             // Same reasoning as TRON's: ask the contract what it is before
             // trusting a built-in address.
             let (symbol, chain_decimals) = rpc
@@ -471,9 +471,12 @@ async fn evm_quote(rpc: &neko_evm::client::Rpc, req: &TransferRequest) -> Result
                     "token contract {contract} reports {chain_decimals} decimals, expected {decimals} - refusing to send"
                 ));
             }
-            if symbol != "USDT" {
+            // The name the contract has, not the name on the tin. Polygon's
+            // reports `USDT0`, and a hardcoded "USDT" here refused to send it.
+            if symbol != chain.usdt_symbol {
                 return Err(format!(
-                    "token contract {contract} reports symbol {symbol:?}, not USDT - refusing to send"
+                    "token contract {contract} reports symbol {symbol:?}, not {:?} - refusing to send",
+                    chain.usdt_symbol
                 ));
             }
             let data = req
@@ -497,7 +500,7 @@ async fn evm_quote(rpc: &neko_evm::client::Rpc, req: &TransferRequest) -> Result
         chain,
         params,
         native_balance,
-        sending_native: matches!(req.asset, Asset::Bnb | Asset::Eth),
+        sending_native: matches!(req.asset, Asset::Bnb | Asset::Eth | Asset::Pol),
         amount: req.amount.raw as u128,
     })
 }
@@ -719,14 +722,25 @@ pub async fn history(
             rpc, history_key, ..
         } => {
             // A node's RPC cannot answer "what has this address done"; that
-            // needs an index. Without a key, say so - an empty list would
-            // read as "you have never used this address".
+            // needs an index. Two different reasons there might not be one, and
+            // they need different answers: this chain has none at all, or it
+            // has one and no key has been supplied. Asking for a key that would
+            // not help is worse than saying nothing.
+            let chain = rpc.chain();
+            if chain.history_host.is_none() {
+                return Err(neko_i18n::t(neko_i18n::Key::History_NoIndexer).to_string());
+            }
             let Some(key) = history_key else {
                 return Err(neko_i18n::t(neko_i18n::Key::History_NeedsIndexer).to_string());
             };
             let a = addr.as_evm().map_err(|e| e.to_string())?;
-            let chain = rpc.chain();
-            let rows = neko_evm::history::Bsctrace::new(chain, key)
+            // Not every EVM chain has an index behind it. Polygon has none,
+            // and saying so is better than posting to a host that does not
+            // resolve and calling it a network failure.
+            let Some(index) = neko_evm::history::Bsctrace::new(chain, key) else {
+                return Err(neko_i18n::t(neko_i18n::Key::History_NoIndexer).to_string());
+            };
+            let rows = index
                 .transfers(a, chain.usdt_address(), limit as usize)
                 .await
                 .map_err(|e| e.to_string())?;

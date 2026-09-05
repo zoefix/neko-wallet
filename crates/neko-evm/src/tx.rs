@@ -383,13 +383,25 @@ mod tests {
                 chain_id: 56,
             },
         };
-        let mut other = base.clone();
-        other.params.chain_id = 1;
-        assert_ne!(
-            base.sign(&key).unwrap().raw,
-            other.sign(&key).unwrap().raw,
-            "the chain id did not reach the signature - this transaction is replayable"
-        );
+        // Every pair, not just two: a third chain that happened to sign the
+        // same bytes as one of the others would be replayable against it, and
+        // comparing only BNB Chain with Ethereum would not notice.
+        let signed: Vec<(u64, Vec<u8>)> = [crate::BSC, crate::ETHEREUM, crate::POLYGON]
+            .into_iter()
+            .map(|c| {
+                let mut tx = base.clone();
+                tx.params.chain_id = c.chain_id;
+                (c.chain_id, tx.sign(&key).unwrap().raw)
+            })
+            .collect();
+        for (i, (a_id, a)) in signed.iter().enumerate() {
+            for (b_id, b) in &signed[i + 1..] {
+                assert_ne!(
+                    a, b,
+                    "chains {a_id} and {b_id} sign identically - this transaction is replayable"
+                );
+            }
+        }
     }
 
     /// A zero value and empty calldata must encode as RLP's empty string, not

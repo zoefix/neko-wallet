@@ -42,7 +42,8 @@ fn state(asset: neko_core::Asset, balance: Option<i128>) -> SendState {
         neko_core::ChainId::Bitcoin => (BTC_MINE, BTC_TO),
         neko_core::ChainId::Ton => (TON_MINE, TON_TO),
         // The same twenty bytes as BNB Chain's, which is the point.
-        neko_core::ChainId::Ethereum => (BSC_MINE, BSC_TO),
+        // The same twenty bytes on all three EVM chains, which is the point.
+        neko_core::ChainId::Ethereum | neko_core::ChainId::Polygon => (BSC_MINE, BSC_TO),
     };
     let mut st = SendState::new(
         1,

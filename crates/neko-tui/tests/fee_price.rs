@@ -59,7 +59,7 @@ fn app_at_review(chain: neko_core::ChainId, quote: FeeQuote) -> App {
         neko_core::ChainId::Solana => (SOL_MINE, SOL_TO),
         neko_core::ChainId::Bitcoin => (BTC_MINE, BTC_TO),
         neko_core::ChainId::Ton => (TON_MINE, TON_TO),
-        neko_core::ChainId::Ethereum => (BSC_MINE, BSC_TO),
+        neko_core::ChainId::Ethereum | neko_core::ChainId::Polygon => (BSC_MINE, BSC_TO),
     };
     let mut st = SendState::new(
         1,
@@ -83,7 +83,7 @@ fn app_at_review(chain: neko_core::ChainId, quote: FeeQuote) -> App {
                 fee_limit: 100_000_000,
             }))
         }
-        neko_core::ChainId::Bsc | neko_core::ChainId::Ethereum => {
+        neko_core::ChainId::Bsc | neko_core::ChainId::Ethereum | neko_core::ChainId::Polygon => {
             neko_core::ChainTxParams::Evm(neko_evm::tx::TxParams {
                 nonce: 0,
                 gas_limit: 62_395,

@@ -47,6 +47,10 @@ const MIGRATIONS: &[Migration] = &[
         to: 6,
         sql: include_str!("../migrations/0006_ton.sql"),
     },
+    Migration {
+        to: 7,
+        sql: include_str!("../migrations/0007_polygon.sql"),
+    },
 ];
 
 /// Apply whatever this database is missing.

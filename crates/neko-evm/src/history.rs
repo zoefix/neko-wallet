@@ -51,15 +51,20 @@ pub struct Bsctrace {
 impl Bsctrace {
     /// `api_key` is required: the endpoint carries it in the path, and there
     /// is no anonymous access.
-    pub fn new(chain: crate::EvmChain, api_key: &str) -> Self {
-        Bsctrace {
+    ///
+    /// `None` for a chain NodeReal does not index. Returning a client that
+    /// would post to a host that does not resolve reports "no transfer index
+    /// for this chain" as a network failure, which reads as the wallet being
+    /// broken rather than the feature being absent.
+    pub fn new(chain: crate::EvmChain, api_key: &str) -> Option<Self> {
+        Some(Bsctrace {
             chain,
-            url: format!("{}/{api_key}", chain.history_host),
+            url: format!("{}/{api_key}", chain.history_host?),
             http: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(30))
                 .build()
                 .unwrap_or_default(),
-        }
+        })
     }
 
     async fn call(&self, params: Value) -> Result<Value, EvmError> {

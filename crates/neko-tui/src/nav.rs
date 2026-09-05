@@ -114,12 +114,13 @@ pub enum SettingRow {
     SolanaRpc,
     BitcoinApi,
     EthRpc,
+    PolygonRpc,
     TonApi,
     AutoLock,
     BorderStyle,
 }
 
-pub const SETTING_ROWS: [SettingRow; 11] = [
+pub const SETTING_ROWS: [SettingRow; 12] = [
     SettingRow::Language,
     SettingRow::ApiKey,
     SettingRow::BscApiKey,
@@ -128,6 +129,7 @@ pub const SETTING_ROWS: [SettingRow; 11] = [
     SettingRow::SolanaRpc,
     SettingRow::BitcoinApi,
     SettingRow::EthRpc,
+    SettingRow::PolygonRpc,
     SettingRow::TonApi,
     SettingRow::AutoLock,
     SettingRow::BorderStyle,
@@ -144,6 +146,7 @@ impl SettingRow {
             SettingRow::SolanaRpc => neko_i18n::t(neko_i18n::Key::Settings_SolanaRpc),
             SettingRow::BitcoinApi => neko_i18n::t(neko_i18n::Key::Settings_BitcoinApi),
             SettingRow::EthRpc => neko_i18n::t(neko_i18n::Key::Settings_EthRpc),
+            SettingRow::PolygonRpc => neko_i18n::t(neko_i18n::Key::Settings_PolygonRpc),
             SettingRow::TonApi => neko_i18n::t(neko_i18n::Key::Settings_TonApi),
             SettingRow::AutoLock => neko_i18n::t(neko_i18n::Key::Settings_Autolock),
             SettingRow::BorderStyle => neko_i18n::t(neko_i18n::Key::Settings_Border),

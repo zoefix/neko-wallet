@@ -396,10 +396,14 @@ fn the_migration_registers_ton_with_gram() {
 /// The step a database in the field actually takes.
 ///
 /// Every other test here starts at version 1 and runs the whole chain, which
-/// exercises 5 → 6 but not on a database that has *only* ever been at 5. This
-/// one does, because that is the file with money in it.
+/// exercises the last migration but not on a database that has *only* ever
+/// been at the version before it. This one does, because that is the file with
+/// money in it.
+///
+/// The versions are read from `CURRENT_SCHEMA` rather than written down, so
+/// adding a chain does not quietly turn this into a test of an older step.
 #[test]
-fn a_database_at_five_upgrades_to_six_with_its_data() {
+fn a_database_one_version_behind_catches_up_with_its_data() {
     let conn = v1_with_a_funded_wallet();
 
     // Brought to 5 the way a released build would have - foreign keys
@@ -412,11 +416,17 @@ fn a_database_at_five_upgrades_to_six_with_its_data() {
         include_str!("../migrations/0003_solana.sql"),
         include_str!("../migrations/0004_bitcoin.sql"),
         include_str!("../migrations/0005_ethereum.sql"),
+        include_str!("../migrations/0006_ton.sql"),
     ] {
         conn.execute_batch(sql).unwrap();
     }
     conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
-    assert_eq!(neko_store::vault_row::schema_version(&conn).unwrap(), 5);
+    let behind = neko_store::vault_row::CURRENT_SCHEMA - 1;
+    assert_eq!(
+        neko_store::vault_row::schema_version(&conn).unwrap(),
+        behind,
+        "the list above no longer stops one short of the current schema"
+    );
 
     // A Bitcoin address, so the rebuild has a row of a second width to carry.
     conn.execute(
@@ -431,8 +441,14 @@ fn a_database_at_five_upgrades_to_six_with_its_data() {
     )
     .unwrap();
 
-    assert_eq!(neko_store::migrate::run(&conn).unwrap(), 6);
-    assert_eq!(neko_store::vault_row::schema_version(&conn).unwrap(), 6);
+    assert_eq!(
+        neko_store::migrate::run(&conn).unwrap(),
+        neko_store::vault_row::CURRENT_SCHEMA
+    );
+    assert_eq!(
+        neko_store::vault_row::schema_version(&conn).unwrap(),
+        neko_store::vault_row::CURRENT_SCHEMA
+    );
 
     // Both addresses came through with their ids, so `balances` still points
     // at something.
@@ -453,9 +469,50 @@ fn a_database_at_five_upgrades_to_six_with_its_data() {
         .unwrap();
     assert_eq!(amount, 8_655_007, "the cached balance was lost");
 
-    // And the chain that was the point of the migration is there.
+    // And the chain that was the point of the last migration is there.
     let slug: String = conn
-        .query_row("SELECT slug FROM chains WHERE id = 6", [], |r| r.get(0))
+        .query_row(
+            "SELECT slug FROM chains WHERE id = ?1",
+            [neko_store::vault_row::CURRENT_SCHEMA],
+            |r| r.get(0),
+        )
+        .expect("the newest chain is not registered");
+    assert_eq!(slug, "polygon");
+}
+
+/// Polygon is the third chain to share Ethereum's coin type, and the first
+/// migration here that changes no schema at all.
+#[test]
+fn the_migration_registers_polygon_with_pol() {
+    let conn = v1_with_a_funded_wallet();
+    neko_store::migrate::run(&conn).unwrap();
+
+    let (slug, coin): (String, i64) = conn
+        .query_row("SELECT slug, coin_type FROM chains WHERE id = 7", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .expect("no polygon row in chains");
+    assert_eq!(slug, "polygon");
+    assert_eq!(coin, 60, "every EVM chain borrows Ethereum's coin type");
+
+    let (sym, dec): (String, i64) = conn
+        .query_row(
+            "SELECT symbol, decimals FROM assets WHERE chain_id = 7 AND contract IS NULL",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .expect("no native asset for polygon");
+    assert_eq!(sym, "POL", "renamed from MATIC in September 2024");
+    assert_eq!(dec, 18);
+
+    // The three EVM chains agree on the coin type, which is why one phrase
+    // gives one address on all of them.
+    let types: Vec<i64> = conn
+        .prepare("SELECT coin_type FROM chains WHERE id IN (2, 5, 7) ORDER BY id")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
         .unwrap();
-    assert_eq!(slug, "ton");
+    assert_eq!(types, vec![60, 60, 60]);
 }

@@ -375,3 +375,91 @@ fn a_jetton_transfer_without_a_wallet_address_is_refused() {
     .unwrap();
     assert!(s.sign_transfer(&req, &ton_params()).is_err());
 }
+
+// ── Polygon ────────────────────────────────────────────────────────────────
+
+/// One phrase, three EVM chains, one address - and three different signatures.
+///
+/// The address being shared is correct and is what every EVM wallet does. The
+/// signatures being different is what stops a transfer signed for one chain
+/// being replayed on another where the same address also holds funds, and the
+/// only thing that separates them is the chain id inside the envelope.
+#[test]
+fn polygon_signs_for_its_own_chain_and_no_other() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = session(dir.path());
+    let id = s.list_wallets().unwrap()[0].id;
+
+    let evm_addr = "0x9858EfFD232B4033E47d90003D41EC34EcaEda94";
+    let to = "0x742d35Cc6634C0532925a3b844Bc454e4438f44e";
+    for chain in [ChainId::Bsc, ChainId::Ethereum, ChainId::Polygon] {
+        assert_eq!(
+            s.address_of(id, chain, 0).unwrap().to_string(),
+            evm_addr,
+            "{chain:?} derived a different address"
+        );
+    }
+
+    let mut raws = Vec::new();
+    for chain in [ChainId::Bsc, ChainId::Ethereum, ChainId::Polygon] {
+        let req = TransferRequest::parse(
+            id,
+            ChainAddress::parse(chain, evm_addr).unwrap(),
+            to,
+            "0.5",
+            chain.native(),
+        )
+        .unwrap();
+        assert_eq!(req.amount.raw, 500_000_000_000_000_000, "18 decimals");
+
+        let evm = chain.evm().unwrap();
+        let params = ChainTxParams::Evm(neko_evm::tx::TxParams {
+            nonce: 7,
+            gas_limit: 21_000,
+            chain_id: evm.chain_id,
+            fees: neko_evm::tx::Fees::Legacy {
+                gas_price: 30_000_000_000,
+            },
+        });
+        raws.push((chain, s.sign_transfer(&req, &params).unwrap().raw));
+    }
+
+    for (i, (ca, a)) in raws.iter().enumerate() {
+        for (cb, b) in &raws[i + 1..] {
+            assert_ne!(a, b, "{ca:?} and {cb:?} produced the same signed bytes");
+        }
+    }
+}
+
+/// Polygon's native coin is POL, and its USDT has six decimals rather than BNB
+/// Chain's eighteen. Both are the kind of mistake that is a factor of a
+/// million million.
+#[test]
+fn polygon_amounts_use_the_right_precision() {
+    assert_eq!(ChainId::Polygon.native_symbol(), "POL");
+    assert_eq!(ChainId::Polygon.native_decimals(), 18);
+
+    let usdt = ChainId::Polygon.usdt().expect("Polygon has a USDT");
+    assert_eq!(usdt.decimals(), 6, "six here, eighteen on BNB Chain");
+    assert_eq!(
+        usdt.symbol(),
+        "USDT",
+        "shown as USDT whatever it calls itself"
+    );
+    assert_eq!(
+        usdt.chain(),
+        ChainId::Polygon,
+        "an Erc20 variant would say Ethereum"
+    );
+
+    // The three EVM chains' USDT are three different contracts.
+    let contracts: Vec<String> = [ChainId::Bsc, ChainId::Ethereum, ChainId::Polygon]
+        .into_iter()
+        .map(|c| format!("{:?}", c.usdt().unwrap()))
+        .collect();
+    for (i, a) in contracts.iter().enumerate() {
+        for b in &contracts[i + 1..] {
+            assert_ne!(a, b);
+        }
+    }
+}

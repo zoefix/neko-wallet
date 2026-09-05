@@ -111,6 +111,8 @@ pub struct App {
     pub bitcoin_api: Option<String>,
     /// Ethereum's node. `None` means the public one, which rate-limits.
     pub eth_rpc: Option<String>,
+    /// Polygon's node. `None` means the public one.
+    pub polygon_rpc: Option<String>,
     /// toncenter. `None` means the public endpoint. Configurable for the same
     /// reason as Esplora: reading a TON balance means running a contract's own
     /// method, so this server is not an alternative to asking the chain - it is
@@ -179,6 +181,7 @@ impl App {
             solana_rpc: None,
             bitcoin_api: None,
             eth_rpc: None,
+            polygon_rpc: None,
             ton_api: None,
             api_key: std::env::var("TRONGRID_API_KEY").ok(),
             bsc_api_key: std::env::var("NODEREAL_API_KEY").ok(),
@@ -670,6 +673,7 @@ impl App {
             neko_core::ChainId::Solana => self.solana_rpc.as_deref(),
             neko_core::ChainId::Bitcoin => self.bitcoin_api.as_deref(),
             neko_core::ChainId::Ethereum => self.eth_rpc.as_deref(),
+            neko_core::ChainId::Polygon => self.polygon_rpc.as_deref(),
             neko_core::ChainId::Ton => self.ton_api.as_deref(),
             neko_core::ChainId::Bsc => None,
         };
@@ -678,6 +682,9 @@ impl App {
             // The same NodeReal key works on both EVM chains; only the host
             // differs, and that comes from the chain.
             neko_core::ChainId::Bsc | neko_core::ChainId::Ethereum => self.bsc_api_key.clone(),
+            // NodeReal serves no Polygon index, so there is no key to pass and
+            // the history screen says so rather than asking for one.
+            neko_core::ChainId::Polygon => None,
             // Neither Solana's public cluster nor Esplora needs a key. Both
             // rate-limit, which costs a retry rather than a screen.
             neko_core::ChainId::Solana | neko_core::ChainId::Bitcoin => None,
@@ -911,6 +918,9 @@ impl App {
         if let Ok(v) = s.setting(keys::ETH_RPC) {
             self.eth_rpc = v.filter(|u| !u.is_empty());
         }
+        if let Ok(v) = s.setting(keys::POLYGON_RPC) {
+            self.polygon_rpc = v.filter(|u| !u.is_empty());
+        }
         if let Ok(v) = s.setting(keys::TON_API) {
             self.ton_api = v.filter(|u| !u.is_empty());
         }
@@ -1022,6 +1032,10 @@ impl App {
                 .eth_rpc
                 .clone()
                 .unwrap_or_else(|| neko_evm::ETHEREUM.default_rpc.into()),
+            SettingRow::PolygonRpc => self
+                .polygon_rpc
+                .clone()
+                .unwrap_or_else(|| neko_evm::POLYGON.default_rpc.into()),
             SettingRow::TonApi => self
                 .ton_api
                 .clone()

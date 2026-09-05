@@ -8,7 +8,7 @@ A self-custody encrypted crypto wallet for the terminal. Your whole wallet is
 one encrypted file — carry it on a USB stick, keep it on a network drive, copy
 it anywhere. Unlocked by an email and a password that are stored nowhere.
 
-Multi-chain by design: TRON, Ethereum, BNB Chain, Solana, Bitcoin and TON.
+Multi-chain by design: TRON, Ethereum, BNB Chain, Polygon, Solana, Bitcoin and TON.
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
@@ -140,6 +140,7 @@ phrase, or a new thing to back up.
 | Solana | working | SOL, USDT (SPL) |
 | Bitcoin | working | BTC |
 | Ethereum | working | ETH, USDT (ERC20) |
+| Polygon | working | POL, USDT (ERC20) |
 | TON | working | GRAM, USDT (jetton) |
 
 The same phrase gives a different address on each — that is correct and
@@ -164,6 +165,18 @@ contracts, and **six decimals on Ethereum against eighteen on BNB Chain**.
 Ethereum builds EIP-1559 transactions, so the screen shows what a transfer
 is expected to cost alongside the ceiling it reserves; the difference is
 refunded.
+
+Polygon shares that coin type too, so the same phrase gives the **same
+address on all three EVM chains**. Two things about it are its own. Its coin
+is **POL**, renamed from MATIC in September 2024 — and the chain says so
+itself, which is how this wallet knows: the wrapped native contract reports
+`WPOL`. And its USDT contract calls itself **`USDT0`** since Tether moved
+Polygon's supply to its omnichain deployment. It is the token everyone means
+by USDT and the wallet shows it as USDT; what gets checked against the chain
+before signing is the name the contract actually has. Polygon is also the one
+chain here with **no transfer index available**, so the history screen says
+that plainly rather than asking for a key that would not help — balances,
+fees, prices and transfers are unaffected.
 
 TON derives at `m/44'/607'/0'` and is the one chain here where **the address
 is not derived from the key**. A wallet on TON is a smart contract, and its
@@ -483,7 +496,7 @@ neko-vault    key hierarchy, KDF profiles, password policy, normalization
 neko-store    SQLCipher, migrations, field-level envelopes  (never derives keys)
 neko-hd       BIP39 / BIP32 / BIP44 and SLIP-0010; TRON, EVM, Solana and TON keys
 neko-tron     TRON only: protobuf, transaction building and signing, node client
-neko-evm      Ethereum and BNB Chain: RLP, EIP-155 and EIP-1559 signing, ABI, JSON-RPC
+neko-evm      Ethereum, BNB Chain and Polygon: RLP, EIP-155 and EIP-1559 signing, ABI, JSON-RPC
 neko-solana   Solana: Ed25519, the wire format, token accounts, cluster RPC
 neko-btc      Bitcoin: bech32, segwit v0 signing, coin selection, Esplora
 neko-ton      TON: cells and bags of cells, wallet v4R2, jettons, toncenter
