@@ -326,7 +326,7 @@ impl Toncenter {
     ) -> Result<u128, TonError> {
         let mut params = json!({
             "address": addr.to_raw_string(),
-            "body": base64(&crate::boc::serialize(body)?),
+            "body": crate::b64::encode(&crate::boc::serialize(body)?),
             "ignore_chksig": true,
         });
         if let Some(i) = init {
@@ -340,8 +340,8 @@ impl Toncenter {
                     .get(1)
                     .ok_or_else(|| TonError::BadBoc("no data".into()))?,
             );
-            params["init_code"] = json!(base64(&crate::boc::serialize(code)?));
-            params["init_data"] = json!(base64(&crate::boc::serialize(data)?));
+            params["init_code"] = json!(crate::b64::encode(&crate::boc::serialize(code)?));
+            params["init_data"] = json!(crate::b64::encode(&crate::boc::serialize(data)?));
         }
         let v = self.call("/estimateFee", Some(params)).await?;
         let f = v
@@ -356,7 +356,7 @@ impl Toncenter {
 
     pub async fn send(&self, raw: &[u8]) -> Result<String, TonError> {
         let v = self
-            .call("/sendBoc", Some(json!({ "boc": base64(raw) })))
+            .call("/sendBoc", Some(json!({ "boc": crate::b64::encode(raw) })))
             .await?;
         // The node returns an acknowledgement rather than a hash. The hash is
         // the message's own, and is known before it is sent.
@@ -386,7 +386,10 @@ impl Toncenter {
 
 /// One argument to a get-method: a cell, passed as the slice a method expects.
 pub fn slice_arg(c: &Arc<Cell>) -> Result<Value, TonError> {
-    Ok(json!(["tvm.Slice", base64(&crate::boc::serialize(c)?)]))
+    Ok(json!([
+        "tvm.Slice",
+        crate::b64::encode(&crate::boc::serialize(c)?)
+    ]))
 }
 
 /// One stack entry as an unsigned integer.
@@ -425,7 +428,7 @@ pub fn stack_cell(e: &Value) -> Result<Arc<Cell>, TonError> {
         .and_then(Value::as_str)
         .or_else(|| val.as_str())
         .ok_or_else(|| TonError::BadReply("a stack cell has no bytes".into()))?;
-    let raw = decode_base64(b64)
+    let raw = crate::b64::decode(b64)
         .ok_or_else(|| TonError::BadReply("a stack cell is not base64".into()))?;
     crate::boc::parse(&raw)
 }
@@ -478,53 +481,6 @@ fn parse_address_cell(c: &Arc<Cell>) -> Result<TonAddress, TonError> {
     Ok(TonAddress::new(wc as i8, hash))
 }
 
-fn base64(input: &[u8]) -> String {
-    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
-    for c in input.chunks(3) {
-        let b = [c[0], *c.get(1).unwrap_or(&0), *c.get(2).unwrap_or(&0)];
-        let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
-        out.push(T[(n >> 18) as usize & 63] as char);
-        out.push(T[(n >> 12) as usize & 63] as char);
-        out.push(if c.len() > 1 {
-            T[(n >> 6) as usize & 63] as char
-        } else {
-            '='
-        });
-        out.push(if c.len() > 2 {
-            T[n as usize & 63] as char
-        } else {
-            '='
-        });
-    }
-    out
-}
-
-fn decode_base64(s: &str) -> Option<Vec<u8>> {
-    let mut out = Vec::with_capacity(s.len() * 3 / 4);
-    let (mut acc, mut bits) = (0u32, 0u32);
-    for ch in s.bytes() {
-        if ch == b'=' {
-            break;
-        }
-        let v = match ch {
-            b'A'..=b'Z' => ch - b'A',
-            b'a'..=b'z' => ch - b'a' + 26,
-            b'0'..=b'9' => ch - b'0' + 52,
-            b'+' | b'-' => 62,
-            b'/' | b'_' => 63,
-            _ => return None,
-        } as u32;
-        acc = (acc << 6) | v;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push((acc >> bits) as u8);
-        }
-    }
-    Some(out)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -557,8 +513,8 @@ mod tests {
             (b"foo", "Zm9v"),
             (b"foobar", "Zm9vYmFy"),
         ] {
-            assert_eq!(base64(input), want);
-            assert_eq!(decode_base64(want).as_deref(), Some(input));
+            assert_eq!(crate::b64::encode(input), want);
+            assert_eq!(crate::b64::decode(want).as_deref(), Some(input));
         }
     }
 }

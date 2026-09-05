@@ -17,6 +17,7 @@
 //! per token, at an address derived from both.
 
 pub mod address;
+pub mod b64;
 pub mod boc;
 pub mod cell;
 pub mod chain_consts;

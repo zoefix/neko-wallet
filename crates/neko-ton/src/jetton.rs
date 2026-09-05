@@ -280,3 +280,50 @@ mod metadata_tests {
         out
     }
 }
+
+// ── Reading a token movement back out of a message ─────────────────────────
+
+/// Unused coin going back to whoever paid for a transfer. Carries no tokens.
+pub const OP_EXCESSES: u32 = 0xd532_76db;
+
+/// One token movement, read out of a message body.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Move {
+    pub amount: u128,
+    /// Who it went to, or came from. `None` when the body named no address,
+    /// which is legal.
+    pub counterparty: Option<TonAddress>,
+    pub outgoing: bool,
+}
+
+/// What a message to a jetton wallet moved, if anything.
+///
+/// The whole history of a token lives in these two opcodes, and reading them is
+/// the only way to see a token transfer at all: the amount is not in any field
+/// the API hands over, because as far as the chain is concerned a message
+/// carrying 2.7 USDT is a message carrying one nanoton and a body.
+///
+/// `None` for every other body - a notification, an excess refund, a burn, a
+/// comment - which is not a failure. Those messages exist and move no tokens.
+pub fn parse_move(body: &Arc<Cell>) -> Result<Option<Move>, TonError> {
+    let mut s = crate::dict::Slice::new(body);
+    // An empty body is a plain coin transfer, and there are plenty of those.
+    if s.remaining() < 32 {
+        return Ok(None);
+    }
+    let op = s.load_uint(32)? as u32;
+    if op != OP_TRANSFER && op != OP_INTERNAL_TRANSFER {
+        return Ok(None);
+    }
+    s.load_uint(64)?; // query_id
+    let amount = s.load_coins()?;
+    // `transfer` names where the tokens are going; `internal_transfer` names
+    // where they came from. Same position, opposite meaning - which is the
+    // whole difference between the two rows on screen.
+    let counterparty = s.load_address()?;
+    Ok(Some(Move {
+        amount,
+        counterparty,
+        outgoing: op == OP_TRANSFER,
+    }))
+}

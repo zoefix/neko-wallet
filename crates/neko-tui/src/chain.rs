@@ -791,20 +791,45 @@ pub async fn history(
                 .collect())
         }
         Client::Ton(api) => {
-            // No indexer needed, and no token rows either: a jetton movement is
-            // an opcode inside a message between two contracts neither of which
-            // is this address, so it does not appear in what this address did.
-            // Left out rather than guessed at - the balance still shows what is
-            // held.
+            // Two feeds, because a token movement is not in what this address
+            // did. USDT lives in a jetton wallet contract of its own, one per
+            // holder, and a transfer is an opcode in a message between two of
+            // those - neither of which is the address on screen. Reading only
+            // the wallet shows the GRAM and silently drops every USDT the user
+            // ever received.
             let a = addr.as_ton().map_err(|e| e.to_string())?;
+            let jetton_wallet = api.jetton_wallet(&a, &neko_ton::usdt_master()).await.ok();
+
             let raw = api
                 .transactions(&a, limit)
                 .await
                 .map_err(|e| e.to_string())?;
-            let rows = neko_ton::history::parse(&raw, &a, neko_ton::GRAM_DECIMALS, "GRAM")
-                .map_err(|e| e.to_string())?;
+            let mut rows = neko_ton::history::parse(
+                &raw,
+                &a,
+                jetton_wallet.as_ref(),
+                neko_ton::GRAM_DECIMALS,
+                "GRAM",
+            )
+            .map_err(|e| e.to_string())?;
+
+            // A token lookup failing must not discard the coin half already in
+            // hand - the same rule as every other chain here.
+            if let Some(w) = jetton_wallet {
+                if let Ok(raw) = api.transactions(&w, limit).await {
+                    if let Ok(tokens) =
+                        neko_ton::history::parse_jetton(&raw, neko_ton::USDT_DECIMALS, "USDT")
+                    {
+                        rows.extend(tokens);
+                    }
+                }
+            }
+
+            // Each feed arrives newest-first; interleaved they are not.
+            rows.sort_by_key(|r| std::cmp::Reverse(r.block_time));
             Ok(rows
                 .into_iter()
+                .take(limit as usize)
                 .map(|t| neko_tron::HistoryEntry {
                     txid: t.hash,
                     block_ts: t.block_time * 1000,

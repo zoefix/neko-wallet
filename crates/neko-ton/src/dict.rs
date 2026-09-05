@@ -75,6 +75,45 @@ impl<'a> Slice<'a> {
         Ok(out)
     }
 
+    /// A `VarUInteger 16`, which is how every amount on this chain is stored:
+    /// four bits saying how many bytes follow, then those bytes. Zero is one
+    /// nibble and nothing else, which is why an amount is never a fixed width.
+    pub fn load_coins(&mut self) -> Result<u128, TonError> {
+        let len = self.load_uint(4)? as usize;
+        if len > 16 {
+            return Err(TonError::BadBoc(format!("{len}-byte amount")));
+        }
+        let mut v = 0u128;
+        for _ in 0..len * 8 {
+            v = (v << 1) | self.load_bit()? as u128;
+        }
+        Ok(v)
+    }
+
+    /// A `MsgAddress`, which may legitimately be nothing.
+    ///
+    /// `addr_none` is a real value in these bodies - a jetton transfer with
+    /// nowhere to return its change writes one - so it is `None` rather than an
+    /// error. Anything that is neither none nor a standard address is a body
+    /// this code does not understand, and that *is* an error.
+    pub fn load_address(&mut self) -> Result<Option<crate::TonAddress>, TonError> {
+        match self.load_uint(2)? {
+            0b00 => Ok(None),
+            0b10 => {
+                if self.load_bit()? {
+                    return Err(TonError::BadBoc("anycast addresses are not read".into()));
+                }
+                let wc = self.load_uint(8)? as u8 as i8;
+                let mut hash = [0u8; 32];
+                for byte in hash.iter_mut() {
+                    *byte = self.load_uint(8)? as u8;
+                }
+                Ok(Some(crate::TonAddress::new(wc, hash)))
+            }
+            other => Err(TonError::BadBoc(format!("address tag {other:#04b}"))),
+        }
+    }
+
     pub fn load_ref(&mut self) -> Result<&'a Arc<Cell>, TonError> {
         let r = self
             .cell

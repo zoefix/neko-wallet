@@ -175,6 +175,12 @@ token transfer is a message between two contracts and each hop has to be paid
 for by coin travelling with it — most of which comes back. The send screen
 shows that attached amount separately from the fee rather than adding them.
 
+History is read from two places for the same reason. A GRAM movement is in
+what your address did; a USDT movement is not, because it happens between two
+jetton wallet contracts and neither of them is your address. So the token's
+own contract is read as well, and its messages decoded, or every token
+transfer you ever received would simply be missing.
+
 Because the address depends on the wallet contract, **this wallet's TON
 addresses will not match Tonkeeper's or Telegram's for the same phrase unless
 they are also using v4R2 with the standard subwallet id**, which is the
