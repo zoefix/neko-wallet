@@ -54,8 +54,12 @@ impl Prices {
     /// A dollar-pegged token is taken as one unit of account rather than
     /// quoted against itself - asking a pool what one USDT is worth in USDT
     /// would spend a call to be told "about one, minus the fee".
+    ///
+    /// The chain's own stablecoin, whichever it is: seven of them carry USDT
+    /// and Base carries USDC. Comparing against the literal `"USDT"` valued
+    /// every USDC balance at nothing.
     pub fn of(&self, chain: ChainId, symbol: &str) -> Option<i128> {
-        if symbol == "USDT" {
+        if chain.stable().is_some_and(|a| a.symbol() == symbol) {
             return Some(10i128.pow(PRICE_SCALE as u32));
         }
         if symbol == chain.native_symbol() {

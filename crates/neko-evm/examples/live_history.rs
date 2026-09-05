@@ -4,7 +4,7 @@ async fn main() {
     let c = neko_evm::history::Bsctrace::new(neko_evm::BSC, &key)
         .expect("BNB Chain has a transfer index");
     let who = neko_hd::EvmAddress::parse("0x9858EfFD232B4033E47d90003D41EC34EcaEda94").unwrap();
-    match c.transfers(who, neko_evm::BSC.usdt_address(), 6).await {
+    match c.transfers(who, neko_evm::BSC.stable_address(), 6).await {
         Ok(rows) => {
             println!("{} 条:", rows.len());
             for r in rows {

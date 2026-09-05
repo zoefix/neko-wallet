@@ -141,7 +141,7 @@ phrase, or a new thing to back up.
 | Bitcoin | working | BTC |
 | Ethereum | working | ETH, USDT (ERC20) |
 | Polygon | working | POL, USDT (ERC20) |
-| Base | working | ETH, USDT (ERC20) |
+| Base | working | ETH, USDC (ERC20) |
 | TON | working | GRAM, USDT (jetton) |
 
 The same phrase gives a different address on each — that is correct and
@@ -193,6 +193,13 @@ liquidity is on Aerodrome and Uniswap V3, neither of which speaks the same
 interface, so the price is read from Ethereum's pool instead — the same asset,
 on a chain this wallet already talks to. That is the trade BTC already makes.
 History comes from Blockscout, as Polygon's does.
+
+Base is also the one chain here whose stablecoin is **USDC rather than USDT**.
+That is not a preference: Tether's contract on Base holds about 23 million
+against Circle's 4.2 billion, and Binance lists nineteen networks for USDT
+withdrawals with Base on none of them — it offers ETH and USDC. A USDT row
+there would be one nobody could ever fill. So the per-chain token slot is the
+chain's stablecoin, whichever it is, and the wallet says which.
 
 TON derives at `m/44'/607'/0'` and is the one chain here where **the address
 is not derived from the key**. A wallet on TON is a smart contract, and its

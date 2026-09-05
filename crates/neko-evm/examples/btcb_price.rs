@@ -9,7 +9,7 @@ async fn main() {
         match r {
             Ok(v) => println!(
                 "1 {name} = {} USDT",
-                neko_core::Amount::new(v as i128, neko_evm::BSC.usdt_decimals)
+                neko_core::Amount::new(v as i128, neko_evm::BSC.stable_decimals)
                     .to_display_string_trim(2)
             ),
             Err(e) => println!("{name}: {e}"),

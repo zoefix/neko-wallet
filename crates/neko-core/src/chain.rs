@@ -120,15 +120,20 @@ impl ChainId {
 
     /// The stablecoin this wallet knows about on each chain.
     ///
-    /// Same name, different precision: 6 decimals on TRON, 18 on BNB Chain.
-    /// Treating one like the other is a factor of a million million, which is
-    /// why the number travels with the asset rather than living in a constant.
-    /// `None` on a chain with no such token.
+    /// **Not always USDT.** Seven of these chains carry Tether; Base carries
+    /// USDC, because Tether's contract there holds 23 million against Circle's
+    /// 4.2 billion and Binance will not send USDT to that chain at all. A USDT
+    /// row on Base is a row nobody can put anything into.
     ///
-    /// Bitcoin is the first: it carries one asset and no contracts, so a screen
+    /// Same name where it is the same token, different precision: 6 decimals
+    /// on TRON, 18 on BNB Chain. Treating one like the other is a factor of a
+    /// million million, which is why the number travels with the asset rather
+    /// than living in a constant. `None` on a chain with no such token.
+    ///
+    /// Bitcoin is the one: it carries one asset and no contracts, so a screen
     /// that assumed two assets per chain would show an empty row where nothing
     /// exists.
-    pub fn usdt(self) -> Option<Asset> {
+    pub fn stable(self) -> Option<Asset> {
         match self {
             ChainId::Tron => Some(Asset::Trc20 {
                 contract: neko_tron::usdt_address(),
@@ -140,24 +145,24 @@ impl ChainId {
             }),
             ChainId::Bitcoin => None,
             ChainId::Bsc => Some(Asset::Bep20 {
-                contract: neko_evm::BSC.usdt_address(),
-                decimals: neko_evm::BSC.usdt_decimals,
+                contract: neko_evm::BSC.stable_address(),
+                decimals: neko_evm::BSC.stable_decimals,
             }),
             // A different contract *and* a different precision from BNB
             // Chain's: six decimals here, eighteen there.
             ChainId::Ethereum => Some(Asset::Erc20 {
-                contract: neko_evm::ETHEREUM.usdt_address(),
-                decimals: neko_evm::ETHEREUM.usdt_decimals,
+                contract: neko_evm::ETHEREUM.stable_address(),
+                decimals: neko_evm::ETHEREUM.stable_decimals,
             }),
             // Six decimals like Ethereum's, and a contract that calls itself
             // USDT0 - see `neko_evm::POLYGON`.
             ChainId::Polygon => Some(Asset::PolygonErc20 {
-                contract: neko_evm::POLYGON.usdt_address(),
-                decimals: neko_evm::POLYGON.usdt_decimals,
+                contract: neko_evm::POLYGON.stable_address(),
+                decimals: neko_evm::POLYGON.stable_decimals,
             }),
             ChainId::Base => Some(Asset::BaseErc20 {
-                contract: neko_evm::BASE.usdt_address(),
-                decimals: neko_evm::BASE.usdt_decimals,
+                contract: neko_evm::BASE.stable_address(),
+                decimals: neko_evm::BASE.stable_decimals,
             }),
             ChainId::Ton => Some(Asset::Jetton {
                 master: neko_ton::usdt_master(),
@@ -173,7 +178,7 @@ impl ChainId {
     /// row, or hide a real one, the moment that stopped being true.
     pub fn assets(self) -> Vec<Asset> {
         let mut v = vec![self.native()];
-        v.extend(self.usdt());
+        v.extend(self.stable());
         v
     }
 
@@ -505,17 +510,17 @@ impl Asset {
             Asset::Pol => "POL",
             Asset::BaseEth => "ETH",
             Asset::Gram => "GRAM",
-            // Only USDT is known so far; when a second token is added this
-            // has to carry its symbol rather than assume.
+            // Base's stablecoin is a different token, not a differently named
+            // one - see `ChainId::stable`.
+            Asset::BaseErc20 { .. } => neko_evm::BASE.stable_label,
+            // Polygon's contract calls itself USDT0. It is the same token
+            // people mean by USDT and it is shown as USDT; the name the
+            // contract has is what the send path checks against the chain.
             Asset::Trc20 { .. }
             | Asset::Bep20 { .. }
             | Asset::SplToken { .. }
             | Asset::Erc20 { .. }
-            // Polygon's contract calls itself USDT0. It is the same token
-            // people mean by USDT and it is shown as USDT; the name the
-            // contract has is what the send path checks against the chain.
             | Asset::PolygonErc20 { .. }
-            | Asset::BaseErc20 { .. }
             | Asset::Jetton { .. } => "USDT",
         }
     }
@@ -594,11 +599,15 @@ mod tests {
     /// million between two rows that both say "USDT".
     #[test]
     fn usdt_has_a_different_precision_on_each_chain() {
-        assert_eq!(ChainId::Tron.usdt().unwrap().decimals(), 6);
-        assert_eq!(ChainId::Bsc.usdt().unwrap().decimals(), 18);
-        assert_eq!(ChainId::Solana.usdt().unwrap().decimals(), 6);
-        assert_eq!(ChainId::Ethereum.usdt().unwrap().decimals(), 6);
-        assert_eq!(ChainId::Bitcoin.usdt(), None, "there is no USDT on Bitcoin");
+        assert_eq!(ChainId::Tron.stable().unwrap().decimals(), 6);
+        assert_eq!(ChainId::Bsc.stable().unwrap().decimals(), 18);
+        assert_eq!(ChainId::Solana.stable().unwrap().decimals(), 6);
+        assert_eq!(ChainId::Ethereum.stable().unwrap().decimals(), 6);
+        assert_eq!(
+            ChainId::Bitcoin.stable(),
+            None,
+            "there is no USDT on Bitcoin"
+        );
 
         assert_eq!(ChainId::Tron.native_decimals(), 6);
         assert_eq!(ChainId::Bsc.native_decimals(), 18);
@@ -609,8 +618,8 @@ mod tests {
         // And the two EVM chains are not the same contract, which is the other
         // half of the same mistake.
         assert_ne!(
-            ChainId::Bsc.usdt().unwrap(),
-            ChainId::Ethereum.usdt().unwrap()
+            ChainId::Bsc.stable().unwrap(),
+            ChainId::Ethereum.stable().unwrap()
         );
     }
 
@@ -668,10 +677,10 @@ mod tests {
 
     #[test]
     fn assets_know_their_chain() {
-        assert_eq!(ChainId::Tron.usdt().unwrap().chain(), ChainId::Tron);
-        assert_eq!(ChainId::Bsc.usdt().unwrap().chain(), ChainId::Bsc);
+        assert_eq!(ChainId::Tron.stable().unwrap().chain(), ChainId::Tron);
+        assert_eq!(ChainId::Bsc.stable().unwrap().chain(), ChainId::Bsc);
         assert_eq!(ChainId::Bsc.native().symbol(), "BNB");
         assert!(ChainId::Bsc.native().is_native());
-        assert!(!ChainId::Bsc.usdt().unwrap().is_native());
+        assert!(!ChainId::Bsc.stable().unwrap().is_native());
     }
 }

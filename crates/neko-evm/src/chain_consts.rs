@@ -33,18 +33,26 @@ pub struct EvmChain {
     pub chain_id: u64,
     pub native_symbol: &'static str,
     pub native_decimals: u8,
-    pub usdt: &'static str,
+    pub stable: &'static str,
     /// **Read this rather than assuming.** Six on Ethereum, eighteen on BNB
     /// Chain.
-    pub usdt_decimals: u8,
+    pub stable_decimals: u8,
+    /// What this wallet calls it on screen.
+    ///
+    /// Not always `"USDT"`. Base's stablecoin is USDC: Tether's contract there
+    /// holds 23 million against USDC's 4.2 billion, and Binance will not send
+    /// USDT to that chain at all - so a USDT row on Base is one nobody can
+    /// ever fill.
+    pub stable_label: &'static str,
     /// What that contract calls itself, checked against the chain before a
     /// transfer is signed.
     ///
-    /// Not always `"USDT"`. Tether's Polygon contract reports `USDT0` since the
-    /// omnichain migration, and a hardcoded expectation refused to send it.
-    /// The name is a property of the deployment, so it lives here with the
-    /// address it belongs to.
-    pub usdt_symbol: &'static str,
+    /// Not the same thing as [`Self::stable_label`], and not always equal to
+    /// it: Tether's Polygon contract reports `USDT0` since the omnichain
+    /// migration, and this wallet still shows that holding as USDT. This field
+    /// answers "is this the right contract"; the label answers "what do we
+    /// call it".
+    pub stable_symbol: &'static str,
     pub default_rpc: &'static str,
     pub explorer_tx: &'static str,
     /// A Uniswap-V2-compatible router, used only to *quote* a price. This
@@ -89,9 +97,10 @@ pub const BSC: EvmChain = EvmChain {
     native_symbol: "BNB",
     native_decimals: 18,
     // **18 decimals, not 6.** The same token on Ethereum and TRON has 6.
-    usdt: "0x55d398326f99059fF775485246999027B3197955",
-    usdt_decimals: 18,
-    usdt_symbol: "USDT",
+    stable: "0x55d398326f99059fF775485246999027B3197955",
+    stable_decimals: 18,
+    stable_symbol: "USDT",
+    stable_label: "USDT",
     default_rpc: "https://bsc-dataseed.bnbchain.org",
     explorer_tx: "https://bscscan.com/tx/",
     // PancakeSwap V2, a Uniswap V2 fork - same `getAmountsOut`.
@@ -115,9 +124,10 @@ pub const ETHEREUM: EvmChain = EvmChain {
     native_symbol: "ETH",
     native_decimals: 18,
     // Tether's original contract. **6 decimals**, confirmed against the chain.
-    usdt: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
-    usdt_decimals: 6,
-    usdt_symbol: "USDT",
+    stable: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    stable_decimals: 6,
+    stable_symbol: "USDT",
+    stable_label: "USDT",
     default_rpc: "https://ethereum-rpc.publicnode.com",
     explorer_tx: "https://etherscan.io/tx/",
     router: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
@@ -147,9 +157,11 @@ pub const POLYGON: EvmChain = EvmChain {
     native_symbol: "POL",
     native_decimals: 18,
     // Six decimals, like Ethereum's and unlike BNB Chain's.
-    usdt: "0xc2132D05D31c914a87C6611C10748AEb04B58e8F",
-    usdt_decimals: 6,
-    usdt_symbol: "USDT0",
+    stable: "0xc2132D05D31c914a87C6611C10748AEb04B58e8F",
+    stable_decimals: 6,
+    stable_symbol: "USDT0",
+    // Shown as USDT: it is the token everyone means by that name.
+    stable_label: "USDT",
     // polygon-rpc.com answers 401 without a key; this one does not.
     default_rpc: "https://polygon-bor-rpc.publicnode.com",
     explorer_tx: "https://polygonscan.com/tx/",
@@ -185,10 +197,13 @@ pub const BASE: EvmChain = EvmChain {
     chain_id: 8453,
     native_symbol: "ETH",
     native_decimals: 18,
-    // Tether USD, six decimals, and it says so - unlike Polygon's.
-    usdt: "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
-    usdt_decimals: 6,
-    usdt_symbol: "USDT",
+    // **USDC, not USDT.** Tether's contract on this chain holds 23 million
+    // against Circle's 4.2 billion, and Binance does not offer USDT to Base at
+    // all - it offers ETH and USDC. A USDT row here is one nobody can fill.
+    stable: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    stable_decimals: 6,
+    stable_symbol: "USDC",
+    stable_label: "USDC",
     default_rpc: "https://base-rpc.publicnode.com",
     explorer_tx: "https://basescan.org/tx/",
     // Present and very nearly empty. Kept because it is the real address, and
@@ -222,8 +237,8 @@ impl EvmChain {
 }
 
 impl EvmChain {
-    pub fn usdt_address(&self) -> EvmAddress {
-        parse_const(self.usdt)
+    pub fn stable_address(&self) -> EvmAddress {
+        parse_const(self.stable)
     }
     pub fn router_address(&self) -> EvmAddress {
         parse_const(self.router)
@@ -255,7 +270,7 @@ mod tests {
     #[test]
     fn every_constant_address_is_checksummed() {
         for c in ALL {
-            for s in [c.usdt, c.router, c.wrapped_native] {
+            for s in [c.stable, c.router, c.wrapped_native] {
                 assert_eq!(
                     EvmAddress::parse(s).unwrap().to_string(),
                     s,
@@ -283,13 +298,13 @@ mod tests {
             }
         }
 
-        assert_eq!(BSC.usdt_decimals, 18);
+        assert_eq!(BSC.stable_decimals, 18);
         assert_eq!(
-            ETHEREUM.usdt_decimals, 6,
+            ETHEREUM.stable_decimals, 6,
             "read from the chain, not assumed"
         );
-        assert_eq!(POLYGON.usdt_decimals, 6);
-        let usdt: Vec<&str> = ALL.iter().map(|c| c.usdt).collect();
+        assert_eq!(POLYGON.stable_decimals, 6);
+        let usdt: Vec<&str> = ALL.iter().map(|c| c.stable).collect();
         for (i, a) in usdt.iter().enumerate() {
             for b in &usdt[i + 1..] {
                 assert_ne!(a, b, "different contracts entirely");
@@ -297,17 +312,46 @@ mod tests {
         }
     }
 
-    /// The contract's own name, which is not always the one on the tin.
+    /// The contract's own name, which is not always the one on the tin, and
+    /// not always the name this wallet shows.
     ///
-    /// Read from each chain: BNB Chain and Ethereum say `USDT`, Polygon says
-    /// `USDT0`. The send path compares against this before signing, and when
-    /// it was the literal `"USDT"` Polygon could not send at all.
+    /// Read from each chain. BNB Chain and Ethereum say `USDT`. Polygon says
+    /// `USDT0` and is still shown as USDT, because it is the token everyone
+    /// means by that name. Base's stablecoin is a different token entirely and
+    /// is shown as what it is.
+    ///
+    /// The send path compares against `stable_symbol` before signing, and when
+    /// that was the literal `"USDT"` Polygon could not send at all.
     #[test]
     fn the_token_is_checked_against_the_name_it_actually_has() {
-        assert_eq!(BSC.usdt_symbol, "USDT");
-        assert_eq!(ETHEREUM.usdt_symbol, "USDT");
-        assert_eq!(POLYGON.usdt_symbol, "USDT0");
-        assert_eq!(BASE.usdt_symbol, "USDT");
+        for (c, symbol, label) in [
+            (BSC, "USDT", "USDT"),
+            (ETHEREUM, "USDT", "USDT"),
+            (POLYGON, "USDT0", "USDT"),
+            (BASE, "USDC", "USDC"),
+        ] {
+            assert_eq!(c.stable_symbol, symbol, "chain {}", c.chain_id);
+            assert_eq!(c.stable_label, label, "chain {}", c.chain_id);
+        }
+    }
+
+    /// Base's stablecoin is USDC, and that is not a preference.
+    ///
+    /// Tether's contract on Base holds about 23 million against Circle's 4.2
+    /// billion, and Binance lists nineteen networks for USDT withdrawals with
+    /// Base on none of them - it offers ETH and USDC there. A USDT row on this
+    /// chain is a row nobody can put anything into.
+    #[test]
+    fn base_holds_usdc_and_the_others_hold_usdt() {
+        assert_eq!(
+            BASE.stable, "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "Circle's USDC on Base"
+        );
+        assert_eq!(BASE.stable_decimals, 6);
+        for c in [BSC, ETHEREUM, POLYGON] {
+            assert_eq!(c.stable_label, "USDT", "chain {}", c.chain_id);
+            assert_ne!(c.stable, BASE.stable);
+        }
     }
 
     /// A coin that cannot be priced where it lives is priced somewhere it can.
@@ -319,7 +363,7 @@ mod tests {
     fn base_prices_its_coin_on_ethereum() {
         assert_eq!(BASE.prices_on, Some(ETHEREUM.chain_id));
         assert_eq!(BASE.price_chain().chain_id, ETHEREUM.chain_id);
-        assert_eq!(BASE.price_chain().usdt_decimals, ETHEREUM.usdt_decimals);
+        assert_eq!(BASE.price_chain().stable_decimals, ETHEREUM.stable_decimals);
         // And it is the same coin, which is what makes the substitution honest
         // rather than approximate.
         assert_eq!(BASE.native_symbol, ETHEREUM.native_symbol);

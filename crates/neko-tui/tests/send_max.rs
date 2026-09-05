@@ -125,7 +125,7 @@ fn the_reduced_amount_is_affordable() {
 /// Holding any of it back would strand tokens for no reason.
 #[test]
 fn a_token_sends_its_whole_balance() {
-    let usdt = neko_core::ChainId::Bsc.usdt().unwrap();
+    let usdt = neko_core::ChainId::Bsc.stable().unwrap();
     let held = 250_000_000_000_000_000_000i128; // 250 USDT, 18 decimals
     let mut st = state(usdt, Some(held));
     st.request_max();

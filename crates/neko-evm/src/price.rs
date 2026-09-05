@@ -86,7 +86,7 @@ impl crate::client::Rpc {
         let data = amounts_out_call(
             10u128.pow(chain.native_decimals as u32),
             chain.wrapped_native_address(),
-            chain.usdt_address(),
+            chain.stable_address(),
         );
         read_last_amount(&self.eth_call(chain.router_address(), &data).await?)
     }
@@ -104,7 +104,7 @@ impl crate::client::Rpc {
         let data = amounts_out_call(
             10u128.pow(crate::BTCB_DECIMALS as u32),
             btcb,
-            chain.usdt_address(),
+            chain.stable_address(),
         );
         read_last_amount(&self.eth_call(chain.router_address(), &data).await?)
     }
@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn the_call_has_the_expected_layout() {
         let wbnb = crate::BSC.wrapped_native_address();
-        let usdt = crate::BSC.usdt_address();
+        let usdt = crate::BSC.stable_address();
         let d = amounts_out_call(10u128.pow(18), wbnb, usdt);
         assert_eq!(d.len(), 4 + 32 * 5);
         assert_eq!(&d[..4], &SEL_GET_AMOUNTS_OUT);

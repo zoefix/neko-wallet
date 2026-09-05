@@ -156,5 +156,5 @@ fn bitcoin_shows_one_asset_and_only_one() {
     assert!(!out.contains("SOL"));
     assert!(!out.contains("BNB"));
     assert_eq!(neko_core::ChainId::Bitcoin.assets().len(), 1);
-    assert!(neko_core::ChainId::Bitcoin.usdt().is_none());
+    assert!(neko_core::ChainId::Bitcoin.stable().is_none());
 }

@@ -428,16 +428,23 @@ impl Session {
         };
         let now = now();
         for (symbol, decimals, amount) in assets {
-            let contract = (symbol == "USDT").then(|| match chain {
+            // Whether this row is the chain's stablecoin rather than its coin.
+            // Asked of the chain rather than compared against "USDT": Base's
+            // is USDC, and a literal here would have stored it with no
+            // contract, beside the native row and indistinguishable from it.
+            let is_stable = chain
+                .stable()
+                .is_some_and(|a| a.symbol() == symbol.as_str());
+            let contract = is_stable.then(|| match chain {
                 ChainId::Tron => neko_tron::usdt_address().as_bytes().to_vec(),
-                ChainId::Bsc => neko_evm::BSC.usdt_address().as_bytes().to_vec(),
-                ChainId::Ethereum => neko_evm::ETHEREUM.usdt_address().as_bytes().to_vec(),
-                ChainId::Polygon => neko_evm::POLYGON.usdt_address().as_bytes().to_vec(),
-                ChainId::Base => neko_evm::BASE.usdt_address().as_bytes().to_vec(),
+                ChainId::Bsc => neko_evm::BSC.stable_address().as_bytes().to_vec(),
+                ChainId::Ethereum => neko_evm::ETHEREUM.stable_address().as_bytes().to_vec(),
+                ChainId::Polygon => neko_evm::POLYGON.stable_address().as_bytes().to_vec(),
+                ChainId::Base => neko_evm::BASE.stable_address().as_bytes().to_vec(),
                 ChainId::Ton => neko_ton::usdt_master().as_bytes(),
                 ChainId::Solana => neko_solana::usdt_mint().as_bytes().to_vec(),
-                // Unreachable: Bitcoin has no USDT, so this closure is never
-                // reached for it.
+                // Unreachable: Bitcoin has no stablecoin, so this closure is
+                // never reached for it.
                 ChainId::Bitcoin => Vec::new(),
             });
             let asset = balances::asset_id(conn, db_chain, symbol, contract.as_deref(), *decimals)?;

@@ -19,7 +19,7 @@ fn ton_review() -> App {
             "EQAzWZa6nM5mJev91wGc7VCSfBoIsYRqKJpV78N8Add9-U9d",
         )
         .unwrap(),
-        neko_core::ChainId::Ton.usdt().unwrap(),
+        neko_core::ChainId::Ton.stable().unwrap(),
         "USDT".into(),
     );
     "EQDVJucJT96vGh_bYm3e5uzenasiTOwA9orUHQiyhNsKmEcK"

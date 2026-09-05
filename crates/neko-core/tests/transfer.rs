@@ -326,7 +326,7 @@ fn a_jetton_wallet_quoted_for_another_token_is_refused() {
     let s = session(dir.path());
     let id = s.list_wallets().unwrap()[0].id;
 
-    let usdt = ChainId::Ton.usdt().expect("TON has a USDT");
+    let usdt = ChainId::Ton.stable().expect("TON has a USDT");
     let req = TransferRequest::parse(
         id,
         ChainAddress::parse(ChainId::Ton, TON_ADDR).unwrap(),
@@ -370,7 +370,7 @@ fn a_jetton_transfer_without_a_wallet_address_is_refused() {
         ChainAddress::parse(ChainId::Ton, TON_ADDR).unwrap(),
         TON_TO,
         "10",
-        ChainId::Ton.usdt().unwrap(),
+        ChainId::Ton.stable().unwrap(),
     )
     .unwrap();
     assert!(s.sign_transfer(&req, &ton_params()).is_err());
@@ -439,7 +439,7 @@ fn polygon_amounts_use_the_right_precision() {
     assert_eq!(ChainId::Polygon.native_symbol(), "POL");
     assert_eq!(ChainId::Polygon.native_decimals(), 18);
 
-    let usdt = ChainId::Polygon.usdt().expect("Polygon has a USDT");
+    let usdt = ChainId::Polygon.stable().expect("Polygon has a USDT");
     assert_eq!(usdt.decimals(), 6, "six here, eighteen on BNB Chain");
     assert_eq!(
         usdt.symbol(),
@@ -455,11 +455,61 @@ fn polygon_amounts_use_the_right_precision() {
     // The three EVM chains' USDT are three different contracts.
     let contracts: Vec<String> = [ChainId::Bsc, ChainId::Ethereum, ChainId::Polygon]
         .into_iter()
-        .map(|c| format!("{:?}", c.usdt().unwrap()))
+        .map(|c| format!("{:?}", c.stable().unwrap()))
         .collect();
     for (i, a) in contracts.iter().enumerate() {
         for b in &contracts[i + 1..] {
             assert_ne!(a, b);
+        }
+    }
+}
+
+/// Base carries USDC, not USDT, and the wallet has to mean it everywhere.
+///
+/// Tether's contract on Base holds about 23 million against Circle's 4.2
+/// billion, and Binance lists nineteen networks for USDT withdrawals with Base
+/// on none of them - it offers ETH and USDC. A USDT row there is a row nobody
+/// can put anything into.
+///
+/// Several places used to decide this by comparing a symbol against the
+/// literal `"USDT"`: whether a cached balance gets a contract address, and
+/// whether a holding is worth a dollar. Both would have been wrong here.
+#[test]
+fn base_carries_usdc_and_every_chain_agrees_with_itself() {
+    use neko_core::Prices;
+
+    let stable = ChainId::Base.stable().expect("Base has a stablecoin");
+    assert_eq!(stable.symbol(), "USDC");
+    assert_eq!(stable.decimals(), 6);
+    assert_eq!(stable.chain(), ChainId::Base);
+
+    for chain in [
+        ChainId::Tron,
+        ChainId::Bsc,
+        ChainId::Ethereum,
+        ChainId::Polygon,
+    ] {
+        assert_eq!(chain.stable().unwrap().symbol(), "USDT", "{chain:?}");
+    }
+
+    // A dollar-pegged token is one unit of account whatever it is called. This
+    // used to compare against "USDT" and so valued every USDC balance at
+    // nothing, which silently understates a wallet's total.
+    let prices = Prices::default();
+    assert_eq!(
+        prices.of(ChainId::Base, "USDC"),
+        Some(1_000_000),
+        "Base's stablecoin was not worth a dollar"
+    );
+    assert_eq!(prices.of(ChainId::Base, "USDT"), None, "not on this chain");
+    assert_eq!(prices.of(ChainId::Ethereum, "USDT"), Some(1_000_000));
+
+    // And every chain's asset list names its own stablecoin.
+    for chain in neko_core::CHAINS {
+        let named: Vec<&str> = chain.assets().iter().map(|a| a.symbol()).collect();
+        match chain.stable() {
+            Some(s) => assert!(named.contains(&s.symbol()), "{chain:?}: {named:?}"),
+            None => assert_eq!(named.len(), 1, "{chain:?} has only its coin"),
         }
     }
 }

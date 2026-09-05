@@ -79,7 +79,7 @@ async fn main() {
             1_000_000_000_000_000i128,
             18u8,
         ),
-        ("USDT", ChainId::Polygon.usdt().unwrap(), 1_000_000, 6),
+        ("USDT", ChainId::Polygon.stable().unwrap(), 1_000_000, 6),
     ] {
         let req = TransferRequest {
             wallet_id: 1,

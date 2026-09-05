@@ -520,7 +520,7 @@ fn the_nodes_energy_estimate_reaches_the_screen_unmultiplied() {
         1,
         "w".into(),
         neko_core::ChainAddress::parse(neko_core::ChainId::Tron, MINE).unwrap(),
-        neko_core::ChainId::Tron.usdt().unwrap(),
+        neko_core::ChainId::Tron.stable().unwrap(),
         "USDT".into(),
     );
     TO.chars().for_each(|c| st.to.push(c));
@@ -603,7 +603,7 @@ fn enter_will_not_sign_a_transfer_the_chain_cannot_pay_for() {
     use crossterm::event::{KeyCode, KeyEvent};
 
     let mut app = review_screen_for(
-        neko_core::ChainId::Ton.usdt().unwrap(),
+        neko_core::ChainId::Ton.stable().unwrap(),
         FeeQuote::Ton(neko_tui::send::TonFee {
             fee: neko_ton::FEE_TRANSFER,
             attached: neko_ton::JETTON_TRANSFER_ATTACHED,
@@ -666,7 +666,7 @@ fn enter_still_advances_when_the_balance_covers_it() {
     use crossterm::event::{KeyCode, KeyEvent};
 
     let mut app = review_screen_for(
-        neko_core::ChainId::Ton.usdt().unwrap(),
+        neko_core::ChainId::Ton.stable().unwrap(),
         FeeQuote::Ton(neko_tui::send::TonFee {
             fee: neko_ton::FEE_TRANSFER,
             attached: neko_ton::JETTON_TRANSFER_ATTACHED,
@@ -735,7 +735,7 @@ fn an_unknown_balance_does_not_refuse_the_transfer() {
 #[test]
 fn ton_does_not_borrow_trons_energy_warning() {
     let app = review_screen_for(
-        neko_core::ChainId::Ton.usdt().unwrap(),
+        neko_core::ChainId::Ton.stable().unwrap(),
         FeeQuote::Ton(neko_tui::send::TonFee {
             fee: neko_ton::FEE_TRANSFER,
             attached: neko_ton::JETTON_TRANSFER_ATTACHED,

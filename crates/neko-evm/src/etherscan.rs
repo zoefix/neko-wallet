@@ -83,7 +83,7 @@ impl Etherscan {
             Err(e) => failure = Some(e),
         }
         match tokens {
-            Ok(v) => out.extend(parse_tokens(&v)),
+            Ok(v) => out.extend(parse_tokens(&v, self.chain)),
             Err(e) => failure = failure.or(Some(e)),
         }
         // Only if nothing at all came back: half a history beats none.
@@ -149,7 +149,7 @@ pub fn parse_coins(result: &Value, chain: crate::EvmChain) -> Vec<Transfer> {
 
 /// Token movements, out of `tokentx`, which was already filtered to one
 /// contract by the request.
-pub fn parse_tokens(result: &Value) -> Vec<Transfer> {
+pub fn parse_tokens(result: &Value, chain: crate::EvmChain) -> Vec<Transfer> {
     rows(result)
         .iter()
         .filter_map(|t| {
@@ -158,9 +158,9 @@ pub fn parse_tokens(result: &Value) -> Vec<Transfer> {
                 from: t.get("from")?.as_str()?.to_string(),
                 to: t.get("to")?.as_str()?.to_string(),
                 amount: dec_str(t.get("value")?)?,
-                // Our own label, not `tokenSymbol` from the reply - see
-                // `crate::history::TOKEN_LABEL`.
-                symbol: crate::history::TOKEN_LABEL.to_string(),
+                // The chain's own label, not `tokenSymbol` from the reply -
+                // see the note at the top of `crate::history`.
+                symbol: chain.stable_label.to_string(),
                 // Stated by the reply. Six on Ethereum and Polygon, eighteen
                 // on BNB Chain, for the same token name.
                 decimals: dec_str(t.get("tokenDecimal")?)? as u8,
@@ -240,7 +240,7 @@ mod tests {
             "tokenDecimal": "6",
             "timeStamp": "1782547200",
         }]);
-        let rows = parse_tokens(&result);
+        let rows = parse_tokens(&result, crate::POLYGON);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].amount, 2_700_000);
         assert_eq!(rows[0].decimals, 6, "not the chain's eighteen");

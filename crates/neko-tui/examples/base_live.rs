@@ -72,7 +72,7 @@ async fn main() {
             1_000_000_000_000_000i128,
             18u8,
         ),
-        ("USDT", ChainId::Base.usdt().unwrap(), 1_000_000, 6),
+        ("USDC", ChainId::Base.stable().unwrap(), 1_000_000, 6),
     ] {
         let req = TransferRequest {
             wallet_id: 1,

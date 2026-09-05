@@ -507,10 +507,10 @@ async fn evm_quote(rpc: &neko_evm::client::Rpc, req: &TransferRequest) -> Result
             }
             // The name the contract has, not the name on the tin. Polygon's
             // reports `USDT0`, and a hardcoded "USDT" here refused to send it.
-            if symbol != chain.usdt_symbol {
+            if symbol != chain.stable_symbol {
                 return Err(format!(
                     "token contract {contract} reports symbol {symbol:?}, not {:?} - refusing to send",
-                    chain.usdt_symbol
+                    chain.stable_symbol
                 ));
             }
             let data = req
@@ -575,7 +575,7 @@ pub async fn native_price(c: &Client) -> Result<i128, String> {
                 // Six on Ethereum, eighteen on BNB Chain: the pool answers in
                 // its own chain's USDT, and storing either figure directly
                 // would value one of them a million million times wrong.
-                pricing.chain().usdt_decimals,
+                pricing.chain().stable_decimals,
             )
         }
         // Already normalised by the pool reader, which is handed the scale it
@@ -591,7 +591,7 @@ pub async fn native_price(c: &Client) -> Result<i128, String> {
         // off as a spot BTC price.
         Client::Bitcoin { bsc, .. } => (
             bsc.btcb_price_in_usdt().await.map_err(|e| e.to_string())?,
-            neko_evm::BSC.usdt_decimals,
+            neko_evm::BSC.stable_decimals,
         ),
         // Already normalised by the pool reader, like Solana's.
         Client::Ton(api) => (
@@ -662,7 +662,10 @@ pub async fn wallet_assets(
             let chain = r.chain();
             let a = addr.as_evm().map_err(|e| e.to_string())?;
             let native = r.balance(a).await.map_err(|e| e.to_string())?;
-            let usdt_bal = r.token_balance(chain.usdt_address(), a).await.unwrap_or(0);
+            let usdt_bal = r
+                .token_balance(chain.stable_address(), a)
+                .await
+                .unwrap_or(0);
             Ok(vec![
                 (
                     chain.native_symbol.to_string(),
@@ -670,8 +673,13 @@ pub async fn wallet_assets(
                     native as i128,
                 ),
                 // Eighteen decimals on BNB Chain, six on Ethereum. The number
-                // travels with the balance for exactly this reason.
-                ("USDT".to_string(), chain.usdt_decimals, usdt_bal as i128),
+                // travels with the balance for exactly this reason - and so
+                // does the name, because Base's stablecoin is USDC.
+                (
+                    chain.stable_label.to_string(),
+                    chain.stable_decimals,
+                    usdt_bal as i128,
+                ),
             ])
         }
         Client::Solana(rpc) => {
@@ -773,7 +781,7 @@ pub async fn history(
             // user has actually supplied.
             let chain = rpc.chain();
             let a = addr.as_evm().map_err(|e| e.to_string())?;
-            let usdt = chain.usdt_address();
+            let usdt = chain.stable_address();
             let rows = if let Some(es) = etherscan_key
                 .as_deref()
                 .and_then(|k| neko_evm::etherscan::Etherscan::new(chain, k))

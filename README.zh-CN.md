@@ -132,7 +132,7 @@ neko-wallet
 | Bitcoin | 可用 | BTC |
 | Ethereum | 可用 | ETH、USDT (ERC20) |
 | Polygon | 可用 | POL、USDT (ERC20) |
-| Base | 可用 | ETH、USDT (ERC20) |
+| Base | 可用 | ETH、USDC (ERC20) |
 | TON | 可用 | GRAM、USDT (jetton) |
 
 Polygon 也用同一个币种编号，所以同一句助记词在三条 EVM 链上是**同一个地址**。
@@ -153,6 +153,11 @@ WETH/USDT 池子确实存在，但**总共只有十七美元**，去问它一个
 Base 的流动性在 Aerodrome 和 Uniswap V3 上，这两个都不是同一套接口，所以价格改从
 Ethereum 的池子读 —— 同一种资产，而且那条链本来就在联系。这跟 BTC 的做法是一样的。
 历史记录跟 Polygon 一样走 Blockscout。
+
+Base 也是这里唯一一条稳定币是 **USDC 而不是 USDT** 的链。这不是偏好：Tether 在 Base
+上的合约总共 2380 万，Circle 的 USDC 是 42 亿；币安列出的 USDT 可提网络有 19 个，
+里面没有 Base —— 它在 Base 上只支持 ETH 和 USDC。放一行 USDT 在那儿，是一行谁也填
+不满的余额。所以「每条链一格代币」现在是「这条链的稳定币」，是哪个就写哪个。
 
 TON 在这里是唯一一条**地址不是从密钥算出来的**链。TON 上的钱包本身就是一个智能合约，
 地址是这个合约初始代码和存储的哈希。由此带来的两件事都摆在界面上，而不是等你自己撞上：

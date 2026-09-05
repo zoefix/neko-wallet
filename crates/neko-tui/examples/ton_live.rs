@@ -93,7 +93,7 @@ async fn main() {
         ("GRAM", Asset::Gram, 1_000_000i128, 9u8),
         (
             "USDT",
-            ChainId::Ton.usdt().unwrap(),
+            ChainId::Ton.stable().unwrap(),
             1_000_000,
             neko_ton::USDT_DECIMALS,
         ),

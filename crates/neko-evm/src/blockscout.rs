@@ -124,7 +124,7 @@ impl Blockscout {
             Err(e) => first_error = Some(e.to_string()),
         }
         match &tokens {
-            Ok(v) => out.extend(parse_tokens(v, token)),
+            Ok(v) => out.extend(parse_tokens(v, self.chain, token)),
             Err(e) => {
                 if out.is_empty() {
                     return Err(EvmError::Rpc(first_error.unwrap_or_else(|| e.to_string())));
@@ -183,7 +183,7 @@ pub fn parse_coins(body: &Value, chain: crate::EvmChain) -> Vec<Transfer> {
 /// `decimals` arrives as a **string**, in both the amount and the token. Read
 /// as a number it is a parse failure and the row disappears; assumed to be 18
 /// it is a factor of a million million on a six-decimal token.
-pub fn parse_tokens(body: &Value, token: EvmAddress) -> Vec<Transfer> {
+pub fn parse_tokens(body: &Value, chain: crate::EvmChain, token: EvmAddress) -> Vec<Transfer> {
     let wanted = token.to_string().to_ascii_lowercase();
     items(body)
         .iter()
@@ -203,14 +203,14 @@ pub fn parse_tokens(body: &Value, token: EvmAddress) -> Vec<Transfer> {
                 from: hash_of(t.get("from"))?,
                 to: hash_of(t.get("to"))?,
                 amount: big_int(total.get("value")?)?,
-                // Our own label, not the one in the reply.
+                // The chain's own label, not the one in the reply.
                 //
                 // The row is already matched on the contract, so the name it
                 // carries is the real token's - but rendering a string a
                 // server sent is the habit this codebase does not have, and
-                // the assets screen calls the same holding USDT. It showed
-                // USDT0 here and USDT there, for one balance.
-                symbol: crate::history::TOKEN_LABEL.to_string(),
+                // the assets screen has to agree. It showed USDT0 here and
+                // USDT there, for one balance.
+                symbol: chain.stable_label.to_string(),
                 decimals: num(total.get("decimals").or_else(|| tok.get("decimals"))?)? as u8,
                 // Milliseconds: what `Transfer` carries, not what the reply
                 // states.
@@ -358,7 +358,7 @@ mod tests {
     /// states rather than the one the chain's native coin happens to use.
     #[test]
     fn only_the_wanted_token_comes_through_and_keeps_its_precision() {
-        let usdt = crate::POLYGON.usdt_address();
+        let usdt = crate::POLYGON.stable_address();
         let body = json!({"items": [
             {
                 "timestamp": "2026-06-27T07:59:25.000000Z",
@@ -381,7 +381,7 @@ mod tests {
                           "decimals": "6", "symbol": "USDT0"},
             },
         ]});
-        let rows = parse_tokens(&body, usdt);
+        let rows = parse_tokens(&body, crate::POLYGON, usdt);
         assert_eq!(rows.len(), 1, "another token came through: {rows:?}");
         assert_eq!(rows[0].amount, 2_700_000);
         assert_eq!(rows[0].decimals, 6, "read from the reply, not assumed");
@@ -401,7 +401,7 @@ mod tests {
     fn an_empty_reply_is_an_empty_history() {
         let empty = json!({"items": []});
         assert!(parse_coins(&empty, crate::POLYGON).is_empty());
-        assert!(parse_tokens(&empty, crate::POLYGON.usdt_address()).is_empty());
+        assert!(parse_tokens(&empty, crate::POLYGON, crate::POLYGON.stable_address()).is_empty());
         assert!(parse_coins(&json!({}), crate::POLYGON).is_empty());
     }
 

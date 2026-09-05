@@ -16,6 +16,20 @@
 //! replacement, has a free tier, and its `nr_getAssetTransfers` covers the
 //! `external` category - which is exactly the native transfers `eth_getLogs`
 //! cannot see.
+//!
+//! What a token movement is called on screen is `EvmChain::stable_label`,
+//! never a name out of a reply. Two reasons:
+//!
+//! * **A token can call itself anything.** Several in a typical address's
+//!   history call themselves USDT in characters that are not the ones in
+//!   USDT, and a name taken from a server is a name an attacker chose.
+//! * **One holding, one name.** The balance screen and the history have to
+//!   agree. Polygon's contract is named `USDT0` and is shown as USDT; Base's
+//!   stablecoin is USDC and is shown as USDC.
+//!
+//! What the contract calls itself is still checked against the chain before a
+//! transfer is signed - see `EvmChain::stable_symbol`. That check is about
+//! whether this is the right contract; the label is about what to call it.
 
 use neko_hd::EvmAddress;
 use serde_json::{json, Value};
@@ -25,24 +39,6 @@ use crate::error::EvmError;
 #[allow(dead_code)]
 pub const DEFAULT_HOST: &str = "https://bsc-mainnet.nodereal.io/v1";
 pub const SIGNUP_URL: &str = "https://nodereal.io";
-
-/// What a token movement is called on screen, whatever the contract calls
-/// itself and whatever a provider says it is called.
-///
-/// Two reasons it is a constant here rather than a field of the reply:
-///
-/// * **A token can call itself anything.** Several in a typical address's
-///   history call themselves USDT in characters that are not the ones in
-///   USDT, and a name taken from a server is a name an attacker chose.
-/// * **One holding, one name.** The balance screen shows USDT, so the history
-///   has to as well. Polygon's contract is named `USDT0` since Tether's
-///   omnichain migration, and taking the name from the reply showed the same
-///   money as USDT in one place and USDT0 in another.
-///
-/// What the contract calls itself is still checked against the chain before a
-/// transfer is signed - see `EvmChain::usdt_symbol`. That check is about
-/// whether this is the right contract; this is about what to call it.
-pub const TOKEN_LABEL: &str = "USDT";
 
 /// One movement of value, as the provider reports it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -252,7 +248,7 @@ fn parse_one(t: &Value, chain: crate::EvmChain, token: EvmAddress) -> Option<Tra
         // several in this address's history call themselves USDT in characters
         // that are not the ones in USDT.
         "20" if contract.eq_ignore_ascii_case(&token.to_string()) => {
-            (TOKEN_LABEL.to_string(), chain.usdt_decimals)
+            (chain.stable_label.to_string(), chain.stable_decimals)
         }
         _ => return None,
     };
@@ -329,7 +325,7 @@ mod tests {
             "blockTimeStamp": 1620515273,
             "receiptsStatus": 1
         }]});
-        let got = parse(&v, crate::BSC, crate::BSC.usdt_address());
+        let got = parse(&v, crate::BSC, crate::BSC.stable_address());
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].symbol, "BNB");
         assert_eq!(got[0].decimals, 18);
@@ -354,7 +350,7 @@ mod tests {
             "blockTimeStamp": 1788469375,
             "receiptsStatus": 1
         }]});
-        let got = parse(&v, crate::BSC, crate::BSC.usdt_address());
+        let got = parse(&v, crate::BSC, crate::BSC.stable_address());
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].symbol, "USDT");
         // Eighteen here, six on TRON. The number travels with the transfer.
@@ -374,7 +370,7 @@ mod tests {
             {"category": "external", "from": "0xa", "to": "0xb",
              "value": "0x1", "hash": "0x3", "blockTimeStamp": 5, "receiptsStatus": 0},
         ]});
-        let got = parse(&v, crate::BSC, crate::BSC.usdt_address());
+        let got = parse(&v, crate::BSC, crate::BSC.stable_address());
         assert_eq!(got.len(), 1, "a good row was lost among bad ones");
         assert_eq!(got[0].hash, "0x3");
         assert!(!got[0].success, "a failed transfer was shown as successful");
@@ -388,20 +384,20 @@ mod tests {
                 "value": "0x1", "asset": "USDT", "blockTimeStamp": 1
             }]}),
             crate::BSC,
-            crate::BSC.usdt_address()
+            crate::BSC.stable_address()
         )
         .is_empty());
 
         assert!(parse(
             &serde_json::json!({}),
             crate::BSC,
-            crate::BSC.usdt_address()
+            crate::BSC.stable_address()
         )
         .is_empty());
         assert!(parse(
             &serde_json::json!({"transfers": "nope"}),
             crate::BSC,
-            crate::BSC.usdt_address()
+            crate::BSC.stable_address()
         )
         .is_empty());
     }
@@ -414,7 +410,7 @@ mod filtering {
     use super::*;
 
     fn usdt() -> EvmAddress {
-        crate::ETHEREUM.usdt_address()
+        crate::ETHEREUM.stable_address()
     }
 
     fn row(category: &str, contract: &str, asset: &str, value: &str) -> Value {
@@ -545,7 +541,7 @@ mod one_row_per_transfer {
             row("external", "0x0000000000000000000000000000000000000000", "ETH", "0x0", MINE, THEM),
             row("20", "0xdAC17F958D2ee523a2206206994597C13D831ec7", "USDT", "0x47b760", MINE, THEM),
         ]});
-        let usdt = crate::ETHEREUM.usdt_address();
+        let usdt = crate::ETHEREUM.stable_address();
 
         // Unfiltered, both rows are there - which is what was on screen.
         assert_eq!(parse(&v, crate::ETHEREUM, usdt).len(), 2);
@@ -563,7 +559,7 @@ mod one_row_per_transfer {
             "external", "0x0000000000000000000000000000000000000000",
             "ETH", "0x06d492a3e1a134", MINE, THEM,
         )]});
-        let got = parse_direction(&v, crate::ETHEREUM, crate::ETHEREUM.usdt_address(), true);
+        let got = parse_direction(&v, crate::ETHEREUM, crate::ETHEREUM.stable_address(), true);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].amount, 1_922_576_140_050_740);
     }
@@ -577,7 +573,7 @@ mod one_row_per_transfer {
             "20", "0xdAC17F958D2ee523a2206206994597C13D831ec7",
             "USDT", "0x0", THEM, MINE,
         )]});
-        let got = parse_direction(&v, crate::ETHEREUM, crate::ETHEREUM.usdt_address(), false);
+        let got = parse_direction(&v, crate::ETHEREUM, crate::ETHEREUM.stable_address(), false);
         assert_eq!(
             got.len(),
             1,
@@ -629,7 +625,7 @@ mod unit_agreement {
                 "blockTimeStamp": WHEN, "asset": "POL",
             }]}),
             crate::POLYGON,
-            crate::POLYGON.usdt_address(),
+            crate::POLYGON.stable_address(),
             false,
         );
 
@@ -666,7 +662,7 @@ mod token_naming {
         // A name in characters that are not the ones in USDT, plus the real
         // contract address, on every provider's shape.
         const HOSTILE: &str = "U\u{0405}DT";
-        let usdt = crate::POLYGON.usdt_address();
+        let usdt = crate::POLYGON.stable_address();
         let contract = usdt.to_string();
         let from = "0x1111111111111111111111111111111111111111";
         let to = "0x2222222222222222222222222222222222222222";
@@ -679,12 +675,16 @@ mod token_naming {
                 "total": {"decimals": "6", "value": "1"},
                 "token": {"address_hash": contract, "decimals": "6", "symbol": HOSTILE},
             }]}),
+            crate::POLYGON,
             usdt,
         );
-        let etherscan = crate::etherscan::parse_tokens(&json!([{
+        let etherscan = crate::etherscan::parse_tokens(
+            &json!([{
             "hash": "0xa", "from": from, "to": to, "value": "1",
             "tokenSymbol": HOSTILE, "tokenDecimal": "6", "timeStamp": "1782513790",
-        }]));
+            }]),
+            crate::POLYGON,
+        );
         let nodereal = parse(
             &json!({"transfers": [{
                 "hash": "0xa", "from": from, "to": to, "value": "0x1",
@@ -702,7 +702,8 @@ mod token_naming {
         ] {
             assert_eq!(rows.len(), 1, "{name} parsed nothing");
             assert_eq!(
-                rows[0].symbol, TOKEN_LABEL,
+                rows[0].symbol,
+                crate::POLYGON.stable_label,
                 "{name} put a name the server chose on the screen"
             );
             assert_ne!(rows[0].symbol, HOSTILE);
