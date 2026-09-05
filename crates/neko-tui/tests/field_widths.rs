@@ -173,3 +173,75 @@ fn a_configured_node_url_is_readable() {
         "the configured endpoint is not readable:\n{out}"
     );
 }
+
+/// The password step shows two facts and asks for one thing, and all three have
+/// to start in the same column.
+///
+/// They did not. The amount's label was padded with two trailing spaces, the
+/// destination's with a different constant, and the password is a field with a
+/// focus marker and a label column of its own - so one screen had its three
+/// values at three different places, and in Japanese the labels are wider,
+/// which moved two of them again.
+#[test]
+fn the_password_step_lines_up() {
+    use neko_tui::input::Field;
+
+    const TO: &str = "0x74224e8D997f1C438cbFd2cE147C8bbDCd5FA0c8";
+
+    for locale in neko_i18n::LOCALES {
+        neko_i18n::set_locale(locale);
+
+        let chain = neko_core::ChainId::Ethereum;
+        let mut st = SendState::new(
+            1,
+            "w".into(),
+            neko_core::ChainAddress::parse(chain, own_address(chain)).unwrap(),
+            chain.native(),
+            "ETH".into(),
+        );
+        TO.chars().for_each(|c| st.to.push(c));
+        "0.5".chars().for_each(|c| st.amount.push(c));
+        let req = st.build_request().unwrap();
+        st.step = SendStep::Authorize {
+            req: Box::new(req),
+            params: Box::new(neko_core::ChainTxParams::Evm(neko_evm::tx::TxParams {
+                nonce: 0,
+                gas_limit: 21_000,
+                chain_id: 1,
+                fees: neko_evm::tx::Fees::Legacy { gas_price: 1 },
+            })),
+            password: Field::new(true),
+            checking: false,
+        };
+
+        let mut app = App::new(std::path::PathBuf::from("/tmp/neko-fields.db"));
+        app.screen = Screen::Send(Box::new(st));
+        app.set_viewport(105, 26);
+        let out = render(&app, 105);
+
+        // Columns are cells, not characters: a CJK label is two cells per
+        // character, which is the whole reason this drifted.
+        let col = |needle: &str| -> usize {
+            let line = out
+                .lines()
+                .find(|l| l.contains(needle))
+                .unwrap_or_else(|| panic!("{locale:?}: nothing contains {needle:?}\n{out}"));
+            let at = line.find(needle).unwrap();
+            unicode_width::UnicodeWidthStr::width(&line[..at])
+        };
+
+        let amount = col("0.5 ETH");
+        let to = col(TO);
+        let field = col("[");
+
+        assert_eq!(
+            amount, to,
+            "{locale:?}: the amount and the destination start at different columns\n{out}"
+        );
+        assert_eq!(
+            to, field,
+            "{locale:?}: the password field does not line up with them\n{out}"
+        );
+    }
+    neko_i18n::set_locale(neko_i18n::Locale::English);
+}

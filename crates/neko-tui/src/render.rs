@@ -917,7 +917,7 @@ fn draw_reveal(f: &mut Frame, area: Rect, app: &App, name: &str, stage: &RevealS
             lines.push(Line::from(""));
             if *checking {
                 lines.push(Line::from(Span::styled(
-                    format!("   {}  verifying...", app.spinner()),
+                    format!("  {}  verifying...", app.spinner()),
                     Style::default().fg(theme::ACCENT),
                 )));
             } else {
@@ -1603,7 +1603,7 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
             )));
             lines.push(Line::from(""));
             lines.push(Line::from(vec![
-                Span::styled(format!("   {}  ", t(Key::Send_Sending)), theme::hint()),
+                Span::styled(form_label(t(Key::Send_Sending)), theme::hint()),
                 Span::styled(
                     format!("{} {}", req.amount.to_display_string_full(), st.asset_label),
                     Style::default()
@@ -1612,13 +1612,13 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                 ),
             ]));
             lines.push(Line::from(vec![
-                Span::styled(address_label(t(Key::Send_To)), theme::hint()),
+                Span::styled(form_label(t(Key::Send_To)), theme::hint()),
                 Span::raw(req.to.to_string()),
             ]));
             lines.push(Line::from(""));
             if *checking {
                 lines.push(Line::from(Span::styled(
-                    format!("   {}  verifying...", app.spinner()),
+                    format!("  {}  verifying...", app.spinner()),
                     Style::default().fg(theme::ACCENT),
                 )));
             } else {
@@ -1804,6 +1804,16 @@ const ADDRESS_COL: usize = 12;
 /// A label padded so whatever follows starts at [`ADDRESS_COL`], in any script.
 fn address_label(label: &str) -> String {
     format!("   {}", width::pad(label, ADDRESS_COL - 3, Align::Left))
+}
+
+/// A plain label on a screen that also has an editable field.
+///
+/// `field_line` reserves two cells for its focus marker and then a fixed label
+/// column, so a label beside it has to reserve the same or the screen reads as
+/// two ragged columns - which is what the password step did, with its two
+/// information lines and its field starting at three different places.
+fn form_label(label: &str) -> String {
+    format!("  {}", width::pad(label, FIELD_LABEL_COLS, Align::Left))
 }
 
 /// The column the fee breakdown's values start at.
