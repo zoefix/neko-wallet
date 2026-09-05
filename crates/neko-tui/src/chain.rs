@@ -95,7 +95,13 @@ impl Client {
             | ChainId::Polygon
             | ChainId::Base
             | ChainId::Arbitrum
-            | ChainId::Optimism => {
+            | ChainId::Optimism
+            | ChainId::Avalanche
+            | ChainId::HyperEvm
+            | ChainId::Mantle
+            | ChainId::Linea
+            | ChainId::ZkSyncEra
+            | ChainId::Scroll => {
                 let evm = chain.evm().expect("every EVM chain has parameters");
                 Client::Evm {
                     rpc: Box::new(neko_evm::client::Rpc::new(evm, url)),

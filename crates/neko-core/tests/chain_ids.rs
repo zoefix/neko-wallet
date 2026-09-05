@@ -71,7 +71,7 @@ fn neither_numbering_has_a_collision() {
             assert_ne!(a, b, "two chains share an EVM chain id");
         }
     }
-    assert_eq!(ids.len(), 6, "six EVM chains");
+    assert_eq!(ids.len(), 12, "twelve EVM chains");
 }
 
 /// The row id each chain is stored under. Mirrors `wallets::db_chain_id`,
@@ -90,5 +90,11 @@ fn db_row(c: neko_core::ChainId) -> i64 {
         neko_core::ChainId::Base => a::BASE_CHAIN_ID,
         neko_core::ChainId::Arbitrum => a::ARBITRUM_CHAIN_ID,
         neko_core::ChainId::Optimism => a::OPTIMISM_CHAIN_ID,
+        neko_core::ChainId::Avalanche => a::AVALANCHE_CHAIN_ID,
+        neko_core::ChainId::HyperEvm => a::HYPEREVM_CHAIN_ID,
+        neko_core::ChainId::Mantle => a::MANTLE_CHAIN_ID,
+        neko_core::ChainId::Linea => a::LINEA_CHAIN_ID,
+        neko_core::ChainId::ZkSyncEra => a::ZKSYNC_ERA_CHAIN_ID,
+        neko_core::ChainId::Scroll => a::SCROLL_CHAIN_ID,
     }
 }

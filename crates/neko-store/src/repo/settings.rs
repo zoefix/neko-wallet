@@ -27,6 +27,12 @@ pub mod keys {
     pub const BASE_RPC: &str = "base_rpc";
     pub const ARBITRUM_RPC: &str = "arbitrum_rpc";
     pub const OPTIMISM_RPC: &str = "optimism_rpc";
+    pub const AVALANCHE_RPC: &str = "avalanche_rpc";
+    pub const HYPEREVM_RPC: &str = "hyperevm_rpc";
+    pub const MANTLE_RPC: &str = "mantle_rpc";
+    pub const LINEA_RPC: &str = "linea_rpc";
+    pub const ZKSYNC_ERA_RPC: &str = "zksync_era_rpc";
+    pub const SCROLL_RPC: &str = "scroll_rpc";
     /// toncenter. Like Esplora, this is not an alternative to asking a node -
     /// reading a TON balance means running a contract's own method, which needs
     /// a full node's index behind it.

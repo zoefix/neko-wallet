@@ -214,6 +214,24 @@ impl Session {
                 ChainId::Optimism => {
                     ChainAddress::Optimism(derive::evm_address_from_private_key(&sk)?)
                 }
+                ChainId::Avalanche => {
+                    ChainAddress::Avalanche(derive::evm_address_from_private_key(&sk)?)
+                }
+                ChainId::HyperEvm => {
+                    ChainAddress::HyperEvm(derive::evm_address_from_private_key(&sk)?)
+                }
+                ChainId::Mantle => {
+                    ChainAddress::Mantle(derive::evm_address_from_private_key(&sk)?)
+                }
+                ChainId::Linea => {
+                    ChainAddress::Linea(derive::evm_address_from_private_key(&sk)?)
+                }
+                ChainId::ZkSyncEra => {
+                    ChainAddress::ZkSyncEra(derive::evm_address_from_private_key(&sk)?)
+                }
+                ChainId::Scroll => {
+                    ChainAddress::Scroll(derive::evm_address_from_private_key(&sk)?)
+                }
                 ChainId::Solana => {
                     ChainAddress::Solana(neko_hd::solana::address_from_private_key(&sk)?)
                 }
@@ -243,6 +261,12 @@ impl Session {
             // Six now. The bytes are the same on all of them; the chain is
             // what makes a destination right or wrong.
             ChainId::Optimism => ChainAddress::Optimism(derive::evm_address_at(&seed, 0, index)?),
+            ChainId::Avalanche => ChainAddress::Avalanche(derive::evm_address_at(&seed, 0, index)?),
+            ChainId::HyperEvm => ChainAddress::HyperEvm(derive::evm_address_at(&seed, 0, index)?),
+            ChainId::Mantle => ChainAddress::Mantle(derive::evm_address_at(&seed, 0, index)?),
+            ChainId::Linea => ChainAddress::Linea(derive::evm_address_at(&seed, 0, index)?),
+            ChainId::ZkSyncEra => ChainAddress::ZkSyncEra(derive::evm_address_at(&seed, 0, index)?),
+            ChainId::Scroll => ChainAddress::Scroll(derive::evm_address_at(&seed, 0, index)?),
             // SLIP-0010, hardened at every level, so the account level is what
             // varies rather than a change/index pair that cannot exist here.
             ChainId::Solana => ChainAddress::Solana(neko_hd::solana::address_at(&seed, index)?),
@@ -454,6 +478,12 @@ impl Session {
                 ChainId::Base => neko_evm::BASE.stable_address().as_bytes().to_vec(),
                 ChainId::Arbitrum => neko_evm::ARBITRUM.stable_address().as_bytes().to_vec(),
                 ChainId::Optimism => neko_evm::OPTIMISM.stable_address().as_bytes().to_vec(),
+                ChainId::Avalanche => neko_evm::AVALANCHE.stable_address().as_bytes().to_vec(),
+                ChainId::HyperEvm => neko_evm::HYPER_EVM.stable_address().as_bytes().to_vec(),
+                ChainId::Mantle => neko_evm::MANTLE.stable_address().as_bytes().to_vec(),
+                ChainId::Linea => neko_evm::LINEA.stable_address().as_bytes().to_vec(),
+                ChainId::ZkSyncEra => neko_evm::ZKSYNC_ERA.stable_address().as_bytes().to_vec(),
+                ChainId::Scroll => neko_evm::SCROLL.stable_address().as_bytes().to_vec(),
                 ChainId::Ton => neko_ton::usdt_master().as_bytes(),
                 ChainId::Solana => neko_solana::usdt_mint().as_bytes().to_vec(),
                 // Unreachable: Bitcoin has no stablecoin, so this closure is
@@ -482,6 +512,12 @@ fn db_chain_id(c: ChainId) -> i64 {
         ChainId::Base => neko_store::repo::addresses::BASE_CHAIN_ID,
         ChainId::Arbitrum => neko_store::repo::addresses::ARBITRUM_CHAIN_ID,
         ChainId::Optimism => neko_store::repo::addresses::OPTIMISM_CHAIN_ID,
+        ChainId::Avalanche => neko_store::repo::addresses::AVALANCHE_CHAIN_ID,
+        ChainId::HyperEvm => neko_store::repo::addresses::HYPEREVM_CHAIN_ID,
+        ChainId::Mantle => neko_store::repo::addresses::MANTLE_CHAIN_ID,
+        ChainId::Linea => neko_store::repo::addresses::LINEA_CHAIN_ID,
+        ChainId::ZkSyncEra => neko_store::repo::addresses::ZKSYNC_ERA_CHAIN_ID,
+        ChainId::Scroll => neko_store::repo::addresses::SCROLL_CHAIN_ID,
     }
 }
 

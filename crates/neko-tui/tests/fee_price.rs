@@ -63,7 +63,13 @@ fn app_at_review(chain: neko_core::ChainId, quote: FeeQuote) -> App {
         | neko_core::ChainId::Polygon
         | neko_core::ChainId::Base
         | neko_core::ChainId::Arbitrum
-        | neko_core::ChainId::Optimism => (BSC_MINE, BSC_TO),
+        | neko_core::ChainId::Optimism
+        | neko_core::ChainId::Avalanche
+        | neko_core::ChainId::HyperEvm
+        | neko_core::ChainId::Mantle
+        | neko_core::ChainId::Linea
+        | neko_core::ChainId::ZkSyncEra
+        | neko_core::ChainId::Scroll => (BSC_MINE, BSC_TO),
     };
     let mut st = SendState::new(
         1,
@@ -92,7 +98,13 @@ fn app_at_review(chain: neko_core::ChainId, quote: FeeQuote) -> App {
         | neko_core::ChainId::Polygon
         | neko_core::ChainId::Base
         | neko_core::ChainId::Arbitrum
-        | neko_core::ChainId::Optimism => neko_core::ChainTxParams::Evm(neko_evm::tx::TxParams {
+        | neko_core::ChainId::Optimism
+        | neko_core::ChainId::Avalanche
+        | neko_core::ChainId::HyperEvm
+        | neko_core::ChainId::Mantle
+        | neko_core::ChainId::Linea
+        | neko_core::ChainId::ZkSyncEra
+        | neko_core::ChainId::Scroll => neko_core::ChainTxParams::Evm(neko_evm::tx::TxParams {
             nonce: 0,
             gas_limit: 62_395,
             chain_id: chain.evm().unwrap().chain_id,

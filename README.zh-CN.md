@@ -8,7 +8,7 @@
 插U盘带走、放网盘、随便拷到哪里都行。用一个邮箱加一个密码解锁，
 而这两样东西哪里都没有保存。
 
-多链架构：TRON、Ethereum、BNB Chain、Polygon、Base、Arbitrum、Optimism、Solana、Bitcoin、TON。
+多链架构：TRON、Ethereum、BNB Chain、Polygon、Base、Arbitrum、Optimism、Avalanche、HyperEVM、Mantle、Linea、zkSync Era、Scroll、Solana、Bitcoin、TON。
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
@@ -135,6 +135,12 @@ neko-wallet
 | Base | 可用 | ETH、USDC (ERC20) |
 | Arbitrum | 可用 | ETH、USDT (ERC20) |
 | Optimism | 可用 | ETH、USDT (ERC20) |
+| Avalanche | 可用 | AVAX、USDT (ERC20) |
+| HyperEVM | 可用 | HYPE、USDT (ERC20) |
+| Mantle | 可用 | MNT、USDC (ERC20) |
+| Linea | 可用 | ETH、USDC (ERC20) |
+| zkSync Era | 可用 | ETH、USDC (ERC20) |
+| Scroll | 可用 | ETH、USDT (ERC20) |
 | TON | 可用 | GRAM、USDT (jetton) |
 
 Polygon 也用同一个币种编号，所以同一句助记词在三条 EVM 链上是**同一个地址**。
@@ -191,6 +197,37 @@ USDT 合约老老实实就叫 `USDT`：2.235 亿，地址跟币安自己列的�
 价格从 Ethereum 读，因为它自己的两个 V2 池子分别只有十五美元和五百多美元，报出来的
 ETH 价是 7.55 和 264。历史记录走 Blockscout，只是这家开在自己的域名上。NodeReal 有这条
 链的 RPC，但没有对应的索引，所以历史不走它。
+
+这一批六条链一起加进来，分类的依据不是它们叫什么，而是它们怎么收 L1 的钱：
+
+| 链 | 币 | 稳定币 | L1 费用 | 币价来源 |
+|---|---|---|---|---|
+| Avalanche | AVAX | USDT（`USDt`） | — | 自己的池子 |
+| HyperEVM | HYPE | USDT（`USD₮0`） | — | **没有** |
+| Mantle | MNT | USDC | 在 gas 之外另收 | **没有** |
+| Linea | ETH | USDC | — | Ethereum |
+| zkSync Era | ETH | USDC | 折进 gas 里 | Ethereum |
+| Scroll | ETH | USDT | 另收，**而且地址不一样** | Ethereum |
+
+**Scroll 收 L1 用的是它自己的地址。** 它的 `L1GasPriceOracle` 在 `0x53..02`，
+3,782 字节；Base、Optimism、Mantle 共用的 OP-stack 预部署在 `0x42..0F`，2,055 字节。
+两者认同一个 `getL1Fee(bytes)`，所以一个字段能覆盖两种设计——但如果去 OP-stack 那个
+地址上找 Scroll 的，会找到一片空白，然后一分钱都不预留。
+
+**zkSync Era 一笔普通转账估出来是十七万八千 gas**，不是 21,000。它跟 Arbitrum 一样把
+写到 Ethereum 的成本折进了 gas，只是折得更彻底。它不另外收费。一个"觉得这数不对、
+把它改回 21,000"的钱包，造出来的交易根本进不了块。
+
+**有两条链故意不显示币价。** HYPE 和 MNT 在这个钱包接触的其它链上都不存在，而它们
+自己的 Uniswap V2 池子只有大约 1,100 美元和 400 美元。这么小的池子不会报错——它会
+给你一个数。HyperEVM 那个池子的现价其实准到 0.1% 以内，但问它"一个币值多少"，
+答案低了 13%，因为一个币就是池子的六分之一。所以估值那一列直说"不知道"，这是真话；
+总比给一个错得看不出来的数强。
+
+**同样三个字母，四种写法。** Tether 的合约在 Ethereum 和 Scroll 上自称 `USDT`，
+在 Polygon 上是 `USDT0`，在 Arbitrum 和 HyperEVM 上是带图格里克符号的 `USD₮0`，
+在 Avalanche 上是小写 t 的 `USDt`。每一个都会在签名前跟链核对，而且一个都不会显示到
+屏幕上。
 
 TON 在这里是唯一一条**地址不是从密钥算出来的**链。TON 上的钱包本身就是一个智能合约，
 地址是这个合约初始代码和存储的哈希。由此带来的两件事都摆在界面上，而不是等你自己撞上：

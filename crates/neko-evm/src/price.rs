@@ -83,12 +83,23 @@ impl crate::client::Rpc {
                 chain.chain_id
             )));
         }
+        // And a chain with no router has no price at all. Refused for the
+        // same reason: Mantle and HyperEVM each have a V2 router whose pool
+        // holds a few hundred dollars, which answers a number rather than an
+        // error, and a wrong price is worse than none in a column headed by a
+        // wallet's total.
+        let router = chain.router_address().ok_or_else(|| {
+            EvmError::Rpc(format!(
+                "chain {} has no pool this wallet can quote its coin from",
+                chain.chain_id
+            ))
+        })?;
         let data = amounts_out_call(
             10u128.pow(chain.native_decimals as u32),
             chain.wrapped_native_address(),
             chain.stable_address(),
         );
-        read_last_amount(&self.eth_call(chain.router_address(), &data).await?)
+        read_last_amount(&self.eth_call(router, &data).await?)
     }
 
     /// What one BTCB is worth, in USDT, at [`crate::USDT_DECIMALS`].
@@ -101,12 +112,15 @@ impl crate::client::Rpc {
     pub async fn btcb_price_in_usdt(&self) -> Result<u128, EvmError> {
         let chain = self.chain();
         let btcb = EvmAddress::parse(crate::BTCB)?;
+        let router = chain
+            .router_address()
+            .ok_or_else(|| EvmError::Rpc("this chain has no router".into()))?;
         let data = amounts_out_call(
             10u128.pow(crate::BTCB_DECIMALS as u32),
             btcb,
             chain.stable_address(),
         );
-        read_last_amount(&self.eth_call(chain.router_address(), &data).await?)
+        read_last_amount(&self.eth_call(router, &data).await?)
     }
 }
 

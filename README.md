@@ -9,7 +9,8 @@ one encrypted file — carry it on a USB stick, keep it on a network drive, copy
 it anywhere. Unlocked by an email and a password that are stored nowhere.
 
 Multi-chain by design: TRON, Ethereum, BNB Chain, Polygon, Base, Arbitrum,
-Optimism, Solana, Bitcoin and TON.
+Optimism, Avalanche, HyperEVM, Mantle, Linea, zkSync Era, Scroll, Solana,
+Bitcoin and TON.
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
@@ -145,6 +146,12 @@ phrase, or a new thing to back up.
 | Base | working | ETH, USDC (ERC20) |
 | Arbitrum | working | ETH, USDT (ERC20) |
 | Optimism | working | ETH, USDT (ERC20) |
+| Avalanche | working | AVAX, USDT (ERC20) |
+| HyperEVM | working | HYPE, USDT (ERC20) |
+| Mantle | working | MNT, USDC (ERC20) |
+| Linea | working | ETH, USDC (ERC20) |
+| zkSync Era | working | ETH, USDC (ERC20) |
+| Scroll | working | ETH, USDT (ERC20) |
 | TON | working | GRAM, USDT (jetton) |
 
 The same phrase gives a different address on each — that is correct and
@@ -248,6 +255,44 @@ Ethereum, because its own V2 pools hold fifteen dollars and five hundred
 respectively, quoting an ether at \$7.55 and \$264. History comes from a
 Blockscout instance on its own domain. NodeReal serves an RPC for this chain
 but no index behind it, so history does not go there.
+
+Six more chains landed together, and they divide by how they charge for L1
+rather than by what they are called:
+
+| Chain | Coin | Stablecoin | L1 fee | Coin priced |
+|---|---|---|---|---|
+| Avalanche | AVAX | USDT (`USDt`) | — | its own pool |
+| HyperEVM | HYPE | USDT (`USD₮0`) | — | **nowhere** |
+| Mantle | MNT | USDC | beside gas | **nowhere** |
+| Linea | ETH | USDC | — | Ethereum |
+| zkSync Era | ETH | USDC | in the gas number | Ethereum |
+| Scroll | ETH | USDT | beside gas, **own address** | Ethereum |
+
+**Scroll charges for L1 at an address of its own.** Its `L1GasPriceOracle` is
+at `0x53..02` and holds 3,782 bytes; the OP-stack predeploy Base, Optimism and
+Mantle share is at `0x42..0F` and holds 2,055. Both answer the same
+`getL1Fee(bytes)`, which is what lets one setting cover both designs — but
+looking for Scroll's at the OP-stack address finds no code and reserves
+nothing.
+
+**zkSync Era estimates a plain transfer at about 178,000 gas**, not 21,000,
+because it folds the cost of publishing to Ethereum into the gas number the
+way Arbitrum does, only much further. Nothing is reserved beside it. A wallet
+that "corrects" that figure produces a transaction that cannot be included.
+
+**Two chains get no price at all, deliberately.** HYPE and MNT exist on no
+other chain this wallet talks to, and their own Uniswap-V2 pools hold about
+\$1,100 and \$400. A pool that small does not fail — it answers. HyperEVM's
+spot price is right to within 0.1% and a quote for one whole coin comes back
+13% low, because one unit is a sixth of the pool. So the value column says it
+does not know, which is true, instead of a number that is wrong by an amount
+nobody can see.
+
+**And the same three letters are spelled four ways.** Tether's contract calls
+itself `USDT` on Ethereum and Scroll, `USDT0` on Polygon, `USD₮0` with a
+tugrik sign on Arbitrum and HyperEVM, and `USDt` with a lowercase t on
+Avalanche. Each is checked against its chain before a transfer is signed, and
+none of them is ever what the screen shows.
 
 TON derives at `m/44'/607'/0'` and is the one chain here where **the address
 is not derived from the key**. A wallet on TON is a smart contract, and its

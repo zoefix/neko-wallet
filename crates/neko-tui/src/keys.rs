@@ -746,6 +746,12 @@ fn cycle_setting(app: &mut App, forward: bool, tx: &Sender) {
         | SettingRow::BaseRpc
         | SettingRow::ArbitrumRpc
         | SettingRow::OptimismRpc
+        | SettingRow::AvalancheRpc
+        | SettingRow::HyperEvmRpc
+        | SettingRow::MantleRpc
+        | SettingRow::LineaRpc
+        | SettingRow::ZkSyncEraRpc
+        | SettingRow::ScrollRpc
         | SettingRow::TonApi => begin_edit(app, tx),
     }
 }
@@ -771,6 +777,12 @@ fn begin_edit(app: &mut App, _tx: &Sender) {
         | SettingRow::BaseRpc
         | SettingRow::ArbitrumRpc
         | SettingRow::OptimismRpc
+        | SettingRow::AvalancheRpc
+        | SettingRow::HyperEvmRpc
+        | SettingRow::MantleRpc
+        | SettingRow::LineaRpc
+        | SettingRow::ZkSyncEraRpc
+        | SettingRow::ScrollRpc
         | SettingRow::TonApi => st.editing = Some(Field::new(false)),
         _ => {}
     }
@@ -822,6 +834,12 @@ fn apply_text_setting(app: &mut App, row: crate::nav::SettingRow, value: &str) {
         | SettingRow::BaseRpc
         | SettingRow::ArbitrumRpc
         | SettingRow::OptimismRpc
+        | SettingRow::AvalancheRpc
+        | SettingRow::HyperEvmRpc
+        | SettingRow::MantleRpc
+        | SettingRow::LineaRpc
+        | SettingRow::ZkSyncEraRpc
+        | SettingRow::ScrollRpc
         | SettingRow::TonApi => set_node_url(app, row, value),
         _ => {}
     }
@@ -864,6 +882,12 @@ fn set_node_url(app: &mut App, row: crate::nav::SettingRow, value: &str) {
             keys::OPTIMISM_RPC,
             neko_i18n::Key::Settings_OptimismRpcSaved,
         ),
+        SettingRow::AvalancheRpc => (keys::AVALANCHE_RPC, neko_i18n::Key::Settings_AvalancheRpcSaved),
+        SettingRow::HyperEvmRpc => (keys::HYPEREVM_RPC, neko_i18n::Key::Settings_HyperevmRpcSaved),
+        SettingRow::MantleRpc => (keys::MANTLE_RPC, neko_i18n::Key::Settings_MantleRpcSaved),
+        SettingRow::LineaRpc => (keys::LINEA_RPC, neko_i18n::Key::Settings_LineaRpcSaved),
+        SettingRow::ZkSyncEraRpc => (keys::ZKSYNC_ERA_RPC, neko_i18n::Key::Settings_ZksyncEraRpcSaved),
+        SettingRow::ScrollRpc => (keys::SCROLL_RPC, neko_i18n::Key::Settings_ScrollRpcSaved),
         SettingRow::TonApi => (keys::TON_API, neko_i18n::Key::Settings_TonApiSaved),
         _ => (keys::NODE_URL, neko_i18n::Key::Settings_NodeSaved),
     };
@@ -883,6 +907,12 @@ fn set_node_url(app: &mut App, row: crate::nav::SettingRow, value: &str) {
         SettingRow::BaseRpc => app.base_rpc = stored,
         SettingRow::ArbitrumRpc => app.arbitrum_rpc = stored,
         SettingRow::OptimismRpc => app.optimism_rpc = stored,
+        SettingRow::AvalancheRpc => app.avalanche_rpc = stored,
+        SettingRow::HyperEvmRpc => app.hyperevm_rpc = stored,
+        SettingRow::MantleRpc => app.mantle_rpc = stored,
+        SettingRow::LineaRpc => app.linea_rpc = stored,
+        SettingRow::ZkSyncEraRpc => app.zksync_era_rpc = stored,
+        SettingRow::ScrollRpc => app.scroll_rpc = stored,
         SettingRow::TonApi => app.ton_api = stored,
         _ => app.node_url = stored,
     }

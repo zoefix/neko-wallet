@@ -24,9 +24,15 @@ pub enum ChainId {
     Base,
     Arbitrum,
     Optimism,
+    Avalanche,
+    HyperEvm,
+    Mantle,
+    Linea,
+    ZkSyncEra,
+    Scroll,
 }
 
-pub const CHAINS: [ChainId; 10] = [
+pub const CHAINS: [ChainId; 16] = [
     ChainId::Tron,
     ChainId::Bsc,
     ChainId::Solana,
@@ -37,6 +43,12 @@ pub const CHAINS: [ChainId; 10] = [
     ChainId::Base,
     ChainId::Arbitrum,
     ChainId::Optimism,
+    ChainId::Avalanche,
+    ChainId::HyperEvm,
+    ChainId::Mantle,
+    ChainId::Linea,
+    ChainId::ZkSyncEra,
+    ChainId::Scroll,
 ];
 
 impl ChainId {
@@ -53,6 +65,12 @@ impl ChainId {
             ChainId::Base => "base",
             ChainId::Arbitrum => "arbitrum",
             ChainId::Optimism => "optimism",
+            ChainId::Avalanche => "avalanche",
+            ChainId::HyperEvm => "hyperevm",
+            ChainId::Mantle => "mantle",
+            ChainId::Linea => "linea",
+            ChainId::ZkSyncEra => "zksync_era",
+            ChainId::Scroll => "scroll",
         }
     }
 
@@ -73,6 +91,12 @@ impl ChainId {
             ChainId::Base => "Base",
             ChainId::Arbitrum => "Arbitrum",
             ChainId::Optimism => "Optimism",
+            ChainId::Avalanche => "Avalanche",
+            ChainId::HyperEvm => "HyperEVM",
+            ChainId::Mantle => "Mantle",
+            ChainId::Linea => "Linea",
+            ChainId::ZkSyncEra => "zkSync Era",
+            ChainId::Scroll => "Scroll",
         }
     }
 
@@ -91,7 +115,13 @@ impl ChainId {
             | ChainId::Polygon
             | ChainId::Base
             | ChainId::Arbitrum
-            | ChainId::Optimism => neko_hd::derive::COIN_TYPE_EVM,
+            | ChainId::Optimism
+            | ChainId::Avalanche
+            | ChainId::HyperEvm
+            | ChainId::Mantle
+            | ChainId::Linea
+            | ChainId::ZkSyncEra
+            | ChainId::Scroll => neko_hd::derive::COIN_TYPE_EVM,
             ChainId::Ton => neko_hd::COIN_TYPE_TON,
         }
     }
@@ -116,6 +146,12 @@ impl ChainId {
             // the chain id tells a transfer on one from a transfer on another.
             ChainId::Arbitrum => neko_evm::ARBITRUM.native_symbol,
             ChainId::Optimism => neko_evm::OPTIMISM.native_symbol,
+            ChainId::Avalanche => neko_evm::AVALANCHE.native_symbol,
+            ChainId::HyperEvm => neko_evm::HYPER_EVM.native_symbol,
+            ChainId::Mantle => neko_evm::MANTLE.native_symbol,
+            ChainId::Linea => neko_evm::LINEA.native_symbol,
+            ChainId::ZkSyncEra => neko_evm::ZKSYNC_ERA.native_symbol,
+            ChainId::Scroll => neko_evm::SCROLL.native_symbol,
         }
     }
 
@@ -130,6 +166,12 @@ impl ChainId {
             ChainId::Base => neko_evm::BASE.native_decimals,
             ChainId::Arbitrum => neko_evm::ARBITRUM.native_decimals,
             ChainId::Optimism => neko_evm::OPTIMISM.native_decimals,
+            ChainId::Avalanche => neko_evm::AVALANCHE.native_decimals,
+            ChainId::HyperEvm => neko_evm::HYPER_EVM.native_decimals,
+            ChainId::Mantle => neko_evm::MANTLE.native_decimals,
+            ChainId::Linea => neko_evm::LINEA.native_decimals,
+            ChainId::ZkSyncEra => neko_evm::ZKSYNC_ERA.native_decimals,
+            ChainId::Scroll => neko_evm::SCROLL.native_decimals,
             ChainId::Ton => neko_ton::GRAM_DECIMALS,
             ChainId::Solana => neko_solana::SOL_DECIMALS,
             ChainId::Bitcoin => neko_btc::BTC_DECIMALS,
@@ -194,6 +236,30 @@ impl ChainId {
                 contract: neko_evm::OPTIMISM.stable_address(),
                 decimals: neko_evm::OPTIMISM.stable_decimals,
             }),
+            ChainId::Avalanche => Some(Asset::AvalancheErc20 {
+                contract: neko_evm::AVALANCHE.stable_address(),
+                decimals: neko_evm::AVALANCHE.stable_decimals,
+            }),
+            ChainId::HyperEvm => Some(Asset::HyperEvmErc20 {
+                contract: neko_evm::HYPER_EVM.stable_address(),
+                decimals: neko_evm::HYPER_EVM.stable_decimals,
+            }),
+            ChainId::Mantle => Some(Asset::MantleErc20 {
+                contract: neko_evm::MANTLE.stable_address(),
+                decimals: neko_evm::MANTLE.stable_decimals,
+            }),
+            ChainId::Linea => Some(Asset::LineaErc20 {
+                contract: neko_evm::LINEA.stable_address(),
+                decimals: neko_evm::LINEA.stable_decimals,
+            }),
+            ChainId::ZkSyncEra => Some(Asset::ZkSyncEraErc20 {
+                contract: neko_evm::ZKSYNC_ERA.stable_address(),
+                decimals: neko_evm::ZKSYNC_ERA.stable_decimals,
+            }),
+            ChainId::Scroll => Some(Asset::ScrollErc20 {
+                contract: neko_evm::SCROLL.stable_address(),
+                decimals: neko_evm::SCROLL.stable_decimals,
+            }),
             ChainId::Ton => Some(Asset::Jetton {
                 master: neko_ton::usdt_master(),
                 decimals: neko_ton::USDT_DECIMALS,
@@ -224,6 +290,12 @@ impl ChainId {
             ChainId::Base => Some(neko_evm::BASE),
             ChainId::Arbitrum => Some(neko_evm::ARBITRUM),
             ChainId::Optimism => Some(neko_evm::OPTIMISM),
+            ChainId::Avalanche => Some(neko_evm::AVALANCHE),
+            ChainId::HyperEvm => Some(neko_evm::HYPER_EVM),
+            ChainId::Mantle => Some(neko_evm::MANTLE),
+            ChainId::Linea => Some(neko_evm::LINEA),
+            ChainId::ZkSyncEra => Some(neko_evm::ZKSYNC_ERA),
+            ChainId::Scroll => Some(neko_evm::SCROLL),
             ChainId::Tron | ChainId::Solana | ChainId::Bitcoin | ChainId::Ton => None,
         }
     }
@@ -251,6 +323,12 @@ impl ChainId {
             ChainId::Base => Asset::BaseEth,
             ChainId::Arbitrum => Asset::ArbitrumEth,
             ChainId::Optimism => Asset::OptimismEth,
+            ChainId::Avalanche => Asset::AvalancheNative,
+            ChainId::HyperEvm => Asset::HyperEvmNative,
+            ChainId::Mantle => Asset::MantleNative,
+            ChainId::Linea => Asset::LineaNative,
+            ChainId::ZkSyncEra => Asset::ZkSyncEraNative,
+            ChainId::Scroll => Asset::ScrollNative,
             ChainId::Ton => Asset::Gram,
         }
     }
@@ -267,6 +345,12 @@ impl ChainId {
             ChainId::Base => format!("{}{id}", neko_evm::BASE.explorer_tx),
             ChainId::Arbitrum => format!("{}{id}", neko_evm::ARBITRUM.explorer_tx),
             ChainId::Optimism => format!("{}{id}", neko_evm::OPTIMISM.explorer_tx),
+            ChainId::Avalanche => format!("{}{id}", neko_evm::AVALANCHE.explorer_tx),
+            ChainId::HyperEvm => format!("{}{id}", neko_evm::HYPER_EVM.explorer_tx),
+            ChainId::Mantle => format!("{}{id}", neko_evm::MANTLE.explorer_tx),
+            ChainId::Linea => format!("{}{id}", neko_evm::LINEA.explorer_tx),
+            ChainId::ZkSyncEra => format!("{}{id}", neko_evm::ZKSYNC_ERA.explorer_tx),
+            ChainId::Scroll => format!("{}{id}", neko_evm::SCROLL.explorer_tx),
             ChainId::Ton => format!("{}{id}", neko_ton::EXPLORER_TX),
         }
     }
@@ -292,6 +376,12 @@ pub enum ChainAddress {
     Base(neko_hd::EvmAddress),
     Arbitrum(neko_hd::EvmAddress),
     Optimism(neko_hd::EvmAddress),
+    Avalanche(neko_hd::EvmAddress),
+    HyperEvm(neko_hd::EvmAddress),
+    Mantle(neko_hd::EvmAddress),
+    Linea(neko_hd::EvmAddress),
+    ZkSyncEra(neko_hd::EvmAddress),
+    Scroll(neko_hd::EvmAddress),
     Ton(neko_ton::TonAddress),
 }
 
@@ -307,6 +397,12 @@ impl ChainAddress {
             ChainAddress::Base(_) => ChainId::Base,
             ChainAddress::Arbitrum(_) => ChainId::Arbitrum,
             ChainAddress::Optimism(_) => ChainId::Optimism,
+            ChainAddress::Avalanche(_) => ChainId::Avalanche,
+            ChainAddress::HyperEvm(_) => ChainId::HyperEvm,
+            ChainAddress::Mantle(_) => ChainId::Mantle,
+            ChainAddress::Linea(_) => ChainId::Linea,
+            ChainAddress::ZkSyncEra(_) => ChainId::ZkSyncEra,
+            ChainAddress::Scroll(_) => ChainId::Scroll,
             ChainAddress::Ton(_) => ChainId::Ton,
         }
     }
@@ -346,6 +442,24 @@ impl ChainAddress {
             ChainId::Optimism => neko_hd::EvmAddress::parse(s)
                 .map(ChainAddress::Optimism)
                 .map_err(|_| CoreError::BadAddress),
+            ChainId::Avalanche => neko_hd::EvmAddress::parse(s)
+                .map(ChainAddress::Avalanche)
+                .map_err(|_| CoreError::BadAddress),
+            ChainId::HyperEvm => neko_hd::EvmAddress::parse(s)
+                .map(ChainAddress::HyperEvm)
+                .map_err(|_| CoreError::BadAddress),
+            ChainId::Mantle => neko_hd::EvmAddress::parse(s)
+                .map(ChainAddress::Mantle)
+                .map_err(|_| CoreError::BadAddress),
+            ChainId::Linea => neko_hd::EvmAddress::parse(s)
+                .map(ChainAddress::Linea)
+                .map_err(|_| CoreError::BadAddress),
+            ChainId::ZkSyncEra => neko_hd::EvmAddress::parse(s)
+                .map(ChainAddress::ZkSyncEra)
+                .map_err(|_| CoreError::BadAddress),
+            ChainId::Scroll => neko_hd::EvmAddress::parse(s)
+                .map(ChainAddress::Scroll)
+                .map_err(|_| CoreError::BadAddress),
             ChainId::Ton => neko_ton::TonAddress::parse(s)
                 .map(ChainAddress::Ton)
                 .map_err(|_| CoreError::BadAddress),
@@ -368,6 +482,12 @@ impl ChainAddress {
             ChainAddress::Base(a) => a.as_bytes().to_vec(),
             ChainAddress::Arbitrum(a) => a.as_bytes().to_vec(),
             ChainAddress::Optimism(a) => a.as_bytes().to_vec(),
+            ChainAddress::Avalanche(a) => a.as_bytes().to_vec(),
+            ChainAddress::HyperEvm(a) => a.as_bytes().to_vec(),
+            ChainAddress::Mantle(a) => a.as_bytes().to_vec(),
+            ChainAddress::Linea(a) => a.as_bytes().to_vec(),
+            ChainAddress::ZkSyncEra(a) => a.as_bytes().to_vec(),
+            ChainAddress::Scroll(a) => a.as_bytes().to_vec(),
             ChainAddress::Ton(a) => a.as_bytes(),
         }
     }
@@ -401,6 +521,24 @@ impl ChainAddress {
             ChainId::Optimism => neko_hd::EvmAddress::from_bytes(b)
                 .map(ChainAddress::Optimism)
                 .map_err(|_| CoreError::BadAddress),
+            ChainId::Avalanche => neko_hd::EvmAddress::from_bytes(b)
+                .map(ChainAddress::Avalanche)
+                .map_err(|_| CoreError::BadAddress),
+            ChainId::HyperEvm => neko_hd::EvmAddress::from_bytes(b)
+                .map(ChainAddress::HyperEvm)
+                .map_err(|_| CoreError::BadAddress),
+            ChainId::Mantle => neko_hd::EvmAddress::from_bytes(b)
+                .map(ChainAddress::Mantle)
+                .map_err(|_| CoreError::BadAddress),
+            ChainId::Linea => neko_hd::EvmAddress::from_bytes(b)
+                .map(ChainAddress::Linea)
+                .map_err(|_| CoreError::BadAddress),
+            ChainId::ZkSyncEra => neko_hd::EvmAddress::from_bytes(b)
+                .map(ChainAddress::ZkSyncEra)
+                .map_err(|_| CoreError::BadAddress),
+            ChainId::Scroll => neko_hd::EvmAddress::from_bytes(b)
+                .map(ChainAddress::Scroll)
+                .map_err(|_| CoreError::BadAddress),
             ChainId::Ton => neko_ton::TonAddress::from_bytes(b)
                 .map(ChainAddress::Ton)
                 .map_err(|_| CoreError::BadAddress),
@@ -424,7 +562,13 @@ impl ChainAddress {
             | ChainAddress::Polygon(a)
             | ChainAddress::Base(a)
             | ChainAddress::Arbitrum(a)
-            | ChainAddress::Optimism(a) => Ok(*a),
+            | ChainAddress::Optimism(a)
+            | ChainAddress::Avalanche(a)
+            | ChainAddress::HyperEvm(a)
+            | ChainAddress::Mantle(a)
+            | ChainAddress::Linea(a)
+            | ChainAddress::ZkSyncEra(a)
+            | ChainAddress::Scroll(a) => Ok(*a),
             _ => Err(CoreError::WrongChain),
         }
     }
@@ -462,6 +606,12 @@ impl std::fmt::Display for ChainAddress {
             ChainAddress::Base(a) => write!(f, "{a}"),
             ChainAddress::Arbitrum(a) => write!(f, "{a}"),
             ChainAddress::Optimism(a) => write!(f, "{a}"),
+            ChainAddress::Avalanche(a) => write!(f, "{a}"),
+            ChainAddress::HyperEvm(a) => write!(f, "{a}"),
+            ChainAddress::Mantle(a) => write!(f, "{a}"),
+            ChainAddress::Linea(a) => write!(f, "{a}"),
+            ChainAddress::ZkSyncEra(a) => write!(f, "{a}"),
+            ChainAddress::Scroll(a) => write!(f, "{a}"),
             ChainAddress::Ethereum(a) => write!(f, "{a}"),
             ChainAddress::Ton(a) => write!(f, "{a}"),
         }
@@ -521,6 +671,48 @@ pub enum Asset {
         contract: neko_hd::EvmAddress,
         decimals: u8,
     },
+    /// Avalanche's coin.
+    AvalancheNative,
+    /// A token on Avalanche.
+    AvalancheErc20 {
+        contract: neko_hd::EvmAddress,
+        decimals: u8,
+    },
+    /// HyperEvm's coin.
+    HyperEvmNative,
+    /// A token on HyperEvm.
+    HyperEvmErc20 {
+        contract: neko_hd::EvmAddress,
+        decimals: u8,
+    },
+    /// Mantle's coin.
+    MantleNative,
+    /// A token on Mantle.
+    MantleErc20 {
+        contract: neko_hd::EvmAddress,
+        decimals: u8,
+    },
+    /// Linea's coin.
+    LineaNative,
+    /// A token on Linea.
+    LineaErc20 {
+        contract: neko_hd::EvmAddress,
+        decimals: u8,
+    },
+    /// ZkSyncEra's coin.
+    ZkSyncEraNative,
+    /// A token on ZkSyncEra.
+    ZkSyncEraErc20 {
+        contract: neko_hd::EvmAddress,
+        decimals: u8,
+    },
+    /// Scroll's coin.
+    ScrollNative,
+    /// A token on Scroll.
+    ScrollErc20 {
+        contract: neko_hd::EvmAddress,
+        decimals: u8,
+    },
     /// A token on Polygon. Technically an ERC-20 like Ethereum's, and
     /// deliberately not the same variant: [`Asset::Erc20`] means *Ethereum's*,
     /// and one variant for both would make `chain()` answer Ethereum for a
@@ -550,6 +742,12 @@ impl Asset {
             Asset::BaseEth | Asset::BaseErc20 { .. } => ChainId::Base,
             Asset::ArbitrumEth | Asset::ArbitrumErc20 { .. } => ChainId::Arbitrum,
             Asset::OptimismEth | Asset::OptimismErc20 { .. } => ChainId::Optimism,
+            Asset::AvalancheNative | Asset::AvalancheErc20 { .. } => ChainId::Avalanche,
+            Asset::HyperEvmNative | Asset::HyperEvmErc20 { .. } => ChainId::HyperEvm,
+            Asset::MantleNative | Asset::MantleErc20 { .. } => ChainId::Mantle,
+            Asset::LineaNative | Asset::LineaErc20 { .. } => ChainId::Linea,
+            Asset::ZkSyncEraNative | Asset::ZkSyncEraErc20 { .. } => ChainId::ZkSyncEra,
+            Asset::ScrollNative | Asset::ScrollErc20 { .. } => ChainId::Scroll,
             Asset::Gram | Asset::Jetton { .. } => ChainId::Ton,
         }
     }
@@ -563,6 +761,12 @@ impl Asset {
             Asset::BaseEth => neko_evm::BASE.native_decimals,
             Asset::ArbitrumEth => neko_evm::ARBITRUM.native_decimals,
             Asset::OptimismEth => neko_evm::OPTIMISM.native_decimals,
+            Asset::AvalancheNative => neko_evm::AVALANCHE.native_decimals,
+            Asset::HyperEvmNative => neko_evm::HYPER_EVM.native_decimals,
+            Asset::MantleNative => neko_evm::MANTLE.native_decimals,
+            Asset::LineaNative => neko_evm::LINEA.native_decimals,
+            Asset::ZkSyncEraNative => neko_evm::ZKSYNC_ERA.native_decimals,
+            Asset::ScrollNative => neko_evm::SCROLL.native_decimals,
             Asset::Gram => neko_ton::GRAM_DECIMALS,
             Asset::Sol => neko_solana::SOL_DECIMALS,
             Asset::Btc => neko_btc::BTC_DECIMALS,
@@ -574,6 +778,12 @@ impl Asset {
             | Asset::BaseErc20 { decimals, .. }
             | Asset::ArbitrumErc20 { decimals, .. }
             | Asset::OptimismErc20 { decimals, .. }
+            | Asset::AvalancheErc20 { decimals, .. }
+            | Asset::HyperEvmErc20 { decimals, .. }
+            | Asset::MantleErc20 { decimals, .. }
+            | Asset::LineaErc20 { decimals, .. }
+            | Asset::ZkSyncEraErc20 { decimals, .. }
+            | Asset::ScrollErc20 { decimals, .. }
             | Asset::Jetton { decimals, .. } => decimals,
         }
     }
@@ -589,10 +799,22 @@ impl Asset {
             Asset::BaseEth => "ETH",
             Asset::ArbitrumEth => "ETH",
             Asset::OptimismEth => "ETH",
+            Asset::AvalancheNative => "AVAX",
+            Asset::HyperEvmNative => "HYPE",
+            Asset::MantleNative => "MNT",
+            Asset::LineaNative => "ETH",
+            Asset::ZkSyncEraNative => "ETH",
+            Asset::ScrollNative => "ETH",
             Asset::Gram => "GRAM",
             // Base's stablecoin is a different token, not a differently named
             // one - see `ChainId::stable`.
             Asset::BaseErc20 { .. } => neko_evm::BASE.stable_label,
+            // Four more chains carry Circle's dollar rather than Tether's,
+            // each for its own reason - see `neko_evm`. The label comes from
+            // the chain, never from what a contract or a server calls itself.
+            Asset::MantleErc20 { .. } => neko_evm::MANTLE.stable_label,
+            Asset::LineaErc20 { .. } => neko_evm::LINEA.stable_label,
+            Asset::ZkSyncEraErc20 { .. } => neko_evm::ZKSYNC_ERA.stable_label,
             // Polygon's contract calls itself USDT0. It is the same token
             // people mean by USDT and it is shown as USDT; the name the
             // contract has is what the send path checks against the chain.
@@ -603,6 +825,9 @@ impl Asset {
             | Asset::PolygonErc20 { .. }
             | Asset::ArbitrumErc20 { .. }
             | Asset::OptimismErc20 { .. }
+            | Asset::AvalancheErc20 { .. }
+            | Asset::HyperEvmErc20 { .. }
+            | Asset::ScrollErc20 { .. }
             | Asset::Jetton { .. } => "USDT",
         }
     }
@@ -622,7 +847,13 @@ impl Asset {
             | Asset::PolygonErc20 { contract, decimals }
             | Asset::BaseErc20 { contract, decimals }
             | Asset::ArbitrumErc20 { contract, decimals }
-            | Asset::OptimismErc20 { contract, decimals } => Some((contract, decimals)),
+            | Asset::OptimismErc20 { contract, decimals }
+            | Asset::AvalancheErc20 { contract, decimals }
+            | Asset::HyperEvmErc20 { contract, decimals }
+            | Asset::MantleErc20 { contract, decimals }
+            | Asset::LineaErc20 { contract, decimals }
+            | Asset::ZkSyncEraErc20 { contract, decimals }
+            | Asset::ScrollErc20 { contract, decimals } => Some((contract, decimals)),
             Asset::Trx
             | Asset::Trc20 { .. }
             | Asset::Bnb
@@ -635,6 +866,12 @@ impl Asset {
             | Asset::BaseEth
             | Asset::ArbitrumEth
             | Asset::OptimismEth
+            | Asset::AvalancheNative
+            | Asset::HyperEvmNative
+            | Asset::MantleNative
+            | Asset::LineaNative
+            | Asset::ZkSyncEraNative
+            | Asset::ScrollNative
             | Asset::Jetton { .. } => None,
         }
     }
@@ -664,6 +901,18 @@ impl Asset {
             | Asset::BaseErc20 { .. }
             | Asset::ArbitrumEth
             | Asset::ArbitrumErc20 { .. }
+            | Asset::AvalancheNative
+            | Asset::AvalancheErc20 { .. }
+            | Asset::HyperEvmNative
+            | Asset::HyperEvmErc20 { .. }
+            | Asset::MantleNative
+            | Asset::MantleErc20 { .. }
+            | Asset::LineaNative
+            | Asset::LineaErc20 { .. }
+            | Asset::ZkSyncEraNative
+            | Asset::ZkSyncEraErc20 { .. }
+            | Asset::ScrollNative
+            | Asset::ScrollErc20 { .. }
             | Asset::OptimismEth
             | Asset::OptimismErc20 { .. }
             | Asset::Gram

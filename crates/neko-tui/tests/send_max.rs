@@ -46,7 +46,13 @@ fn state(asset: neko_core::Asset, balance: Option<i128>) -> SendState {
         | neko_core::ChainId::Polygon
         | neko_core::ChainId::Base
         | neko_core::ChainId::Arbitrum
-        | neko_core::ChainId::Optimism => (BSC_MINE, BSC_TO),
+        | neko_core::ChainId::Optimism
+        | neko_core::ChainId::Avalanche
+        | neko_core::ChainId::HyperEvm
+        | neko_core::ChainId::Mantle
+        | neko_core::ChainId::Linea
+        | neko_core::ChainId::ZkSyncEra
+        | neko_core::ChainId::Scroll => (BSC_MINE, BSC_TO),
     };
     let mut st = SendState::new(
         1,

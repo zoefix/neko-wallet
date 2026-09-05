@@ -162,7 +162,11 @@ jobs:
           #   polygon-bor-rpc.publicnode.com,
           #   base-rpc.publicnode.com,
           #   arbitrum-one-rpc.publicnode.com,
-          #   optimism-rpc.publicnode.com
+          #   optimism-rpc.publicnode.com,
+          #   avalanche-c-chain-rpc.publicnode.com,
+          #   rpc.hyperliquid.xyz, rpc.mantle.xyz,
+          #   rpc.linea.build, mainnet.era.zksync.io,
+          #   rpc.scroll.io
           #   blockstream.info          Bitcoin's is an *indexer*, not a node:
           #                             a node cannot say what an address
           #                             holds, so there is no version of this
@@ -175,6 +179,13 @@ jobs:
           #   nodereal.io               BNB Chain and Ethereum history, only
           #                             when the user supplies a key; never
           #                             contacted without one
+          #   scrollscan.com            Scroll history. Its explorer serves the
+          #                             Blockscout v2 API keyless, and the same
+          #                             host is the explorer link - the only
+          #                             entry here that is both. Etherscan V2
+          #                             does not list Scroll or zkSync Era,
+          #                             which is why those two read this way
+          #   zksync.blockscout.com     zkSync Era history, keyless
           #   explorer.optimism.io      Optimism history, and the one entry
           #                             here that does not look like what it
           #                             is: it is a Blockscout instance on its
@@ -204,7 +215,10 @@ jobs:
           #   solscan / etherscan /     open - this wallet never fetches them
           #   mempool.space / tonviewer
           #   polygonscan / basescan /
-          #   arbiscan / optimistic.etherscan
+          #   arbiscan / optimistic.etherscan /
+          #   snowtrace / hyperevmscan /
+          #   mantlescan / lineascan /
+          #   explorer.zksync.io
           #   tether.to                 named by TON's USDT as where its own
           #                             metadata lives. Read out of the
           #                             contract and never fetched: the wallet
@@ -225,7 +239,7 @@ jobs:
           # before and after each transaction.
           found="$(grep -rhoE 'https?://[a-zA-Z0-9._/-]+' crates/*/src \
                    | sort -u \
-                   | grep -vE 'trongrid\.io|bsc-dataseed|mainnet-beta\.solana\.com|ethereum-rpc\.publicnode\.com|polygon-bor-rpc\.publicnode\.com|polygonscan\.com|base-rpc\.publicnode\.com|basescan\.org|arbitrum-one-rpc\.publicnode\.com|arbiscan\.io|optimism-rpc\.publicnode\.com|explorer\.optimism\.io|blockstream\.info|nodereal\.io|tronscan\.org|bscscan\.com|solscan\.io|etherscan\.io|mempool\.space|blockscout\.com|api\.etherscan\.io|toncenter\.com|tonviewer\.com|tether\.to|my-node\.example|x\.example|example\.invalid' || true)"
+                   | grep -vE 'trongrid\.io|bsc-dataseed|mainnet-beta\.solana\.com|ethereum-rpc\.publicnode\.com|polygon-bor-rpc\.publicnode\.com|polygonscan\.com|base-rpc\.publicnode\.com|basescan\.org|arbitrum-one-rpc\.publicnode\.com|arbiscan\.io|optimism-rpc\.publicnode\.com|explorer\.optimism\.io|avalanche-c-chain-rpc\.publicnode\.com|rpc\.hyperliquid\.xyz|rpc\.mantle\.xyz|rpc\.linea\.build|mainnet\.era\.zksync\.io|rpc\.scroll\.io|scrollscan\.com|snowtrace\.io|hyperevmscan\.io|mantlescan\.xyz|lineascan\.build|explorer\.zksync\.io|blockstream\.info|nodereal\.io|tronscan\.org|bscscan\.com|solscan\.io|etherscan\.io|mempool\.space|blockscout\.com|api\.etherscan\.io|toncenter\.com|tonviewer\.com|tether\.to|my-node\.example|x\.example|example\.invalid' || true)"
           if [ -n "$found" ]; then
             echo "::error::unexpected network destinations in the program:"
             printf '%s\n' "$found"

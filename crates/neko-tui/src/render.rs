@@ -1825,6 +1825,25 @@ fn hint_lines(text: &str, inner_width: u16) -> Vec<Line<'static>> {
         .collect()
 }
 
+/// Which slice of the settings list to draw, and how much of it.
+///
+/// Returns `(first, count)`. The window always contains `selected`, so a row
+/// can never be edited while off screen, and it is as large as the space
+/// allows - no scrolling at all on a tall terminal.
+///
+/// The budget: two blank lines above the list, one below it, up to two lines
+/// of hint under that, and one line for each scroll marker.
+pub fn settings_window(height: u16, rows: usize, selected: usize) -> (usize, usize) {
+    let reserved = 2 + 1 + 2 + 2;
+    let cap = (height as usize).saturating_sub(reserved).max(1);
+    if rows <= cap {
+        return (0, rows);
+    }
+    // Keep the selection inside the window, scrolling only as far as needed.
+    let first = selected.saturating_sub(cap / 2).min(rows - cap);
+    (first, cap)
+}
+
 fn draw_settings(f: &mut Frame, area: Rect, app: &App, st: &SettingsState) {
     let block = shell(app, t(Key::App_Settings));
     let inner = block.inner(area);
@@ -1837,7 +1856,17 @@ fn draw_settings(f: &mut Frame, area: Rect, app: &App, st: &SettingsState) {
         .saturating_sub(3 + SETTING_LABEL_COLS)
         .max(FIELD_MIN_VALUE);
 
-    for (i, row) in SETTING_ROWS.iter().enumerate() {
+    // Sixteen chains means twenty-two rows, which stopped fitting on an
+    // 80x24 terminal - the smallest anyone still uses. So the list scrolls:
+    // a window is chosen that keeps the selected row on screen, and a marker
+    // says when there is more above or below. Without this the rows past the
+    // bottom edge could be selected and edited while invisible.
+    let (first, shown) = settings_window(inner.height, SETTING_ROWS.len(), st.selected);
+    if first > 0 {
+        lines.push(Line::from(Span::styled("   \u{2191}", theme::hint())));
+    }
+
+    for (i, row) in SETTING_ROWS.iter().enumerate().skip(first).take(shown) {
         let sel = i == st.selected;
         let style = if sel {
             Style::default()
@@ -1889,6 +1918,10 @@ fn draw_settings(f: &mut Frame, area: Rect, app: &App, st: &SettingsState) {
         }
     }
 
+    if first + shown < SETTING_ROWS.len() {
+        lines.push(Line::from(Span::styled("   \u{2193}", theme::hint())));
+    }
+
     lines.push(Line::from(""));
     // Shown while the row is selected rather than always: the second line is
     // about what a node operator can see, which is worth reading at the moment
@@ -1909,6 +1942,18 @@ fn draw_settings(f: &mut Frame, area: Rect, app: &App, st: &SettingsState) {
         lines.extend(hint_lines(t(Key::Settings_ArbitrumRpcNote), inner.width));
     } else if matches!(st.row(), SettingRow::OptimismRpc) {
         lines.extend(hint_lines(t(Key::Settings_OptimismRpcNote), inner.width));
+    } else if matches!(st.row(), SettingRow::AvalancheRpc) {
+        lines.extend(hint_lines(t(Key::Settings_AvalancheRpcNote), inner.width));
+    } else if matches!(st.row(), SettingRow::HyperEvmRpc) {
+        lines.extend(hint_lines(t(Key::Settings_HyperevmRpcNote), inner.width));
+    } else if matches!(st.row(), SettingRow::MantleRpc) {
+        lines.extend(hint_lines(t(Key::Settings_MantleRpcNote), inner.width));
+    } else if matches!(st.row(), SettingRow::LineaRpc) {
+        lines.extend(hint_lines(t(Key::Settings_LineaRpcNote), inner.width));
+    } else if matches!(st.row(), SettingRow::ZkSyncEraRpc) {
+        lines.extend(hint_lines(t(Key::Settings_ZksyncEraRpcNote), inner.width));
+    } else if matches!(st.row(), SettingRow::ScrollRpc) {
+        lines.extend(hint_lines(t(Key::Settings_ScrollRpcNote), inner.width));
     } else if matches!(st.row(), SettingRow::BitcoinApi) {
         lines.extend(hint_lines(t(Key::Settings_BitcoinApiNote), inner.width));
         lines.extend(hint_lines(t(Key::Settings_BitcoinApiNote2), inner.width));
@@ -2225,7 +2270,13 @@ fn not_final_key(chain: neko_core::ChainId) -> Key {
         | neko_core::ChainId::Polygon
         | neko_core::ChainId::Base
         | neko_core::ChainId::Arbitrum
-        | neko_core::ChainId::Optimism => Key::Send_NotFinalEvm,
+        | neko_core::ChainId::Optimism
+        | neko_core::ChainId::Avalanche
+        | neko_core::ChainId::HyperEvm
+        | neko_core::ChainId::Mantle
+        | neko_core::ChainId::Linea
+        | neko_core::ChainId::ZkSyncEra
+        | neko_core::ChainId::Scroll => Key::Send_NotFinalEvm,
         neko_core::ChainId::Solana => Key::Send_NotFinalSolana,
         neko_core::ChainId::Bitcoin => Key::Send_NotFinalBitcoin,
         neko_core::ChainId::Ton => Key::Send_NotFinalTon,

@@ -9,7 +9,7 @@
 どこへでもコピーできます。メールアドレスとパスワードで解錠しますが、
 その 2 つはどこにも保存されていません。
 
-マルチチェーン設計：TRON、Ethereum、BNB Chain、Polygon、Base、Arbitrum、Optimism、Solana、Bitcoin、TON。
+マルチチェーン設計：TRON、Ethereum、BNB Chain、Polygon、Base、Arbitrum、Optimism、Avalanche、HyperEVM、Mantle、Linea、zkSync Era、Scroll、Solana、Bitcoin、TON。
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
@@ -144,6 +144,12 @@ BIP44 の導出パスはそのためのものです。チェーンを増やす�
 | Base | 動作 | ETH、USDC (ERC20) |
 | Arbitrum | 動作 | ETH、USDT (ERC20) |
 | Optimism | 動作 | ETH、USDT (ERC20) |
+| Avalanche | 動作 | AVAX、USDT (ERC20) |
+| HyperEVM | 動作 | HYPE、USDT (ERC20) |
+| Mantle | 動作 | MNT、USDC (ERC20) |
+| Linea | 動作 | ETH、USDC (ERC20) |
+| zkSync Era | 動作 | ETH、USDC (ERC20) |
+| Scroll | 動作 | ETH、USDT (ERC20) |
 | TON | 動作 | GRAM、USDT (jetton) |
 
 Polygon も同じコインタイプを使うため、同じフレーズは 3 つの EVM チェーンで
@@ -215,6 +221,41 @@ USDT コントラクトは素直に `USDT` と名乗ります。2.235 億あり�
 自前の V2 プールはそれぞれ 15 ドルと 592 ドルしかなく、ETH を 7.55 ドルと 264 ドルと
 答えるからです。履歴は Blockscout から取得しますが、こちらは独自ドメインで動いています。
 NodeReal はこのチェーンの RPC を提供していますが索引はないため、履歴には使いません。
+
+このバッチで 6 チェーンをまとめて追加しました。分類の基準は名前ではなく、L1 の
+費用をどう請求するかです。
+
+| チェーン | コイン | ステーブル | L1 手数料 | 価格の取得元 |
+|---|---|---|---|---|
+| Avalanche | AVAX | USDT（`USDt`） | — | 自前のプール |
+| HyperEVM | HYPE | USDT（`USD₮0`） | — | **なし** |
+| Mantle | MNT | USDC | ガスとは別 | **なし** |
+| Linea | ETH | USDC | — | Ethereum |
+| zkSync Era | ETH | USDC | ガスに含む | Ethereum |
+| Scroll | ETH | USDT | 別、しかも**独自アドレス** | Ethereum |
+
+**Scroll は L1 を独自のアドレスで請求します。** `L1GasPriceOracle` は `0x53..02`
+にあり 3,782 バイト。Base・Optimism・Mantle が共有する OP-stack のプリデプロイは
+`0x42..0F` で 2,055 バイトです。どちらも同じ `getL1Fee(bytes)` に応答するため
+設定は 1 つで足りますが、Scroll のものを OP-stack のアドレスに探しに行くとコードは
+無く、確保額はゼロになります。
+
+**zkSync Era は通常の送金を約 178,000 ガスと見積もります。** 21,000 ではありません。
+Ethereum への公開費用をガスの数値に織り込むためで、Arbitrum と同じ方式をさらに
+推し進めたものです。別途確保するものはありません。この数値を 21,000 に「直す」
+ウォレットは、ブロックに入れられない取引を作ります。
+
+**2 つのチェーンには意図的に価格を出しません。** HYPE と MNT はこのウォレットが
+話す他のどのチェーンにも存在せず、自前の Uniswap V2 プールは約 1,100 ドルと
+400 ドルしかありません。その規模のプールは失敗せず、数値を返します。HyperEVM の
+スポット価格は 0.1% 以内で正しいのに、1 コインの見積もりは 13% 低く出ます。1 単位が
+プールの 6 分の 1 だからです。ですから評価額の列は「分からない」と言います。これは
+真実であり、見た目では分からない誤差を含む数値より優れています。
+
+**そして同じ 3 文字が 4 通りに綴られます。** Tether のコントラクトは Ethereum と
+Scroll では `USDT`、Polygon では `USDT0`、Arbitrum と HyperEVM ではトゥグルグ記号の
+`USD₮0`、Avalanche では小文字の t で `USDt` と名乗ります。いずれも署名前にチェーンと
+照合され、いずれも画面には表示されません。
 
 TON はここで唯一、**アドレスが鍵から導出されない**チェーンです。TON のウォレットは
 スマートコントラクトそのものであり、アドレスはそのコントラクトの初期コードとストレージの

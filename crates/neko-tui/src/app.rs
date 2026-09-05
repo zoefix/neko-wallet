@@ -118,6 +118,12 @@ pub struct App {
     /// Arbitrum's node. `None` means the public one.
     pub arbitrum_rpc: Option<String>,
     pub optimism_rpc: Option<String>,
+    pub avalanche_rpc: Option<String>,
+    pub hyperevm_rpc: Option<String>,
+    pub mantle_rpc: Option<String>,
+    pub linea_rpc: Option<String>,
+    pub zksync_era_rpc: Option<String>,
+    pub scroll_rpc: Option<String>,
     /// toncenter. `None` means the public endpoint. Configurable for the same
     /// reason as Esplora: reading a TON balance means running a contract's own
     /// method, so this server is not an alternative to asking the chain - it is
@@ -193,6 +199,12 @@ impl App {
             base_rpc: None,
             arbitrum_rpc: None,
             optimism_rpc: None,
+            avalanche_rpc: None,
+            hyperevm_rpc: None,
+            mantle_rpc: None,
+            linea_rpc: None,
+            zksync_era_rpc: None,
+            scroll_rpc: None,
             ton_api: None,
             api_key: std::env::var("TRONGRID_API_KEY").ok(),
             bsc_api_key: std::env::var("NODEREAL_API_KEY").ok(),
@@ -689,6 +701,12 @@ impl App {
             neko_core::ChainId::Base => self.base_rpc.as_deref(),
             neko_core::ChainId::Arbitrum => self.arbitrum_rpc.as_deref(),
             neko_core::ChainId::Optimism => self.optimism_rpc.as_deref(),
+            neko_core::ChainId::Avalanche => self.avalanche_rpc.as_deref(),
+            neko_core::ChainId::HyperEvm => self.hyperevm_rpc.as_deref(),
+            neko_core::ChainId::Mantle => self.mantle_rpc.as_deref(),
+            neko_core::ChainId::Linea => self.linea_rpc.as_deref(),
+            neko_core::ChainId::ZkSyncEra => self.zksync_era_rpc.as_deref(),
+            neko_core::ChainId::Scroll => self.scroll_rpc.as_deref(),
             neko_core::ChainId::Ton => self.ton_api.as_deref(),
             neko_core::ChainId::Bsc => None,
         };
@@ -704,7 +722,13 @@ impl App {
             | neko_core::ChainId::Arbitrum
             // NodeReal *has* an Optimism RPC host, but not the index behind
             // it: `nr_getAssetTransfers` there answers "Method not found".
-            | neko_core::ChainId::Optimism => None,
+            | neko_core::ChainId::Optimism
+            | neko_core::ChainId::Avalanche
+            | neko_core::ChainId::HyperEvm
+            | neko_core::ChainId::Mantle
+            | neko_core::ChainId::Linea
+            | neko_core::ChainId::ZkSyncEra
+            | neko_core::ChainId::Scroll => None,
             // Neither Solana's public cluster nor Esplora needs a key. Both
             // rate-limit, which costs a retry rather than a screen.
             neko_core::ChainId::Solana | neko_core::ChainId::Bitcoin => None,
@@ -952,6 +976,24 @@ impl App {
         if let Ok(v) = s.setting(keys::OPTIMISM_RPC) {
             self.optimism_rpc = v.filter(|u| !u.is_empty());
         }
+        if let Ok(v) = s.setting(keys::AVALANCHE_RPC) {
+            self.avalanche_rpc = v.filter(|u| !u.is_empty());
+        }
+        if let Ok(v) = s.setting(keys::HYPEREVM_RPC) {
+            self.hyperevm_rpc = v.filter(|u| !u.is_empty());
+        }
+        if let Ok(v) = s.setting(keys::MANTLE_RPC) {
+            self.mantle_rpc = v.filter(|u| !u.is_empty());
+        }
+        if let Ok(v) = s.setting(keys::LINEA_RPC) {
+            self.linea_rpc = v.filter(|u| !u.is_empty());
+        }
+        if let Ok(v) = s.setting(keys::ZKSYNC_ERA_RPC) {
+            self.zksync_era_rpc = v.filter(|u| !u.is_empty());
+        }
+        if let Ok(v) = s.setting(keys::SCROLL_RPC) {
+            self.scroll_rpc = v.filter(|u| !u.is_empty());
+        }
         if let Ok(v) = s.setting(keys::TON_API) {
             self.ton_api = v.filter(|u| !u.is_empty());
         }
@@ -1099,6 +1141,30 @@ impl App {
                 .optimism_rpc
                 .clone()
                 .unwrap_or_else(|| neko_evm::OPTIMISM.default_rpc.into()),
+            SettingRow::AvalancheRpc => self
+                .avalanche_rpc
+                .clone()
+                .unwrap_or_else(|| neko_evm::AVALANCHE.default_rpc.into()),
+            SettingRow::HyperEvmRpc => self
+                .hyperevm_rpc
+                .clone()
+                .unwrap_or_else(|| neko_evm::HYPER_EVM.default_rpc.into()),
+            SettingRow::MantleRpc => self
+                .mantle_rpc
+                .clone()
+                .unwrap_or_else(|| neko_evm::MANTLE.default_rpc.into()),
+            SettingRow::LineaRpc => self
+                .linea_rpc
+                .clone()
+                .unwrap_or_else(|| neko_evm::LINEA.default_rpc.into()),
+            SettingRow::ZkSyncEraRpc => self
+                .zksync_era_rpc
+                .clone()
+                .unwrap_or_else(|| neko_evm::ZKSYNC_ERA.default_rpc.into()),
+            SettingRow::ScrollRpc => self
+                .scroll_rpc
+                .clone()
+                .unwrap_or_else(|| neko_evm::SCROLL.default_rpc.into()),
             SettingRow::TonApi => self
                 .ton_api
                 .clone()

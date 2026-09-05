@@ -63,6 +63,30 @@ const MIGRATIONS: &[Migration] = &[
         to: 10,
         sql: include_str!("../migrations/0010_optimism.sql"),
     },
+    Migration {
+        to: 11,
+        sql: include_str!("../migrations/0011_avalanche.sql"),
+    },
+    Migration {
+        to: 12,
+        sql: include_str!("../migrations/0012_hyperevm.sql"),
+    },
+    Migration {
+        to: 13,
+        sql: include_str!("../migrations/0013_mantle.sql"),
+    },
+    Migration {
+        to: 14,
+        sql: include_str!("../migrations/0014_linea.sql"),
+    },
+    Migration {
+        to: 15,
+        sql: include_str!("../migrations/0015_zksync_era.sql"),
+    },
+    Migration {
+        to: 16,
+        sql: include_str!("../migrations/0016_scroll.sql"),
+    },
 ];
 
 /// Apply whatever this database is missing.

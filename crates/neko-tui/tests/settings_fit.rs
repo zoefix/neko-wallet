@@ -43,3 +43,30 @@ fn every_settings_row_is_visible_when_selected() {
         );
     }
 }
+
+/// The window always contains the selection, at every height and every row.
+///
+/// Checked directly rather than only through a render, because the failure it
+/// guards against is a row that can be selected and edited while off screen -
+/// which looks like a setting that silently does nothing.
+#[test]
+fn the_window_always_contains_the_selected_row() {
+    let n = SETTING_ROWS.len();
+    for height in 8u16..40 {
+        for selected in 0..n {
+            let (first, shown) = neko_tui::render::settings_window(height, n, selected);
+            assert!(shown >= 1, "h={height}: an empty window");
+            assert!(first + shown <= n, "h={height}: window runs past the end");
+            assert!(
+                (first..first + shown).contains(&selected),
+                "h={height} sel={selected}: window {first}..{} excludes it",
+                first + shown
+            );
+        }
+    }
+    // A tall terminal scrolls not at all.
+    assert_eq!(neko_tui::render::settings_window(60, n, 0), (0, n));
+    // A short one shows a window smaller than the list.
+    let (_, shown) = neko_tui::render::settings_window(24, n, 0);
+    assert!(shown < n, "24 rows should not fit {n} settings");
+}

@@ -513,16 +513,48 @@ fn base_carries_usdc_and_every_chain_agrees_with_itself() {
     assert_eq!(stable.decimals(), 6);
     assert_eq!(stable.chain(), ChainId::Base);
 
-    // Every other chain that carries a stablecoin carries USDT, and Base is
-    // the only exception. Derived rather than listed, so a new chain has to be
-    // one or the other rather than neither.
+    // Every chain carries one dollar or the other, and which one is the
+    // chain's own answer rather than a list kept here. Four carry Circle's:
+    // Base and zkSync Era because Binance sends no USDT to either, Mantle and
+    // Linea because Circle's supply there is the larger and neither token has
+    // a route from an exchange at all.
+    let mut usdc = Vec::new();
     for chain in neko_core::CHAINS {
         let Some(t) = chain.stable() else { continue };
-        if chain == ChainId::Base {
-            assert_eq!(t.symbol(), "USDC", "Base is the exception");
+        let sym = t.symbol();
+        assert!(
+            sym == "USDT" || sym == "USDC",
+            "{chain:?} carries {sym}, which is neither dollar this wallet knows"
+        );
+        // The name shown must be the one the chain says to show. Off the EVM
+        // chains there is no `stable_label`, and those all carry USDT.
+        if let Some(evm) = chain.evm() {
+            assert_eq!(sym, evm.stable_label, "{chain:?} is shown the wrong name");
         } else {
-            assert_eq!(t.symbol(), "USDT", "{chain:?}");
+            assert_eq!(sym, "USDT", "{chain:?}");
         }
+        if sym == "USDC" {
+            usdc.push(chain);
+        }
+    }
+    assert_eq!(
+        usdc,
+        [
+            ChainId::Base,
+            ChainId::Mantle,
+            ChainId::Linea,
+            ChainId::ZkSyncEra
+        ],
+        "the set of chains carrying Circle's dollar changed"
+    );
+
+    // And a dollar is a dollar on each of them.
+    for chain in &usdc {
+        assert_eq!(
+            Prices::default().of(*chain, "USDC"),
+            Some(1_000_000),
+            "{chain:?}: its stablecoin was not worth a dollar"
+        );
     }
 
     // A dollar-pegged token is one unit of account whatever it is called. This

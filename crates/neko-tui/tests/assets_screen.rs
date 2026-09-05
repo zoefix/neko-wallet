@@ -22,7 +22,13 @@ fn addr_for(chain: neko_core::ChainId) -> &'static str {
         | neko_core::ChainId::Polygon
         | neko_core::ChainId::Base
         | neko_core::ChainId::Arbitrum
-        | neko_core::ChainId::Optimism => "0xA41811CF4D41e306310CB82B47258C22b80475cC",
+        | neko_core::ChainId::Optimism
+        | neko_core::ChainId::Avalanche
+        | neko_core::ChainId::HyperEvm
+        | neko_core::ChainId::Mantle
+        | neko_core::ChainId::Linea
+        | neko_core::ChainId::ZkSyncEra
+        | neko_core::ChainId::Scroll => "0xA41811CF4D41e306310CB82B47258C22b80475cC",
     }
 }
 

@@ -148,6 +148,12 @@ impl TransferRequest {
             | Asset::BaseEth
             | Asset::ArbitrumEth
             | Asset::OptimismEth
+            | Asset::AvalancheNative
+            | Asset::HyperEvmNative
+            | Asset::MantleNative
+            | Asset::LineaNative
+            | Asset::ZkSyncEraNative
+            | Asset::ScrollNative
             | Asset::Jetton { .. } => Ok(None),
             Asset::Trc20 { .. } => Ok(Some(neko_tron::tx::encode_trc20_transfer(
                 self.to.as_tron()?,
@@ -158,7 +164,13 @@ impl TransferRequest {
             | Asset::PolygonErc20 { .. }
             | Asset::BaseErc20 { .. }
             | Asset::ArbitrumErc20 { .. }
-            | Asset::OptimismErc20 { .. } => Ok(Some(neko_evm::abi::transfer(
+            | Asset::OptimismErc20 { .. }
+            | Asset::AvalancheErc20 { .. }
+            | Asset::HyperEvmErc20 { .. }
+            | Asset::MantleErc20 { .. }
+            | Asset::LineaErc20 { .. }
+            | Asset::ZkSyncEraErc20 { .. }
+            | Asset::ScrollErc20 { .. } => Ok(Some(neko_evm::abi::transfer(
                 self.to.as_evm()?,
                 self.amount.raw as u128,
             ))),
@@ -221,7 +233,13 @@ impl Session {
                 | Asset::Pol
                 | Asset::BaseEth
                 | Asset::ArbitrumEth
-                | Asset::OptimismEth,
+                | Asset::OptimismEth
+                | Asset::AvalancheNative
+                | Asset::HyperEvmNative
+                | Asset::MantleNative
+                | Asset::LineaNative
+                | Asset::ZkSyncEraNative
+                | Asset::ScrollNative,
                 ChainTxParams::Evm(p),
             ) => {
                 let tx = neko_evm::tx::Tx {
@@ -243,7 +261,13 @@ impl Session {
                 | Asset::PolygonErc20 { contract, .. }
                 | Asset::BaseErc20 { contract, .. }
                 | Asset::ArbitrumErc20 { contract, .. }
-                | Asset::OptimismErc20 { contract, .. },
+                | Asset::OptimismErc20 { contract, .. }
+                | Asset::AvalancheErc20 { contract, .. }
+                | Asset::HyperEvmErc20 { contract, .. }
+                | Asset::MantleErc20 { contract, .. }
+                | Asset::LineaErc20 { contract, .. }
+                | Asset::ZkSyncEraErc20 { contract, .. }
+                | Asset::ScrollErc20 { contract, .. },
                 ChainTxParams::Evm(p),
             ) => {
                 // The amount lives in the calldata; the transaction itself
@@ -426,6 +450,18 @@ impl Session {
                 | Asset::ArbitrumErc20 { .. }
                 | Asset::OptimismEth
                 | Asset::OptimismErc20 { .. }
+                | Asset::AvalancheNative
+                | Asset::AvalancheErc20 { .. }
+                | Asset::HyperEvmNative
+                | Asset::HyperEvmErc20 { .. }
+                | Asset::MantleNative
+                | Asset::MantleErc20 { .. }
+                | Asset::LineaNative
+                | Asset::LineaErc20 { .. }
+                | Asset::ZkSyncEraNative
+                | Asset::ZkSyncEraErc20 { .. }
+                | Asset::ScrollNative
+                | Asset::ScrollErc20 { .. }
                 | Asset::Jetton { .. },
                 _,
             ) => Err(CoreError::WrongChain),
@@ -470,7 +506,13 @@ impl Session {
             | ChainId::Polygon
             | ChainId::Base
             | ChainId::Arbitrum
-            | ChainId::Optimism => {
+            | ChainId::Optimism
+            | ChainId::Avalanche
+            | ChainId::HyperEvm
+            | ChainId::Mantle
+            | ChainId::Linea
+            | ChainId::ZkSyncEra
+            | ChainId::Scroll => {
                 neko_hd::derive::private_key_at_coin(&seed, chain.coin_type(), 0, index)?
             }
         })
