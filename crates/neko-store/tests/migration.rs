@@ -418,6 +418,7 @@ fn a_database_one_version_behind_catches_up_with_its_data() {
         include_str!("../migrations/0005_ethereum.sql"),
         include_str!("../migrations/0006_ton.sql"),
         include_str!("../migrations/0007_polygon.sql"),
+        include_str!("../migrations/0008_base.sql"),
     ] {
         conn.execute_batch(sql).unwrap();
     }
@@ -478,7 +479,7 @@ fn a_database_one_version_behind_catches_up_with_its_data() {
             |r| r.get(0),
         )
         .expect("the newest chain is not registered");
-    assert_eq!(slug, "base");
+    assert_eq!(slug, "arbitrum");
 }
 
 /// Polygon is the third chain to share Ethereum's coin type, and the first
@@ -553,5 +554,5 @@ fn the_migration_registers_base_with_eth() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(n, 2, "Ethereum and Base both call their coin ETH");
+    assert_eq!(n, 3, "Ethereum, Base and Arbitrum all call their coin ETH");
 }

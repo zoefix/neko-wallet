@@ -90,7 +90,11 @@ impl Client {
             ChainId::Tron => Client::Tron(Box::new(TronGrid::new(url, api_key))),
             // The TronGrid key is not a BscScan key; passing it here would only
             // be misleading. BNB Chain's public RPC needs no key at all.
-            ChainId::Bsc | ChainId::Ethereum | ChainId::Polygon | ChainId::Base => {
+            ChainId::Bsc
+            | ChainId::Ethereum
+            | ChainId::Polygon
+            | ChainId::Base
+            | ChainId::Arbitrum => {
                 let evm = chain.evm().expect("every EVM chain has parameters");
                 Client::Evm {
                     rpc: Box::new(neko_evm::client::Rpc::new(evm, url)),
@@ -485,7 +489,7 @@ async fn evm_quote(rpc: &neko_evm::client::Rpc, req: &TransferRequest) -> Result
 
     let chain = rpc.chain();
     let (to, value, data) = match req.asset {
-        Asset::Bnb | Asset::Eth | Asset::Pol | Asset::BaseEth => (
+        Asset::Bnb | Asset::Eth | Asset::Pol | Asset::BaseEth | Asset::ArbitrumEth => (
             req.to.as_evm().map_err(|e| e.to_string())?,
             req.amount.raw as u128,
             Vec::new(),
@@ -493,7 +497,8 @@ async fn evm_quote(rpc: &neko_evm::client::Rpc, req: &TransferRequest) -> Result
         Asset::Bep20 { contract, decimals }
         | Asset::Erc20 { contract, decimals }
         | Asset::PolygonErc20 { contract, decimals }
-        | Asset::BaseErc20 { contract, decimals } => {
+        | Asset::BaseErc20 { contract, decimals }
+        | Asset::ArbitrumErc20 { contract, decimals } => {
             // Same reasoning as TRON's: ask the contract what it is before
             // trusting a built-in address.
             let (symbol, chain_decimals) = rpc
@@ -557,7 +562,7 @@ async fn evm_quote(rpc: &neko_evm::client::Rpc, req: &TransferRequest) -> Result
         native_balance,
         sending_native: matches!(
             req.asset,
-            Asset::Bnb | Asset::Eth | Asset::Pol | Asset::BaseEth
+            Asset::Bnb | Asset::Eth | Asset::Pol | Asset::BaseEth | Asset::ArbitrumEth
         ),
         amount: req.amount.raw as u128,
         l1_fee,

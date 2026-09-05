@@ -8,7 +8,8 @@ A self-custody encrypted crypto wallet for the terminal. Your whole wallet is
 one encrypted file — carry it on a USB stick, keep it on a network drive, copy
 it anywhere. Unlocked by an email and a password that are stored nowhere.
 
-Multi-chain by design: TRON, Ethereum, BNB Chain, Polygon, Base, Solana, Bitcoin and TON.
+Multi-chain by design: TRON, Ethereum, BNB Chain, Polygon, Base, Arbitrum, Solana,
+Bitcoin and TON.
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
@@ -142,6 +143,7 @@ phrase, or a new thing to back up.
 | Ethereum | working | ETH, USDT (ERC20) |
 | Polygon | working | POL, USDT (ERC20) |
 | Base | working | ETH, USDC (ERC20) |
+| Arbitrum | working | ETH, USDT (ERC20) |
 | TON | working | GRAM, USDT (jetton) |
 
 The same phrase gives a different address on each — that is correct and
@@ -208,6 +210,17 @@ against Circle's 4.2 billion, and Binance lists nineteen networks for USDT
 withdrawals with Base on none of them — it offers ETH and USDC. A USDT row
 there would be one nobody could ever fill. So the per-chain token slot is the
 chain's stablecoin, whichever it is, and the wallet says which.
+
+Arbitrum One is the fifth EVM chain and the second rollup, and it charges for
+L1 in the other way: Nitro folds the cost of posting to Ethereum into the gas
+*estimate* — a plain transfer estimates at 21,302 rather than 21,000 — so
+`gas_limit × price` already covers it and there is nothing extra to reserve.
+Base needs that reserve and this must not have one; a phantom L1 fee here
+would leave dust behind on every "send everything". Its coin is ETH, priced
+from Ethereum for the same reason Base's is: its own pools hold about \$30,000
+and sit 14% stale. Its USDT is real — 835 million of it, and Binance will send
+it there — though the contract calls itself `USD₮0`, with a tugrik sign where
+the T should be. That name is checked against the chain and never shown.
 
 TON derives at `m/44'/607'/0'` and is the one chain here where **the address
 is not derived from the key**. A wallet on TON is a smart contract, and its
@@ -527,7 +540,7 @@ neko-vault    key hierarchy, KDF profiles, password policy, normalization
 neko-store    SQLCipher, migrations, field-level envelopes  (never derives keys)
 neko-hd       BIP39 / BIP32 / BIP44 and SLIP-0010; TRON, EVM, Solana and TON keys
 neko-tron     TRON only: protobuf, transaction building and signing, node client
-neko-evm      Ethereum, BNB Chain, Polygon and Base: RLP, EIP-155/1559 signing, ABI, JSON-RPC
+neko-evm      five EVM chains: RLP, EIP-155/1559 signing, ABI, JSON-RPC, rollup fees
 neko-solana   Solana: Ed25519, the wire format, token accounts, cluster RPC
 neko-btc      Bitcoin: bech32, segwit v0 signing, coin selection, Esplora
 neko-ton      TON: cells and bags of cells, wallet v4R2, jettons, toncenter

@@ -22,9 +22,10 @@ pub enum ChainId {
     Ton,
     Polygon,
     Base,
+    Arbitrum,
 }
 
-pub const CHAINS: [ChainId; 8] = [
+pub const CHAINS: [ChainId; 9] = [
     ChainId::Tron,
     ChainId::Bsc,
     ChainId::Solana,
@@ -33,6 +34,7 @@ pub const CHAINS: [ChainId; 8] = [
     ChainId::Ton,
     ChainId::Polygon,
     ChainId::Base,
+    ChainId::Arbitrum,
 ];
 
 impl ChainId {
@@ -47,6 +49,7 @@ impl ChainId {
             ChainId::Ton => "ton",
             ChainId::Polygon => "polygon",
             ChainId::Base => "base",
+            ChainId::Arbitrum => "arbitrum",
         }
     }
 
@@ -65,6 +68,7 @@ impl ChainId {
             ChainId::Ton => "TON",
             ChainId::Polygon => "Polygon",
             ChainId::Base => "Base",
+            ChainId::Arbitrum => "Arbitrum",
         }
     }
 
@@ -79,7 +83,9 @@ impl ChainId {
             ChainId::Bitcoin => neko_hd::COIN_TYPE_BTC,
             // 60, the same as BNB Chain's: every EVM chain shares Ethereum's
             // coin type, so one phrase gives the same address on all of them.
-            ChainId::Ethereum | ChainId::Polygon | ChainId::Base => neko_hd::derive::COIN_TYPE_EVM,
+            ChainId::Ethereum | ChainId::Polygon | ChainId::Base | ChainId::Arbitrum => {
+                neko_hd::derive::COIN_TYPE_EVM
+            }
             ChainId::Ton => neko_hd::COIN_TYPE_TON,
         }
     }
@@ -100,6 +106,8 @@ impl ChainId {
             // ETH, the same coin as Ethereum's. Only the chain id separates a
             // transfer on one from a transfer on the other.
             ChainId::Base => neko_evm::BASE.native_symbol,
+            // ETH again. Three chains here call their coin that.
+            ChainId::Arbitrum => neko_evm::ARBITRUM.native_symbol,
         }
     }
 
@@ -112,6 +120,7 @@ impl ChainId {
             ChainId::Ethereum => neko_evm::ETHEREUM.native_decimals,
             ChainId::Polygon => neko_evm::POLYGON.native_decimals,
             ChainId::Base => neko_evm::BASE.native_decimals,
+            ChainId::Arbitrum => neko_evm::ARBITRUM.native_decimals,
             ChainId::Ton => neko_ton::GRAM_DECIMALS,
             ChainId::Solana => neko_solana::SOL_DECIMALS,
             ChainId::Bitcoin => neko_btc::BTC_DECIMALS,
@@ -164,6 +173,12 @@ impl ChainId {
                 contract: neko_evm::BASE.stable_address(),
                 decimals: neko_evm::BASE.stable_decimals,
             }),
+            // Real USDT here, unlike Base's - 835 million of it, and Binance
+            // will send it. The contract calls itself `USD₮0`.
+            ChainId::Arbitrum => Some(Asset::ArbitrumErc20 {
+                contract: neko_evm::ARBITRUM.stable_address(),
+                decimals: neko_evm::ARBITRUM.stable_decimals,
+            }),
             ChainId::Ton => Some(Asset::Jetton {
                 master: neko_ton::usdt_master(),
                 decimals: neko_ton::USDT_DECIMALS,
@@ -192,6 +207,7 @@ impl ChainId {
             ChainId::Ethereum => Some(neko_evm::ETHEREUM),
             ChainId::Polygon => Some(neko_evm::POLYGON),
             ChainId::Base => Some(neko_evm::BASE),
+            ChainId::Arbitrum => Some(neko_evm::ARBITRUM),
             ChainId::Tron | ChainId::Solana | ChainId::Bitcoin | ChainId::Ton => None,
         }
     }
@@ -217,6 +233,7 @@ impl ChainId {
             ChainId::Ethereum => Asset::Eth,
             ChainId::Polygon => Asset::Pol,
             ChainId::Base => Asset::BaseEth,
+            ChainId::Arbitrum => Asset::ArbitrumEth,
             ChainId::Ton => Asset::Gram,
         }
     }
@@ -231,6 +248,7 @@ impl ChainId {
             ChainId::Ethereum => format!("{}{id}", neko_evm::ETHEREUM.explorer_tx),
             ChainId::Polygon => format!("{}{id}", neko_evm::POLYGON.explorer_tx),
             ChainId::Base => format!("{}{id}", neko_evm::BASE.explorer_tx),
+            ChainId::Arbitrum => format!("{}{id}", neko_evm::ARBITRUM.explorer_tx),
             ChainId::Ton => format!("{}{id}", neko_ton::EXPLORER_TX),
         }
     }
@@ -254,6 +272,7 @@ pub enum ChainAddress {
     /// destination right or wrong.
     Polygon(neko_hd::EvmAddress),
     Base(neko_hd::EvmAddress),
+    Arbitrum(neko_hd::EvmAddress),
     Ton(neko_ton::TonAddress),
 }
 
@@ -267,6 +286,7 @@ impl ChainAddress {
             ChainAddress::Ethereum(_) => ChainId::Ethereum,
             ChainAddress::Polygon(_) => ChainId::Polygon,
             ChainAddress::Base(_) => ChainId::Base,
+            ChainAddress::Arbitrum(_) => ChainId::Arbitrum,
             ChainAddress::Ton(_) => ChainId::Ton,
         }
     }
@@ -300,6 +320,9 @@ impl ChainAddress {
             ChainId::Base => neko_hd::EvmAddress::parse(s)
                 .map(ChainAddress::Base)
                 .map_err(|_| CoreError::BadAddress),
+            ChainId::Arbitrum => neko_hd::EvmAddress::parse(s)
+                .map(ChainAddress::Arbitrum)
+                .map_err(|_| CoreError::BadAddress),
             ChainId::Ton => neko_ton::TonAddress::parse(s)
                 .map(ChainAddress::Ton)
                 .map_err(|_| CoreError::BadAddress),
@@ -320,6 +343,7 @@ impl ChainAddress {
             ChainAddress::Ethereum(a) => a.as_bytes().to_vec(),
             ChainAddress::Polygon(a) => a.as_bytes().to_vec(),
             ChainAddress::Base(a) => a.as_bytes().to_vec(),
+            ChainAddress::Arbitrum(a) => a.as_bytes().to_vec(),
             ChainAddress::Ton(a) => a.as_bytes(),
         }
     }
@@ -347,6 +371,9 @@ impl ChainAddress {
             ChainId::Base => neko_hd::EvmAddress::from_bytes(b)
                 .map(ChainAddress::Base)
                 .map_err(|_| CoreError::BadAddress),
+            ChainId::Arbitrum => neko_hd::EvmAddress::from_bytes(b)
+                .map(ChainAddress::Arbitrum)
+                .map_err(|_| CoreError::BadAddress),
             ChainId::Ton => neko_ton::TonAddress::from_bytes(b)
                 .map(ChainAddress::Ton)
                 .map_err(|_| CoreError::BadAddress),
@@ -368,7 +395,8 @@ impl ChainAddress {
             ChainAddress::Evm(a)
             | ChainAddress::Ethereum(a)
             | ChainAddress::Polygon(a)
-            | ChainAddress::Base(a) => Ok(*a),
+            | ChainAddress::Base(a)
+            | ChainAddress::Arbitrum(a) => Ok(*a),
             _ => Err(CoreError::WrongChain),
         }
     }
@@ -404,6 +432,7 @@ impl std::fmt::Display for ChainAddress {
             ChainAddress::Bitcoin(a) => write!(f, "{a}"),
             ChainAddress::Polygon(a) => write!(f, "{a}"),
             ChainAddress::Base(a) => write!(f, "{a}"),
+            ChainAddress::Arbitrum(a) => write!(f, "{a}"),
             ChainAddress::Ethereum(a) => write!(f, "{a}"),
             ChainAddress::Ton(a) => write!(f, "{a}"),
         }
@@ -449,6 +478,13 @@ pub enum Asset {
         contract: neko_hd::EvmAddress,
         decimals: u8,
     },
+    /// Arbitrum's coin, which is ETH again.
+    ArbitrumEth,
+    /// A token on Arbitrum.
+    ArbitrumErc20 {
+        contract: neko_hd::EvmAddress,
+        decimals: u8,
+    },
     /// A token on Polygon. Technically an ERC-20 like Ethereum's, and
     /// deliberately not the same variant: [`Asset::Erc20`] means *Ethereum's*,
     /// and one variant for both would make `chain()` answer Ethereum for a
@@ -476,6 +512,7 @@ impl Asset {
             Asset::Eth | Asset::Erc20 { .. } => ChainId::Ethereum,
             Asset::Pol | Asset::PolygonErc20 { .. } => ChainId::Polygon,
             Asset::BaseEth | Asset::BaseErc20 { .. } => ChainId::Base,
+            Asset::ArbitrumEth | Asset::ArbitrumErc20 { .. } => ChainId::Arbitrum,
             Asset::Gram | Asset::Jetton { .. } => ChainId::Ton,
         }
     }
@@ -487,6 +524,7 @@ impl Asset {
             Asset::Eth => neko_evm::ETHEREUM.native_decimals,
             Asset::Pol => neko_evm::POLYGON.native_decimals,
             Asset::BaseEth => neko_evm::BASE.native_decimals,
+            Asset::ArbitrumEth => neko_evm::ARBITRUM.native_decimals,
             Asset::Gram => neko_ton::GRAM_DECIMALS,
             Asset::Sol => neko_solana::SOL_DECIMALS,
             Asset::Btc => neko_btc::BTC_DECIMALS,
@@ -496,6 +534,7 @@ impl Asset {
             | Asset::Erc20 { decimals, .. }
             | Asset::PolygonErc20 { decimals, .. }
             | Asset::BaseErc20 { decimals, .. }
+            | Asset::ArbitrumErc20 { decimals, .. }
             | Asset::Jetton { decimals, .. } => decimals,
         }
     }
@@ -509,6 +548,7 @@ impl Asset {
             Asset::Eth => "ETH",
             Asset::Pol => "POL",
             Asset::BaseEth => "ETH",
+            Asset::ArbitrumEth => "ETH",
             Asset::Gram => "GRAM",
             // Base's stablecoin is a different token, not a differently named
             // one - see `ChainId::stable`.
@@ -521,6 +561,7 @@ impl Asset {
             | Asset::SplToken { .. }
             | Asset::Erc20 { .. }
             | Asset::PolygonErc20 { .. }
+            | Asset::ArbitrumErc20 { .. }
             | Asset::Jetton { .. } => "USDT",
         }
     }
@@ -548,6 +589,8 @@ impl Asset {
             | Asset::PolygonErc20 { .. }
             | Asset::BaseEth
             | Asset::BaseErc20 { .. }
+            | Asset::ArbitrumEth
+            | Asset::ArbitrumErc20 { .. }
             | Asset::Gram
             | Asset::Jetton { .. } => None,
         }
@@ -568,6 +611,7 @@ impl Asset {
                 | Asset::Eth
                 | Asset::Pol
                 | Asset::BaseEth
+                | Asset::ArbitrumEth
                 | Asset::Gram
         )
     }

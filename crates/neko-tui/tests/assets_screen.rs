@@ -18,9 +18,10 @@ fn addr_for(chain: neko_core::ChainId) -> &'static str {
         neko_core::ChainId::Bitcoin => "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu",
         neko_core::ChainId::Ton => "EQAzWZa6nM5mJev91wGc7VCSfBoIsYRqKJpV78N8Add9-U9d",
         // The same address as BNB Chain's: one phrase, one EVM coin type.
-        neko_core::ChainId::Ethereum | neko_core::ChainId::Polygon | neko_core::ChainId::Base => {
-            "0xA41811CF4D41e306310CB82B47258C22b80475cC"
-        }
+        neko_core::ChainId::Ethereum
+        | neko_core::ChainId::Polygon
+        | neko_core::ChainId::Base
+        | neko_core::ChainId::Arbitrum => "0xA41811CF4D41e306310CB82B47258C22b80475cC",
     }
 }
 

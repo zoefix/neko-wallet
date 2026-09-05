@@ -233,9 +233,53 @@ pub const BASE: EvmChain = EvmChain {
     blockscout: Some("https://base.blockscout.com"),
 };
 
+/// Arbitrum One.
+///
+/// The second rollup here, and it charges for L1 differently enough that
+/// copying Base's answer would have been wrong twice over:
+///
+/// * **No separate L1 fee.** Nitro folds the cost of posting to Ethereum into
+///   the gas *estimate* - a plain transfer estimates at 21,302 rather than
+///   21,000 - so `gas_limit x price` already covers it and the balance check
+///   is the ordinary one. There is no `GasPriceOracle` predeploy here; asking
+///   for one returns nothing. Base needs `l1_fee_oracle` and this does not,
+///   and the difference is not cosmetic: reserving a phantom L1 fee here would
+///   leave dust behind on every "send everything".
+/// * **Its coin is ETH**, like Base's, and like Base it cannot price it. The
+///   V2 pools hold about $30,000 and quote 2,099 and 2,150 against Ethereum's
+///   2,447 - thin enough to sit 14% stale. So the price comes from Ethereum,
+///   where the same asset has a pool worth millions.
+///
+/// Its USDT is real, unlike Base's: 835 million against Circle's 2.6 billion,
+/// and Binance will send USDT here. The contract calls itself `USD₮0`, with a
+/// tugrik sign where the T should be - which is exactly the sort of name this
+/// wallet refuses to render, so it is checked against and never shown.
+pub const ARBITRUM: EvmChain = EvmChain {
+    chain_id: 42_161,
+    native_symbol: "ETH",
+    native_decimals: 18,
+    stable: "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+    stable_decimals: 6,
+    // U+20AE TUGRIK SIGN. Read from the chain, not typed from the ticker.
+    stable_symbol: "USD\u{20ae}0",
+    stable_label: "USDT",
+    default_rpc: "https://arbitrum-one-rpc.publicnode.com",
+    explorer_tx: "https://arbiscan.io/tx/",
+    // Real, and thin. Never asked for a price: `prices_on` sends that
+    // question to Ethereum.
+    router: "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
+    wrapped_native: "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+    tx_type: TxType::Eip1559,
+    history_host: None,
+    // Nitro charges for L1 through the gas estimate, not beside it.
+    l1_fee_oracle: None,
+    prices_on: Some(1),
+    blockscout: Some("https://arbitrum.blockscout.com"),
+};
+
 /// Every chain in this file, so a chain id can be turned back into its
 /// parameters without a chain of `if`s that forgets the newest one.
-pub const ALL: [EvmChain; 4] = [BSC, ETHEREUM, POLYGON, BASE];
+pub const ALL: [EvmChain; 5] = [BSC, ETHEREUM, POLYGON, BASE, ARBITRUM];
 
 pub fn by_chain_id(id: u64) -> Option<EvmChain> {
     ALL.into_iter().find(|c| c.chain_id == id)
@@ -308,6 +352,7 @@ mod tests {
         assert_eq!(ETHEREUM.chain_id, 1);
         assert_eq!(POLYGON.chain_id, 137);
         assert_eq!(BASE.chain_id, 8453);
+        assert_eq!(ARBITRUM.chain_id, 42_161);
         let ids: Vec<u64> = ALL.iter().map(|c| c.chain_id).collect();
         for (i, a) in ids.iter().enumerate() {
             for b in &ids[i + 1..] {
@@ -346,6 +391,9 @@ mod tests {
             (ETHEREUM, "USDT", "USDT"),
             (POLYGON, "USDT0", "USDT"),
             (BASE, "USDC", "USDC"),
+            // A tugrik sign where the T should be. Checked against, never
+            // shown.
+            (ARBITRUM, "USD\u{20ae}0", "USDT"),
         ] {
             assert_eq!(c.stable_symbol, symbol, "chain {}", c.chain_id);
             assert_eq!(c.stable_label, label, "chain {}", c.chain_id);
@@ -365,7 +413,7 @@ mod tests {
             "Circle's USDC on Base"
         );
         assert_eq!(BASE.stable_decimals, 6);
-        for c in [BSC, ETHEREUM, POLYGON] {
+        for c in [BSC, ETHEREUM, POLYGON, ARBITRUM] {
             assert_eq!(c.stable_label, "USDT", "chain {}", c.chain_id);
             assert_ne!(c.stable, BASE.stable);
         }
@@ -385,6 +433,9 @@ mod tests {
         // rather than approximate.
         assert_eq!(BASE.native_symbol, ETHEREUM.native_symbol);
 
+        // Arbitrum's coin is ETH too, and its own pools are thin enough to
+        // sit 14% stale.
+        assert_eq!(ARBITRUM.prices_on, Some(ETHEREUM.chain_id));
         for c in [BSC, ETHEREUM, POLYGON] {
             assert_eq!(c.prices_on, None, "chain {} moved its pricing", c.chain_id);
             assert_eq!(c.price_chain().chain_id, c.chain_id);
@@ -408,8 +459,14 @@ mod tests {
     fn a_chain_without_a_transfer_index_admits_it() {
         assert!(BSC.history_host.is_some());
         assert!(ETHEREUM.history_host.is_some());
-        assert_eq!(BASE.history_host, None);
-        assert!(BASE.blockscout.is_some(), "and Base reads from Blockscout");
+        for c in [BASE, ARBITRUM] {
+            assert_eq!(c.history_host, None, "chain {}", c.chain_id);
+            assert!(
+                c.blockscout.is_some(),
+                "chain {} reads from Blockscout",
+                c.chain_id
+            );
+        }
         assert_eq!(
             POLYGON.history_host, None,
             "NodeReal serves no Polygon endpoint; naming one would fail as a network error"
@@ -423,6 +480,58 @@ mod tests {
         assert_eq!(ETHEREUM.tx_type, TxType::Eip1559);
         assert_eq!(POLYGON.tx_type, TxType::Eip1559);
         assert_eq!(BASE.tx_type, TxType::Eip1559);
+        assert_eq!(ARBITRUM.tx_type, TxType::Eip1559);
         assert_eq!(BSC.tx_type, TxType::Legacy);
+    }
+}
+
+#[cfg(test)]
+mod rollup_fees {
+    use super::*;
+
+    /// Two rollups, two fee models, and only one of them has a fee to reserve.
+    ///
+    /// Base is OP-stack: it charges for posting to Ethereum *beside* L2 gas,
+    /// `op-geth` counts that in the balance check, and a wallet that leaves it
+    /// out has "send everything" refused - by exactly 434,251,659 wei, once.
+    ///
+    /// Arbitrum is Nitro: it folds the same cost into the gas *estimate*, so
+    /// `gas_limit x price` already covers it. There is no oracle predeploy to
+    /// ask, and reserving a second L1 fee here would hold back money the chain
+    /// never charges, leaving dust behind on every maximum.
+    #[test]
+    fn only_the_op_stack_rollup_charges_for_l1_separately() {
+        assert_eq!(
+            BASE.l1_fee_oracle,
+            Some("0x420000000000000000000000000000000000000F"),
+            "Base charges for L1 beside gas"
+        );
+        for c in [BSC, ETHEREUM, POLYGON, ARBITRUM] {
+            assert_eq!(
+                c.l1_fee_oracle, None,
+                "chain {} does not charge for L1 beside gas",
+                c.chain_id
+            );
+        }
+    }
+
+    /// Every rollup here is priced off Ethereum, and every chain that is not a
+    /// rollup prices itself. Both are consequences of the coin being ETH.
+    #[test]
+    fn the_chains_whose_coin_is_ether_borrow_ethereums_price() {
+        for c in ALL {
+            if c.chain_id == ETHEREUM.chain_id {
+                assert_eq!(c.prices_on, None);
+            } else if c.native_symbol == "ETH" {
+                assert_eq!(
+                    c.prices_on,
+                    Some(ETHEREUM.chain_id),
+                    "chain {} holds ether and should borrow its price",
+                    c.chain_id
+                );
+            } else {
+                assert_eq!(c.prices_on, None, "chain {}", c.chain_id);
+            }
+        }
     }
 }

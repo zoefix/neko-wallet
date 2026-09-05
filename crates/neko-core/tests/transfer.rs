@@ -378,21 +378,28 @@ fn a_jetton_transfer_without_a_wallet_address_is_refused() {
 
 // ── Polygon ────────────────────────────────────────────────────────────────
 
-/// One phrase, three EVM chains, one address - and three different signatures.
+/// One phrase, five EVM chains, one address - and five different signatures.
 ///
 /// The address being shared is correct and is what every EVM wallet does. The
 /// signatures being different is what stops a transfer signed for one chain
 /// being replayed on another where the same address also holds funds, and the
 /// only thing that separates them is the chain id inside the envelope.
 #[test]
-fn polygon_signs_for_its_own_chain_and_no_other() {
+fn every_evm_chain_signs_for_itself_and_no_other() {
     let dir = tempfile::tempdir().unwrap();
     let s = session(dir.path());
     let id = s.list_wallets().unwrap()[0].id;
 
     let evm_addr = "0x9858EfFD232B4033E47d90003D41EC34EcaEda94";
     let to = "0x742d35Cc6634C0532925a3b844Bc454e4438f44e";
-    for chain in [ChainId::Bsc, ChainId::Ethereum, ChainId::Polygon] {
+    let evm_chains = [
+        ChainId::Bsc,
+        ChainId::Ethereum,
+        ChainId::Polygon,
+        ChainId::Base,
+        ChainId::Arbitrum,
+    ];
+    for chain in evm_chains {
         assert_eq!(
             s.address_of(id, chain, 0).unwrap().to_string(),
             evm_addr,
@@ -401,7 +408,7 @@ fn polygon_signs_for_its_own_chain_and_no_other() {
     }
 
     let mut raws = Vec::new();
-    for chain in [ChainId::Bsc, ChainId::Ethereum, ChainId::Polygon] {
+    for chain in evm_chains {
         let req = TransferRequest::parse(
             id,
             ChainAddress::parse(chain, evm_addr).unwrap(),

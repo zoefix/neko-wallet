@@ -8,7 +8,7 @@
 插U盘带走、放网盘、随便拷到哪里都行。用一个邮箱加一个密码解锁，
 而这两样东西哪里都没有保存。
 
-多链架构：TRON、Ethereum、BNB Chain、Polygon、Base、Solana、Bitcoin、TON。
+多链架构：TRON、Ethereum、BNB Chain、Polygon、Base、Arbitrum、Solana、Bitcoin、TON。
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
@@ -133,6 +133,7 @@ neko-wallet
 | Ethereum | 可用 | ETH、USDT (ERC20) |
 | Polygon | 可用 | POL、USDT (ERC20) |
 | Base | 可用 | ETH、USDC (ERC20) |
+| Arbitrum | 可用 | ETH、USDT (ERC20) |
 | TON | 可用 | GRAM、USDT (jetton) |
 
 Polygon 也用同一个币种编号，所以同一句助记词在三条 EVM 链上是**同一个地址**。
@@ -164,6 +165,14 @@ Base 也是这里唯一一条稳定币是 **USDC 而不是 USDT** 的链。这�
 上的合约总共 2380 万，Circle 的 USDC 是 42 亿；币安列出的 USDT 可提网络有 19 个，
 里面没有 Base —— 它在 Base 上只支持 ETH 和 USDC。放一行 USDT 在那儿，是一行谁也填
 不满的余额。所以「每条链一格代币」现在是「这条链的稳定币」，是哪个就写哪个。
+
+Arbitrum One 是第五条 EVM 链、第二条 rollup，而它收 L1 费用的方式正好相反：Nitro 把
+写到 Ethereum 的成本折进了 gas **估算**里 —— 一笔普通转账估出来是 21,302 而不是
+21,000 —— 所以 `gas_limit × 单价` 已经包含了它，不需要另外预留。Base 需要那笔预留，
+这条链必须没有；在这里凭空扣一笔，每次「全部转出」都会剩下灰尘。它的币也是 ETH，
+价格同样从 Ethereum 读，理由跟 Base 一样：它自己的池子只有大约三万美元，报价慢了 14%。
+它的 USDT 是真的 —— 8.35 亿，币安也能提过去 —— 只是合约自称 `USD₮0`，那个 T 的位置
+是图格里克符号。这个名字只拿去跟链核对，从不显示。
 
 TON 在这里是唯一一条**地址不是从密钥算出来的**链。TON 上的钱包本身就是一个智能合约，
 地址是这个合约初始代码和存储的哈希。由此带来的两件事都摆在界面上，而不是等你自己撞上：
@@ -429,7 +438,7 @@ neko-vault    密钥层级、KDF 档位、密码策略、归一化
 neko-store    SQLCipher、迁移、字段级信封（永不派生密钥）
 neko-hd       BIP39 / BIP32 / BIP44 与 SLIP-0010；TRON、EVM、Solana 地址编解码
 neko-tron     仅 TRON：protobuf、交易构造与签名、节点客户端
-neko-evm      Ethereum、BNB Chain、Polygon 与 Base：RLP、EIP-155/1559 签名、ABI、JSON-RPC
+neko-evm      五条 EVM 链：RLP、EIP-155/1559 签名、ABI、JSON-RPC、rollup 手续费
 neko-solana   Solana：Ed25519、交易编码、代币账户、集群 RPC
 neko-btc      Bitcoin：bech32、隔离见证签名、选币、Esplora
 neko-ton      TON：cell 与 BoC、钱包合约 v4R2、jetton、toncenter

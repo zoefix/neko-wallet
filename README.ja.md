@@ -9,7 +9,7 @@
 どこへでもコピーできます。メールアドレスとパスワードで解錠しますが、
 その 2 つはどこにも保存されていません。
 
-マルチチェーン設計：TRON、Ethereum、BNB Chain、Polygon、Base、Solana、Bitcoin、TON。
+マルチチェーン設計：TRON、Ethereum、BNB Chain、Polygon、Base、Arbitrum、Solana、Bitcoin、TON。
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
@@ -142,6 +142,7 @@ BIP44 の導出パスはそのためのものです。チェーンを増やす�
 | Ethereum | 動作 | ETH、USDT (ERC20) |
 | Polygon | 動作 | POL、USDT (ERC20) |
 | Base | 動作 | ETH、USDC (ERC20) |
+| Arbitrum | 動作 | ETH、USDT (ERC20) |
 | TON | 動作 | GRAM、USDT (jetton) |
 
 Polygon も同じコインタイプを使うため、同じフレーズは 3 つの EVM チェーンで
@@ -181,6 +182,17 @@ Base はここで唯一、ステーブルコインが **USDT ではなく USDC**
 含まれておらず、そこでは ETH と USDC のみを扱っています。USDT の行を置いても、誰も
 埋められない行になります。そのためチェーンごとのトークン枠は「そのチェーンの
 ステーブルコイン」であり、それがどれなのかをウォレットが示します。
+
+Arbitrum One は 5 つ目の EVM チェーンで 2 つ目のロールアップですが、L1 の課金方法が
+逆です。Nitro は Ethereum への書き込み費用をガスの**見積もり**に織り込みます。
+通常の送金の見積もりが 21,000 ではなく 21,302 になるのはそのためで、
+`gas_limit × 単価` に既に含まれており、別途確保するものはありません。Base には
+その確保が必要で、こちらにあってはいけません。ここで架空の L1 手数料を引けば、
+「全額送金」のたびに端数が残ります。コインは ETH で、価格は Base と同じ理由で
+Ethereum から読みます。自前のプールは約 3 万ドルしかなく、14% 遅れているからです。
+USDT は本物で 8.35 億あり、Binance からも送れますが、コントラクトは `USD₮0` と
+名乗ります。T の位置にトゥグルグ記号が入っています。この名前は照合にのみ使い、
+表示はしません。
 
 TON はここで唯一、**アドレスが鍵から導出されない**チェーンです。TON のウォレットは
 スマートコントラクトそのものであり、アドレスはそのコントラクトの初期コードとストレージの
@@ -476,7 +488,7 @@ neko-vault    鍵の階層、KDF プロファイル、パスワード方針、�
 neko-store    SQLCipher、マイグレーション、フィールド単位の封筒（鍵は導出しない）
 neko-hd       BIP39 / BIP32 / BIP44 と SLIP-0010、TRON / EVM / Solana アドレス
 neko-tron     TRON 専用: protobuf、取引の組み立てと署名、ノードクライアント
-neko-evm      Ethereum、BNB Chain、Polygon、Base: RLP、EIP-155/1559 署名、ABI、JSON-RPC
+neko-evm      5 つの EVM チェーン: RLP、EIP-155/1559 署名、ABI、JSON-RPC、ロールアップ手数料
 neko-solana   Solana: Ed25519、取引エンコード、トークン口座、クラスタ RPC
 neko-btc      Bitcoin: bech32、segwit v0 署名、コイン選択、Esplora
 neko-ton      TON: cell と BoC、ウォレット v4R2、jetton、toncenter
