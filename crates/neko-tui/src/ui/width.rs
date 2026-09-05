@@ -43,6 +43,42 @@ pub fn sanitize(s: &str) -> Cow<'_, str> {
 
 /// Truncate to at most `max` terminal cells, grapheme-aware so a ZWJ emoji or a
 /// combining mark is never split.
+/// Keep the *end* of a string that is too long, marking the cut at the front.
+///
+/// For a field somebody is typing into. A text input that hides the character
+/// you just typed is unusable, and for a pasted address the tail is also what
+/// the confirmation step asks you to retype - so when something has to go, it
+/// is the beginning.
+pub fn truncate_start(s: &str, max: usize) -> Cow<'_, str> {
+    if width(s) <= max {
+        return Cow::Borrowed(s);
+    }
+    if max == 0 {
+        return Cow::Borrowed("");
+    }
+    let budget = max - width(ELLIPSIS);
+    // Walk backwards, taking graphemes while they fit.
+    let mut acc = 0usize;
+    let mut start = s.len();
+    for (i, g) in s.grapheme_indices(true).rev() {
+        let gw = UnicodeWidthStr::width(g);
+        if acc + gw > budget {
+            break;
+        }
+        acc += gw;
+        start = i;
+    }
+    let mut out = String::with_capacity(s.len() - start + 4);
+    out.push_str(ELLIPSIS);
+    // Same detail as `truncate`: stopping early on a wide grapheme leaves a
+    // cell spare, and without it the column shifts.
+    for _ in acc..budget {
+        out.push(' ');
+    }
+    out.push_str(&s[start..]);
+    out.into()
+}
+
 pub fn truncate(s: &str, max: usize) -> Cow<'_, str> {
     if width(s) <= max {
         return Cow::Borrowed(s);

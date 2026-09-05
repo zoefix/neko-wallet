@@ -164,18 +164,46 @@ fn shell<'a>(app: &App, title: impl AsRef<str>) -> Block<'a> {
         )
 }
 
-fn field_line<'a>(label: &str, value: String, focused: bool) -> Line<'a> {
+/// Cells reserved for a field's label.
+///
+/// Sixteen, because that is what the longest label in any of the four
+/// languages needs: `TRON ノード URL` and `私钥 (十六进制)` are both fifteen
+/// cells. It was ten, which truncated those and `メールアドレス` on the login
+/// screen - a label that reads as cut off makes the whole form look broken.
+const FIELD_LABEL_COLS: usize = 16;
+
+/// Marker, label, and the four cells the brackets take.
+const FIELD_CHROME: usize = 2 + FIELD_LABEL_COLS + 4;
+
+/// The narrowest a value field may be, whatever the terminal does.
+const FIELD_MIN_VALUE: usize = 20;
+
+/// Cells reserved for a settings row's label. Twenty-one, because
+/// `Bitcoin Esplora 地址` is twenty and a label touching its value reads as one
+/// word.
+const SETTING_LABEL_COLS: usize = 21;
+
+fn field_line<'a>(label: &str, value: String, focused: bool, cols: usize) -> Line<'a> {
     let marker = if focused { ">" } else { " " };
     let style = if focused {
         Style::default().fg(theme::ACCENT)
     } else {
         Style::default()
     };
+    // The field is as wide as the terminal allows. It was a fixed forty cells,
+    // which cut every address longer than that: an EVM address is 42
+    // characters, a Solana one up to 44, and a Bitcoin P2WSH or Taproot address
+    // 62 - so the one thing a person needs to check was the thing hidden.
+    let value_cols = cols.saturating_sub(FIELD_CHROME).max(FIELD_MIN_VALUE);
+    let shown = width::truncate_start(&value, value_cols);
     Line::from(vec![
         Span::raw(format!("{marker} ")),
-        Span::styled(width::pad(label, 10, Align::Left), theme::hint()),
         Span::styled(
-            format!("[ {} ]", width::pad(&value, 40, Align::Left)),
+            width::pad(label, FIELD_LABEL_COLS, Align::Left),
+            theme::hint(),
+        ),
+        Span::styled(
+            format!("[ {} ]", width::pad(&shown, value_cols, Align::Left)),
             style,
         ),
     ])
@@ -248,12 +276,14 @@ fn draw_first_run(f: &mut Frame, area: Rect, app: &App, focus: SetupField) {
             t(Key::Common_Email),
             app.email.display(),
             focus == SetupField::Email,
+            inner.width as usize,
         ),
         Line::from(""),
         field_line(
             "Password",
             app.password.display(),
             focus == SetupField::Password,
+            inner.width as usize,
         ),
         strength_bar(app),
         Line::from(""),
@@ -261,6 +291,7 @@ fn draw_first_run(f: &mut Frame, area: Rect, app: &App, focus: SetupField) {
             "Confirm",
             app.confirm.display(),
             focus == SetupField::Confirm,
+            inner.width as usize,
         ),
         Line::from(""),
     ];
@@ -313,12 +344,18 @@ fn draw_login(f: &mut Frame, area: Rect, app: &App) {
         )),
         Line::from(""),
         Line::from(""),
-        field_line(t(Key::Common_Email), app.email.display(), email_focused),
+        field_line(
+            t(Key::Common_Email),
+            app.email.display(),
+            email_focused,
+            inner.width as usize,
+        ),
         Line::from(""),
         field_line(
             t(Key::Common_Password),
             app.password.display(),
             !email_focused,
+            inner.width as usize,
         ),
         Line::from(""),
     ];
@@ -388,7 +425,12 @@ fn draw_locked(f: &mut Frame, area: Rect, app: &App, reason: LockReason) {
         Line::from(""),
         Line::from(Span::styled(format!("   {why}"), theme::title())),
         Line::from(""),
-        field_line(t(Key::Common_Password), app.password.display(), true),
+        field_line(
+            t(Key::Common_Password),
+            app.password.display(),
+            true,
+            inner.width as usize,
+        ),
         Line::from(""),
     ];
     f.render_widget(Paragraph::new(lines), inner);
@@ -522,7 +564,12 @@ fn draw_wallet_form(f: &mut Frame, area: Rect, app: &App, form: &WalletForm) {
     let lines = match form {
         WalletForm::New { label, words } => vec![
             Line::from(""),
-            field_line(t(Key::Common_Name), label.display(), true),
+            field_line(
+                t(Key::Common_Name),
+                label.display(),
+                true,
+                inner.width as usize,
+            ),
             Line::from(""),
             Line::from(Span::styled(
                 format!("  {words}-word recovery phrase (Tab switches 12/24)"),
@@ -541,9 +588,19 @@ fn draw_wallet_form(f: &mut Frame, area: Rect, app: &App, form: &WalletForm) {
             focus,
         } => vec![
             Line::from(""),
-            field_line(t(Key::Common_Name), label.display(), *focus == 0),
+            field_line(
+                t(Key::Common_Name),
+                label.display(),
+                *focus == 0,
+                inner.width as usize,
+            ),
             Line::from(""),
-            field_line(t(Key::Form_Phrase), phrase.display(), *focus == 1),
+            field_line(
+                t(Key::Form_Phrase),
+                phrase.display(),
+                *focus == 1,
+                inner.width as usize,
+            ),
             Line::from(Span::styled(
                 format!(
                     "            {} words",
@@ -552,7 +609,12 @@ fn draw_wallet_form(f: &mut Frame, area: Rect, app: &App, form: &WalletForm) {
                 theme::hint(),
             )),
             Line::from(""),
-            field_line(t(Key::Form_Passphrase), passphrase.display(), *focus == 2),
+            field_line(
+                t(Key::Form_Passphrase),
+                passphrase.display(),
+                *focus == 2,
+                inner.width as usize,
+            ),
             Line::from(Span::styled(
                 format!("            {}", t(Key::Form_PassphraseNote)),
                 theme::hint(),
@@ -560,9 +622,19 @@ fn draw_wallet_form(f: &mut Frame, area: Rect, app: &App, form: &WalletForm) {
         ],
         WalletForm::ImportPrivkey { label, hex, focus } => vec![
             Line::from(""),
-            field_line(t(Key::Common_Name), label.display(), *focus == 0),
+            field_line(
+                t(Key::Common_Name),
+                label.display(),
+                *focus == 0,
+                inner.width as usize,
+            ),
             Line::from(""),
-            field_line(t(Key::Form_KeyHex), hex.display(), *focus == 1),
+            field_line(
+                t(Key::Form_KeyHex),
+                hex.display(),
+                *focus == 1,
+                inner.width as usize,
+            ),
             Line::from(""),
             Line::from(Span::styled(
                 format!("  {}", t(Key::Form_KeyNote)),
@@ -572,7 +644,12 @@ fn draw_wallet_form(f: &mut Frame, area: Rect, app: &App, form: &WalletForm) {
         WalletForm::Rename { label, .. } => {
             vec![
                 Line::from(""),
-                field_line(t(Key::Common_Name), label.display(), true),
+                field_line(
+                    t(Key::Common_Name),
+                    label.display(),
+                    true,
+                    inner.width as usize,
+                ),
             ]
         }
         WalletForm::Delete { name, typed, .. } => vec![
@@ -591,7 +668,12 @@ fn draw_wallet_form(f: &mut Frame, area: Rect, app: &App, form: &WalletForm) {
                 theme::hint(),
             )),
             Line::from(""),
-            field_line(t(Key::Common_Name), typed.display(), true),
+            field_line(
+                t(Key::Common_Name),
+                typed.display(),
+                true,
+                inner.width as usize,
+            ),
         ],
     };
     f.render_widget(Paragraph::new(lines), inner);
@@ -843,6 +925,7 @@ fn draw_reveal(f: &mut Frame, area: Rect, app: &App, name: &str, stage: &RevealS
                     t(Key::Common_Password),
                     password.display(),
                     true,
+                    inner.width as usize,
                 ));
             }
             f.render_widget(Paragraph::new(lines), inner);
@@ -949,7 +1032,12 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
     match &st.step {
         SendStep::Recipient | SendStep::EnterAmount => {
             let on_amount = matches!(st.step, SendStep::EnterAmount);
-            lines.push(field_line(t(Key::Send_To), st.to.display(), !on_amount));
+            lines.push(field_line(
+                t(Key::Send_To),
+                st.to.display(),
+                !on_amount,
+                inner.width as usize,
+            ));
             if let Some(e) = st.recipient_error() {
                 lines.push(Line::from(Span::styled(
                     format!("            ! {e}"),
@@ -963,6 +1051,7 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                 &format!("{} ({})", t(Key::Send_Amount), st.asset_label),
                 st.amount.display(),
                 on_amount,
+                inner.width as usize,
             ));
             if let Some(e) = st.amount_error() {
                 lines.push(Line::from(Span::styled(
@@ -1524,6 +1613,7 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                     t(Key::Common_Password),
                     password.display(),
                     true,
+                    inner.width as usize,
                 ));
             }
             lines.push(Line::from(""));
@@ -1610,6 +1700,11 @@ fn draw_settings(f: &mut Frame, area: Rect, app: &App, st: &SettingsState) {
 
     let mut lines = vec![Line::from(""), Line::from("")];
 
+    // Three for the marker and the label's own indent.
+    let value_cols = (inner.width as usize)
+        .saturating_sub(3 + SETTING_LABEL_COLS)
+        .max(FIELD_MIN_VALUE);
+
     for (i, row) in SETTING_ROWS.iter().enumerate() {
         let sel = i == st.selected;
         let style = if sel {
@@ -1625,8 +1720,22 @@ fn draw_settings(f: &mut Frame, area: Rect, app: &App, st: &SettingsState) {
         };
         lines.push(Line::from(vec![
             Span::raw(if sel { " > " } else { "   " }),
-            Span::styled(width::pad(row.label(), 20, Align::Left), style),
-            Span::styled(width::pad(&value, 46, Align::Left), style),
+            Span::styled(
+                width::pad(row.label(), SETTING_LABEL_COLS, Align::Left),
+                style,
+            ),
+            // As wide as the terminal allows. It was a fixed forty-six, which
+            // shortened a configured node URL - the one setting whose value
+            // somebody actually needs to read back to check they typed it
+            // right.
+            Span::styled(
+                width::pad(
+                    &width::truncate_start(&value, value_cols),
+                    value_cols,
+                    Align::Left,
+                ),
+                style,
+            ),
         ]));
         // Show every language in its own script, so the picker is readable no
         // matter which one is currently active.
