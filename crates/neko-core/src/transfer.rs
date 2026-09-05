@@ -212,11 +212,16 @@ impl Session {
                     id: hex::encode(signed.txid),
                 })
             }
-            // One arm for both EVM chains: the bytes are identical and the
+            // One arm for every EVM chain: the bytes are identical and the
             // difference - chain id and transaction format - already lives in
             // the parameters the quote produced.
             (
-                Asset::Bnb | Asset::Eth | Asset::Pol | Asset::BaseEth | Asset::ArbitrumEth,
+                Asset::Bnb
+                | Asset::Eth
+                | Asset::Pol
+                | Asset::BaseEth
+                | Asset::ArbitrumEth
+                | Asset::OptimismEth,
                 ChainTxParams::Evm(p),
             ) => {
                 let tx = neko_evm::tx::Tx {
@@ -237,7 +242,8 @@ impl Session {
                 | Asset::Erc20 { contract, .. }
                 | Asset::PolygonErc20 { contract, .. }
                 | Asset::BaseErc20 { contract, .. }
-                | Asset::ArbitrumErc20 { contract, .. },
+                | Asset::ArbitrumErc20 { contract, .. }
+                | Asset::OptimismErc20 { contract, .. },
                 ChainTxParams::Evm(p),
             ) => {
                 // The amount lives in the calldata; the transaction itself
@@ -389,9 +395,40 @@ impl Session {
                     raw: tx.serialize(),
                 })
             }
-            // Unreachable through the interface, because the asset and the
-            // parameters are chosen together. Refused rather than assumed.
-            _ => Err(CoreError::WrongChain),
+            // The asset and the parameters disagree. Unreachable through the
+            // interface, because the quote produces both together, and refused
+            // rather than assumed.
+            //
+            // **Every asset is named here on purpose.** This was `_`, and a
+            // wildcard made the arms above look complete when they were not:
+            // Optimism's two assets were in none of them, so a transfer there
+            // fell through to this line and was refused as "that address
+            // belongs to a different chain" - after the password had been
+            // typed, which is the worst moment to discover an omission. With
+            // the list spelled out, a new asset stops the build until somebody
+            // decides which arm it belongs in.
+            (
+                Asset::Trx
+                | Asset::Trc20 { .. }
+                | Asset::Bnb
+                | Asset::Bep20 { .. }
+                | Asset::Sol
+                | Asset::SplToken { .. }
+                | Asset::Btc
+                | Asset::Eth
+                | Asset::Erc20 { .. }
+                | Asset::Gram
+                | Asset::Pol
+                | Asset::PolygonErc20 { .. }
+                | Asset::BaseEth
+                | Asset::BaseErc20 { .. }
+                | Asset::ArbitrumEth
+                | Asset::ArbitrumErc20 { .. }
+                | Asset::OptimismEth
+                | Asset::OptimismErc20 { .. }
+                | Asset::Jetton { .. },
+                _,
+            ) => Err(CoreError::WrongChain),
         }
     }
 

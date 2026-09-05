@@ -378,12 +378,19 @@ fn a_jetton_transfer_without_a_wallet_address_is_refused() {
 
 // ── Polygon ────────────────────────────────────────────────────────────────
 
-/// One phrase, five EVM chains, one address - and five different signatures.
+/// One phrase, every EVM chain, one address - and a different signature each.
 ///
 /// The address being shared is correct and is what every EVM wallet does. The
 /// signatures being different is what stops a transfer signed for one chain
 /// being replayed on another where the same address also holds funds, and the
 /// only thing that separates them is the chain id inside the envelope.
+///
+/// **Both assets, and the chain list comes from `CHAINS`.** This test used to
+/// name five chains by hand and sign only the coin. When a sixth arrived it
+/// was in neither the list nor the two arms of `sign_transfer` that handle EVM
+/// assets, and the wildcard at the end of that match refused it as "that
+/// address belongs to a different chain" - at the password prompt, with the
+/// test still green.
 #[test]
 fn every_evm_chain_signs_for_itself_and_no_other() {
     let dir = tempfile::tempdir().unwrap();
@@ -392,48 +399,61 @@ fn every_evm_chain_signs_for_itself_and_no_other() {
 
     let evm_addr = "0x9858EfFD232B4033E47d90003D41EC34EcaEda94";
     let to = "0x742d35Cc6634C0532925a3b844Bc454e4438f44e";
-    let evm_chains = [
-        ChainId::Bsc,
-        ChainId::Ethereum,
-        ChainId::Polygon,
-        ChainId::Base,
-        ChainId::Arbitrum,
-    ];
-    for chain in evm_chains {
+    let evm_chains: Vec<ChainId> = neko_core::CHAINS
+        .into_iter()
+        .filter(|c| c.evm().is_some())
+        .collect();
+    assert!(evm_chains.len() >= 6, "every EVM chain is covered here");
+
+    for chain in &evm_chains {
         assert_eq!(
-            s.address_of(id, chain, 0).unwrap().to_string(),
+            s.address_of(id, *chain, 0).unwrap().to_string(),
             evm_addr,
             "{chain:?} derived a different address"
         );
     }
 
     let mut raws = Vec::new();
-    for chain in evm_chains {
-        let req = TransferRequest::parse(
-            id,
-            ChainAddress::parse(chain, evm_addr).unwrap(),
-            to,
-            "0.5",
-            chain.native(),
-        )
-        .unwrap();
-        assert_eq!(req.amount.raw, 500_000_000_000_000_000, "18 decimals");
-
+    for chain in &evm_chains {
         let evm = chain.evm().unwrap();
-        let params = ChainTxParams::Evm(neko_evm::tx::TxParams {
-            nonce: 7,
-            gas_limit: 21_000,
-            chain_id: evm.chain_id,
-            fees: neko_evm::tx::Fees::Legacy {
-                gas_price: 30_000_000_000,
-            },
-        });
-        raws.push((chain, s.sign_transfer(&req, &params).unwrap().raw));
+        // Every asset the chain carries, not just its coin: the coin and the
+        // token are signed by two different arms, and only one of them was
+        // missing the new chain.
+        for asset in chain.assets() {
+            let amount = if asset.is_native() { "0.5" } else { "1" };
+            let req = TransferRequest::parse(
+                id,
+                ChainAddress::parse(*chain, evm_addr).unwrap(),
+                to,
+                amount,
+                asset,
+            )
+            .unwrap();
+
+            let params = ChainTxParams::Evm(neko_evm::tx::TxParams {
+                nonce: 7,
+                gas_limit: 21_000,
+                chain_id: evm.chain_id,
+                fees: neko_evm::tx::Fees::Legacy {
+                    gas_price: 30_000_000_000,
+                },
+            });
+            let signed = s.sign_transfer(&req, &params).unwrap_or_else(|e| {
+                panic!("{chain:?} could not sign {}: {e}", asset.symbol())
+            });
+            raws.push((*chain, asset.symbol(), signed.raw));
+        }
     }
 
-    for (i, (ca, a)) in raws.iter().enumerate() {
-        for (cb, b) in &raws[i + 1..] {
-            assert_ne!(a, b, "{ca:?} and {cb:?} produced the same signed bytes");
+    // Two per chain, and no two alike: a coin transfer differs from a token
+    // one, and the same transfer on two chains differs by the chain id.
+    assert_eq!(raws.len(), evm_chains.len() * 2);
+    for (i, (ca, sa, a)) in raws.iter().enumerate() {
+        for (cb, sb, b) in &raws[i + 1..] {
+            assert_ne!(
+                a, b,
+                "{ca:?}/{sa} and {cb:?}/{sb} produced the same signed bytes"
+            );
         }
     }
 }
@@ -459,14 +479,17 @@ fn polygon_amounts_use_the_right_precision() {
         "an Erc20 variant would say Ethereum"
     );
 
-    // The three EVM chains' USDT are three different contracts.
-    let contracts: Vec<String> = [ChainId::Bsc, ChainId::Ethereum, ChainId::Polygon]
+    // No two chains share a stablecoin contract. Over every chain rather
+    // than three of them: the failure this guards against is a contract
+    // address copied from the chain above when a new one is added, and a list
+    // written by hand cannot see the chain that was just added to it.
+    let contracts: Vec<(ChainId, String)> = neko_core::CHAINS
         .into_iter()
-        .map(|c| format!("{:?}", c.stable().unwrap()))
+        .filter_map(|c| c.stable().map(|t| (c, format!("{t:?}"))))
         .collect();
-    for (i, a) in contracts.iter().enumerate() {
-        for b in &contracts[i + 1..] {
-            assert_ne!(a, b);
+    for (i, (ca, a)) in contracts.iter().enumerate() {
+        for (cb, b) in &contracts[i + 1..] {
+            assert_ne!(a, b, "{ca:?} and {cb:?} share a stablecoin contract");
         }
     }
 }
@@ -490,13 +513,16 @@ fn base_carries_usdc_and_every_chain_agrees_with_itself() {
     assert_eq!(stable.decimals(), 6);
     assert_eq!(stable.chain(), ChainId::Base);
 
-    for chain in [
-        ChainId::Tron,
-        ChainId::Bsc,
-        ChainId::Ethereum,
-        ChainId::Polygon,
-    ] {
-        assert_eq!(chain.stable().unwrap().symbol(), "USDT", "{chain:?}");
+    // Every other chain that carries a stablecoin carries USDT, and Base is
+    // the only exception. Derived rather than listed, so a new chain has to be
+    // one or the other rather than neither.
+    for chain in neko_core::CHAINS {
+        let Some(t) = chain.stable() else { continue };
+        if chain == ChainId::Base {
+            assert_eq!(t.symbol(), "USDC", "Base is the exception");
+        } else {
+            assert_eq!(t.symbol(), "USDT", "{chain:?}");
+        }
     }
 
     // A dollar-pegged token is one unit of account whatever it is called. This
