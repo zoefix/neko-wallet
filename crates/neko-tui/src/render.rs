@@ -1882,6 +1882,9 @@ fn draw_settings(f: &mut Frame, area: Rect, app: &App, st: &SettingsState) {
     } else if matches!(st.row(), SettingRow::BitcoinApi) {
         lines.extend(hint_lines(t(Key::Settings_BitcoinApiNote), inner.width));
         lines.extend(hint_lines(t(Key::Settings_BitcoinApiNote2), inner.width));
+    } else if matches!(st.row(), SettingRow::TonApiKey) {
+        lines.extend(hint_lines(t(Key::Settings_TonApiKeyNote), inner.width));
+        lines.extend(hint_lines(t(Key::Settings_TonApiKeyNote2), inner.width));
     } else if matches!(st.row(), SettingRow::TonApi) {
         lines.extend(hint_lines(t(Key::Settings_TonApiNote), inner.width));
         lines.extend(hint_lines(t(Key::Settings_TonApiNote2), inner.width));

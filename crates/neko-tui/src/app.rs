@@ -989,6 +989,14 @@ impl App {
                 Some(_) => neko_i18n::tf(neko_i18n::Key::Settings_ApiKeySet, &[("tail", "")]),
                 None => neko_i18n::t(neko_i18n::Key::Settings_BscApiKeyUnset).to_string(),
             },
+            SettingRow::TonApiKey => match &self.ton_api_key {
+                Some(k) if k.len() > 4 => neko_i18n::tf(
+                    neko_i18n::Key::Settings_ApiKeySet,
+                    &[("tail", &k[k.len() - 4..])],
+                ),
+                Some(_) => neko_i18n::tf(neko_i18n::Key::Settings_ApiKeySet, &[("tail", "")]),
+                None => neko_i18n::t(neko_i18n::Key::Settings_TonApiKeyUnset).to_string(),
+            },
             SettingRow::ApiKey => match &self.api_key {
                 // Never render a credential, even one the user typed.
                 Some(k) if k.len() > 4 => neko_i18n::tf(

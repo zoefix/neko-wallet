@@ -736,6 +736,7 @@ fn cycle_setting(app: &mut App, forward: bool, tx: &Sender) {
         }
         SettingRow::ApiKey
         | SettingRow::BscApiKey
+        | SettingRow::TonApiKey
         | SettingRow::NodeUrl
         | SettingRow::SolanaRpc
         | SettingRow::BitcoinApi
@@ -750,8 +751,10 @@ fn begin_edit(app: &mut App, _tx: &Sender) {
         return;
     };
     match st.row() {
-        // The API key is a credential: masked while typing, never rendered back.
-        SettingRow::ApiKey | SettingRow::BscApiKey => st.editing = Some(Field::new(true)),
+        // An API key is a credential: masked while typing, never rendered back.
+        SettingRow::ApiKey | SettingRow::BscApiKey | SettingRow::TonApiKey => {
+            st.editing = Some(Field::new(true))
+        }
         // Not credentials, so shown while typing - a mistyped node URL is
         // easier to spot than to debug.
         SettingRow::NodeUrl
@@ -766,21 +769,32 @@ fn begin_edit(app: &mut App, _tx: &Sender) {
 fn apply_text_setting(app: &mut App, row: crate::nav::SettingRow, value: &str) {
     use crate::nav::SettingRow;
     match row {
+        // These three are credentials rather than URLs, so they do not go
+        // through `set_node_url` - they are stored with field-level encryption
+        // and never rendered back.
         SettingRow::BscApiKey => {
             app.set_bsc_api_key(value.trim());
-            app.toast(if value.trim().is_empty() {
-                "BNB Chain history key cleared"
-            } else {
-                "BNB Chain history key saved"
-            });
+            app.toast(key_toast(
+                value,
+                neko_i18n::Key::Settings_BscApiKeySaved,
+                neko_i18n::Key::Settings_BscApiKeyCleared,
+            ));
+        }
+        SettingRow::TonApiKey => {
+            app.set_ton_api_key(value.trim());
+            app.toast(key_toast(
+                value,
+                neko_i18n::Key::Settings_TonApiKeySaved,
+                neko_i18n::Key::Settings_TonApiKeyCleared,
+            ));
         }
         SettingRow::ApiKey => {
             app.set_api_key(value.trim());
-            app.toast(if value.trim().is_empty() {
-                "API key cleared"
-            } else {
-                "API key saved"
-            });
+            app.toast(key_toast(
+                value,
+                neko_i18n::Key::Settings_ApiKeySaved,
+                neko_i18n::Key::Settings_ApiKeyCleared,
+            ));
         }
         SettingRow::NodeUrl
         | SettingRow::SolanaRpc
@@ -789,6 +803,20 @@ fn apply_text_setting(app: &mut App, row: crate::nav::SettingRow, value: &str) {
         | SettingRow::TonApi => set_node_url(app, row, value),
         _ => {}
     }
+}
+
+/// What to say after a credential was set or cleared.
+///
+/// Translated rather than written inline. `settings.api_key_saved` and
+/// `api_key_cleared` had existed in all four languages for as long as the
+/// screen has, and the toast was an English literal the whole time.
+fn key_toast(value: &str, saved: neko_i18n::Key, cleared: neko_i18n::Key) -> String {
+    neko_i18n::t(if value.trim().is_empty() {
+        cleared
+    } else {
+        saved
+    })
+    .to_string()
 }
 
 /// Save a node URL, or say why it was not saved.
