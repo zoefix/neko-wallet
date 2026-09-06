@@ -100,6 +100,7 @@ hint = "Enter 确认   Esc 取消"
 not_built = "%{chain} 支持还没做"
 coming_soon = "(还没做)"
 hint = "jk 移动   Enter 打开   m 查看助记词   Esc 返回"
+col_value = "估值 (USDT)"
 
 [assets]
 address = "地址"

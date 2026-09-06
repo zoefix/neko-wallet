@@ -41,6 +41,15 @@ pub enum Screen {
         wallet_id: i64,
         name: String,
         selected: usize,
+        /// What each chain is holding, from the local cache, so the list can
+        /// price a chain without going to the network for it.
+        ///
+        /// Carried rather than looked up: the wallet screen already read it,
+        /// and re-reading here would make opening the list wait on the store.
+        /// Stale by construction, which is why the figure beside a chain is
+        /// the same one the wallets screen shows, with the same rules about
+        /// what it will not claim - see `chain_value`.
+        assets: Vec<(neko_core::ChainId, neko_core::CachedAssets)>,
     },
     /// Wallet > chain > assets, with the receiving address.
     Assets {
@@ -588,10 +597,12 @@ impl App {
         };
         let Some(cur) = w.current() else { return };
         let (wallet_id, name) = (cur.id, cur.label.clone());
+        let assets = cur.assets.clone();
         self.push(Screen::Chains {
             wallet_id,
             name,
             selected: 0,
+            assets,
         });
     }
 
@@ -600,6 +611,7 @@ impl App {
             wallet_id,
             name,
             selected,
+            ..
         } = &self.screen
         else {
             return;
@@ -1413,16 +1425,40 @@ impl App {
         if let Some(s) = self.session.as_ref() {
             let _ = s.cache_assets(wallet_id, chain, &assets);
             if let Ok(fresh) = s.cached_assets(wallet_id, chain) {
-                if let Screen::Wallets(w) = &mut self.screen {
-                    if let Some(item) = w.items.iter_mut().find(|i| i.id == wallet_id) {
-                        match item.assets.iter_mut().find(|(c, _)| *c == chain) {
-                            Some(slot) => slot.1 = fresh,
-                            None => item.assets.push((chain, fresh)),
+                // Whichever of the two screens shows this figure. The chain
+                // list carries its own copy so it can be drawn without going
+                // back to the store, and a copy that is never updated is a
+                // row frozen at whatever it said when the screen opened -
+                // which on a wallet whose balances are still arriving is a
+                // dash that never becomes a number.
+                match &mut self.screen {
+                    Screen::Wallets(w) => {
+                        if let Some(item) = w.items.iter_mut().find(|i| i.id == wallet_id) {
+                            upsert(&mut item.assets, chain, fresh);
                         }
                     }
+                    Screen::Chains {
+                        wallet_id: id,
+                        assets,
+                        ..
+                    } if *id == wallet_id => upsert(assets, chain, fresh),
+                    _ => {}
                 }
             }
         }
+    }
+}
+
+/// Replace one chain's cached assets, or add them if the chain is not there
+/// yet.
+fn upsert(
+    assets: &mut Vec<(neko_core::ChainId, neko_core::CachedAssets)>,
+    chain: neko_core::ChainId,
+    fresh: neko_core::CachedAssets,
+) {
+    match assets.iter_mut().find(|(c, _)| *c == chain) {
+        Some(slot) => slot.1 = fresh,
+        None => assets.push((chain, fresh)),
     }
 }
 

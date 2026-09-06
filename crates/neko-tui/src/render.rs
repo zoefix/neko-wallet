@@ -73,8 +73,13 @@ pub fn draw(f: &mut Frame, app: &App) {
                 t(Key::Wallets_Hint)
             }
         }
-        Screen::Chains { name, selected, .. } => {
-            draw_chains(f, body, app, name, *selected);
+        Screen::Chains {
+            name,
+            selected,
+            assets,
+            ..
+        } => {
+            draw_chains(f, body, app, name, *selected, assets);
             t(Key::Chains_Hint)
         }
         Screen::Assets {
@@ -679,12 +684,29 @@ fn draw_wallet_form(f: &mut Frame, area: Rect, app: &App, form: &WalletForm) {
     f.render_widget(Paragraph::new(lines), inner);
 }
 
-fn draw_chains(f: &mut Frame, area: Rect, app: &App, name: &str, selected: usize) {
+fn draw_chains(
+    f: &mut Frame,
+    area: Rect,
+    app: &App,
+    name: &str,
+    selected: usize,
+    assets: &[(neko_core::ChainId, neko_core::CachedAssets)],
+) {
     let block = shell(app, format!("{name} . chains"));
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let mut lines = vec![Line::from("")];
+    let mut lines = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("   "),
+            Span::styled(width::pad("", CHAIN_LABEL_COLS, Align::Left), theme::hint()),
+            Span::styled(
+                width::pad(t(Key::Chains_ColValue), CHAIN_VALUE_COLS, Align::Right),
+                theme::hint(),
+            ),
+        ]),
+    ];
     for (i, c) in CHAINS.iter().enumerate() {
         let sel = i == selected;
         let style = if sel {
@@ -694,15 +716,68 @@ fn draw_chains(f: &mut Frame, area: Rect, app: &App, name: &str, selected: usize
         } else {
             Style::default()
         };
-        // The chain's name alone. A ticker here was redundant - the assets
-        // screen one keypress away lists what is actually held - and a list
-        // this short reads better without it.
+        // The chain's name, and what it is holding in USDT. A ticker here
+        // would be redundant - the assets screen one keypress away lists what
+        // is actually held - but a figure is not: it is the reason to open one
+        // chain rather than another.
         lines.push(Line::from(vec![
             Span::raw(if sel { " > " } else { "   " }),
-            Span::styled(c.label(), style),
+            Span::styled(width::pad(c.label(), CHAIN_LABEL_COLS, Align::Left), style),
+            Span::styled(
+                width::pad(
+                    &chain_value(*c, assets, &app.prices),
+                    CHAIN_VALUE_COLS,
+                    Align::Right,
+                ),
+                if sel { style } else { theme::hint() },
+            ),
         ]));
     }
     f.render_widget(Paragraph::new(lines), inner);
+}
+
+/// The widest label is `Avalanche (AVAX C-Chain)` at 24 cells; one space of
+/// air after it keeps the two columns from touching.
+const CHAIN_LABEL_COLS: usize = 26;
+/// Enough for a figure with two decimals and a thousands separator.
+const CHAIN_VALUE_COLS: usize = 14;
+
+/// What one chain is holding, in USDT.
+///
+/// The same three answers the wallets list gives, and for the same reasons:
+///
+/// * `-` when nothing has been fetched for this chain yet. Zero would say the
+///   chain is empty, which is a different statement and the wrong one to make
+///   about somebody's funds.
+/// * `?` when something held here has no price. Four chains cannot price their
+///   own coin at all - HYPE and MNT exist in no pool this wallet talks to, and
+///   APT and SUI trade only on exchanges - so a balance in one of those is
+///   genuinely unknowable, and a total that quietly left it out would
+///   understate the holding. Understating is the direction that makes somebody
+///   think they can afford something.
+/// * the figure, otherwise.
+fn chain_value(
+    chain: neko_core::ChainId,
+    assets: &[(neko_core::ChainId, neko_core::CachedAssets)],
+    prices: &neko_core::Prices,
+) -> String {
+    if prices.is_empty() {
+        return "-".to_string();
+    }
+    let Some((_, cached)) = assets.iter().find(|(c, _)| *c == chain) else {
+        return "-".to_string();
+    };
+    if cached.rows.is_empty() {
+        return "-".to_string();
+    }
+    let holdings = cached
+        .rows
+        .iter()
+        .map(|r| (chain, r.symbol.as_str(), r.amount, r.decimals));
+    match neko_core::value::total(holdings, prices) {
+        Some(v) => v.to_display_string_max(2),
+        None => "?".to_string(),
+    }
 }
 
 fn draw_assets(

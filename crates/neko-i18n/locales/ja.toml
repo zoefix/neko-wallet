@@ -100,6 +100,7 @@ hint = "Enter 確定   Esc 取消"
 not_built = "%{chain} への対応はまだ実装していません"
 coming_soon = "(未実装)"
 hint = "jk 移動   Enter 開く   m リカバリーフレーズ   Esc 戻る"
+col_value = "評価額 (USDT)"
 
 [assets]
 address = "アドレス"

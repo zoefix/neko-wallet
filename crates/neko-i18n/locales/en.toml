@@ -105,6 +105,7 @@ hint = "Enter confirm   Esc cancel"
 not_built = "%{chain} support is not built yet"
 coming_soon = "(not built yet)"
 hint = "jk move   Enter open   m recovery phrase   Esc back"
+col_value = "Value (USDT)"
 
 [assets]
 address = "Address"
