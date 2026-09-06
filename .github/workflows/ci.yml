@@ -150,6 +150,27 @@ jobs:
             fi
           done
           echo "no self-update crates"
+      - name: No two examples share a name
+        run: |
+          set -euo pipefail
+          # Cargo gives every example an unsuffixed binary at
+          # target/<profile>/examples/<name>, shared across the whole
+          # workspace. Two crates with an example of the same name therefore
+          # write to one path, and on Windows the second linker to reach it
+          # fails with LNK1104 - the file is open. On macOS and Linux it
+          # silently overwrites, so this shows up as a Windows-only failure
+          # in code that has nothing to do with Windows.
+          #
+          # Integration tests are not affected: theirs are named with a hash.
+          dupes="$(find crates -path '*/examples/*.rs' -exec basename {} \; \
+                   | sort | uniq -d)"
+          if [ -n "$dupes" ]; then
+            echo "::error::two crates have an example with the same name:"
+            printf '%s\n' "$dupes"
+            exit 1
+          fi
+          echo "every example name is unique"
+
       - name: Every outbound destination is one we have justified
         run: |
           set -euo pipefail
