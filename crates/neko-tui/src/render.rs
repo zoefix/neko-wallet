@@ -285,7 +285,7 @@ fn draw_first_run(f: &mut Frame, area: Rect, app: &App, focus: SetupField) {
         ),
         Line::from(""),
         field_line(
-            "Password",
+            t(Key::Common_Password),
             app.password.display(),
             focus == SetupField::Password,
             inner.width as usize,
@@ -293,7 +293,7 @@ fn draw_first_run(f: &mut Frame, area: Rect, app: &App, focus: SetupField) {
         strength_bar(app),
         Line::from(""),
         field_line(
-            "Confirm",
+            t(Key::Common_Confirm),
             app.confirm.display(),
             focus == SetupField::Confirm,
             inner.width as usize,

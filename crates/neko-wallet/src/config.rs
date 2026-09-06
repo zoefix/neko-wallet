@@ -67,7 +67,7 @@ pub fn save_to(p: &Path, cfg: &Config) -> std::io::Result<()> {
 /// Why a path is not usable as a vault.
 #[derive(Debug)]
 pub enum VaultCheck {
-    /// An existing file with a valid neko-wallet header.
+    /// An existing file with a valid Neko Wallet header.
     Ok {
         profile: &'static str,
     },
@@ -77,7 +77,7 @@ pub enum VaultCheck {
     NotAVault(String),
 }
 
-/// Does this path hold a neko-wallet vault?
+/// Does this path hold a Neko Wallet vault?
 ///
 /// Worth doing before saving. The failure this prevents is quiet and nasty: a
 /// mistyped path makes the next launch show first-run setup, and a user who

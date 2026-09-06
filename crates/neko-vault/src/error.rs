@@ -10,7 +10,7 @@ pub enum VaultError {
     Locked,
     #[error("password too weak: {0}")]
     WeakPassword(String),
-    #[error("this file is not a neko-wallet vault")]
+    #[error("this file is not a Neko Wallet vault")]
     NotANekoVault,
     #[error("vault file format v{0} is newer than this build supports")]
     FutureFormat(u8),

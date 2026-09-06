@@ -1,4 +1,4 @@
-//! The neko-wallet key hierarchy.
+//! The Neko Wallet key hierarchy.
 //!
 //! ```text
 //! email (NFKC, lowercased) + password (NFKC, whitespace-folded, case-sensitive)

@@ -2,9 +2,9 @@
 # 用台灣、香港通行的說法：助記詞 / 私鑰 / 手續費 / 廣播 / 質押。
 
 [app]
-name = "neko-wallet"
-first_run = "neko-wallet . 初次設定"
-wallets = "neko-wallet . 錢包"
+name = "Neko Wallet"
+first_run = "Neko Wallet . 初次設定"
+wallets = "Neko Wallet . 錢包"
 history = "交易紀錄"
 settings = "設定"
 unlocking = "解鎖中"
@@ -37,7 +37,7 @@ now = "目前 %{cols}x%{rows}"
 deriving = "正在衍生金鑰... %{secs} 秒"
 deriving_note = "這裡慢是刻意的，請勿關閉。"
 kdf = "Argon2id  記憶體=%{mem} MiB  輪數=%{iters}  平行=%{par}"
-tagline = "TRON . 終端機錢包"
+tagline = "終端機錢包"
 hint = "Tab 切換   Enter 解鎖   Ctrl-Q 離開"
 
 [first_run]
@@ -353,11 +353,11 @@ hint_editing = "Enter 儲存   Esc 取消"
 
 
 [cli]
-db_is_vault = "確認是 neko-wallet 金庫 (KDF 檔位: %{profile})。"
+db_is_vault = "確認是 Neko Wallet 金庫 (KDF 檔位: %{profile})。"
 db_will_be_created = "該檔案還不存在 - 首次啟動時會在那裡新建一個金庫。"
 db_missing = "%{path} 上沒有檔案。\n如果你就是想在那裡新建錢包，請加 --new。否則請檢查路徑：你原本的錢包沒有被動過。"
-db_not_a_vault = "%{path} 不是 neko-wallet 金庫 (%{reason})。\n拒絕把錢包指向它。"
-db_set = "neko-wallet 以後會開啟 %{path}"
+db_not_a_vault = "%{path} 不是 Neko Wallet 金庫 (%{reason})。\n拒絕把錢包指向它。"
+db_set = "Neko Wallet 以後會開啟 %{path}"
 db_unset = "已清除儲存的金庫路徑。"
 db_now = "現在會開啟 %{path}"
 config_at = "設定已儲存於 %{path}"

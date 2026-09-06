@@ -2,9 +2,9 @@
 # 暗号資産の用語は業界の慣用に合わせる：リカバリーフレーズ / 秘密鍵 / 手数料 / ブロードキャスト。
 
 [app]
-name = "neko-wallet"
-first_run = "neko-wallet . 初期設定"
-wallets = "neko-wallet . ウォレット"
+name = "Neko Wallet"
+first_run = "Neko Wallet . 初期設定"
+wallets = "Neko Wallet . ウォレット"
 history = "取引履歴"
 settings = "設定"
 unlocking = "ロック解除中"
@@ -37,7 +37,7 @@ now = "現在 %{cols}x%{rows}"
 deriving = "鍵を導出しています... %{secs} 秒"
 deriving_note = "遅いのは意図的です。閉じないでください。"
 kdf = "Argon2id  メモリ=%{mem} MiB  反復=%{iters}  並列=%{par}"
-tagline = "TRON . ターミナルウォレット"
+tagline = "ターミナルウォレット"
 hint = "Tab 移動   Enter ロック解除   Ctrl-Q 終了"
 
 [first_run]
@@ -353,11 +353,11 @@ hint_editing = "Enter 保存   Esc 取消"
 
 
 [cli]
-db_is_vault = "neko-wallet の金庫を確認しました (KDF プロファイル: %{profile})。"
+db_is_vault = "Neko Wallet の金庫を確認しました (KDF プロファイル: %{profile})。"
 db_will_be_created = "そのファイルはまだ存在しません - 初回起動時に新しい金庫が作られます。"
 db_missing = "%{path} にファイルがありません。\nそこに新しいウォレットを作るつもりなら --new を付けてください。そうでなければパスを確認してください。既存のウォレットはそのままです。"
-db_not_a_vault = "%{path} は neko-wallet の金庫ではありません (%{reason})。\nそこを指すことを拒否しました。"
-db_set = "neko-wallet は今後 %{path} を開きます"
+db_not_a_vault = "%{path} は Neko Wallet の金庫ではありません (%{reason})。\nそこを指すことを拒否しました。"
+db_set = "Neko Wallet は今後 %{path} を開きます"
 db_unset = "保存されていた金庫のパスを消去しました。"
 db_now = "今後は %{path} を開きます"
 config_at = "設定を %{path} に保存しました"

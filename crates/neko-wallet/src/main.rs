@@ -1,4 +1,4 @@
-//! neko-wallet: a terminal TRON wallet.
+//! Neko Wallet: a self-custody terminal wallet.
 
 mod config;
 mod paths;
@@ -7,7 +7,13 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "neko-wallet", version, about = "Terminal TRON wallet")]
+// The command is `neko-wallet`; the product is called Neko Wallet. The two
+// differ on purpose - one is typed, the other is read.
+#[command(
+    name = "neko-wallet",
+    version,
+    about = "Neko Wallet - a self-custody terminal wallet"
+)]
 struct Cli {
     /// Path to the encrypted vault file.
     #[arg(long, value_name = "PATH", env = paths::ENV_VAR)]

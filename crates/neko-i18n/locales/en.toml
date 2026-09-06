@@ -7,9 +7,9 @@
 #   - ASCII punctuation only: "..." not the ellipsis character, "->" not an arrow
 
 [app]
-name = "neko-wallet"
-first_run = "neko-wallet . first run"
-wallets = "neko-wallet . wallets"
+name = "Neko Wallet"
+first_run = "Neko Wallet . first run"
+wallets = "Neko Wallet . wallets"
 history = "transaction history"
 settings = "settings"
 unlocking = "unlocking"
@@ -42,7 +42,7 @@ now = "now %{cols}x%{rows}"
 deriving = "Deriving key... %{secs}s"
 deriving_note = "This is slow on purpose. Do not close."
 kdf = "Argon2id  m=%{mem} MiB  t=%{iters}  p=%{par}"
-tagline = "TRON . terminal"
+tagline = "terminal wallet"
 hint = "Tab field   Enter unlock   Ctrl-Q quit"
 
 [first_run]
@@ -358,11 +358,11 @@ hint_editing = "Enter save   Esc cancel"
 
 
 [cli]
-db_is_vault = "Found a neko-wallet vault (KDF profile: %{profile})."
+db_is_vault = "Found a Neko Wallet vault (KDF profile: %{profile})."
 db_will_be_created = "That file does not exist yet - a new vault will be created there on first launch."
 db_missing = "There is no file at %{path}.\nIf you meant to start a new wallet there, add --new. Otherwise check the path: your existing wallet is untouched."
-db_not_a_vault = "%{path} is not a neko-wallet vault (%{reason}).\nRefusing to point the wallet at it."
-db_set = "neko-wallet will now open %{path}"
+db_not_a_vault = "%{path} is not a Neko Wallet vault (%{reason}).\nRefusing to point the wallet at it."
+db_set = "Neko Wallet will now open %{path}"
 db_unset = "Forgot the saved vault path."
 db_now = "It will now open %{path}"
 config_at = "Saved in %{path}"

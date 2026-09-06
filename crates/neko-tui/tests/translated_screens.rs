@@ -5,6 +5,14 @@
 //! strings - so a test that sets it to anything else races with them, and both
 //! sides lose. Cargo runs each integration file as its own process, which is
 //! the isolation this needs.
+//!
+//! Isolation from *other files* is not isolation from each other. Once this
+//! file held two tests that each walk every language, they raced here instead,
+//! and the second one read a screen the first had just switched. So both take
+//! the guard below before they touch the locale - the same one `borders.rs`,
+//! `language.rs` and `fee_price.rs` use.
+
+static LOCALE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 use neko_tui::app::{App, Screen};
 use neko_tui::send::{FeeQuote, SendState, SendStep, TonFee};
@@ -76,6 +84,7 @@ fn flat(app: &App) -> String {
 /// failing eight tests one run and one the next.
 #[test]
 fn the_ton_review_screen_reads_in_every_language() {
+    let _g = LOCALE.lock().unwrap_or_else(|e| e.into_inner());
     let app = ton_review();
 
     // 1. The confirmation prompt had a translation in all four languages and
@@ -115,4 +124,88 @@ fn the_ton_review_screen_reads_in_every_language() {
     // 3. English still reads as English rather than as a raw key.
     neko_i18n::set_locale(neko_i18n::Locale::English);
     assert!(flat(&app).contains("TypetheLAST6characters"));
+}
+
+/// The two screens shown before a wallet is unlocked, in every language.
+///
+/// These are the first thing anybody sees and the last place an English word
+/// should survive. Two did: the first-run screen labelled its password and
+/// confirm fields with hardcoded strings while the email field beside them was
+/// translated, so a Chinese setup screen read 電子郵件 / Password / Confirm.
+/// Both translations had existed in all four languages the whole time - the
+/// same silent gap as `send.confirm_prompt` and the settings toasts.
+///
+/// **Asserted on the field's own line, not on the screen.** The first version
+/// of this test searched the whole render for the translated word and passed
+/// with the bug still in place: the warning above the fields already contains
+/// 密碼, so "the screen mentions the word somewhere" was true either way. A
+/// label is only translated if the line carrying its input box says so.
+#[test]
+fn the_screens_before_unlocking_are_translated() {
+    let _g = LOCALE.lock().unwrap_or_else(|e| e.into_inner());
+    use neko_i18n::Key;
+
+    // The lines carrying an input box, in the order they are drawn.
+    fn fields(app: &App) -> Vec<String> {
+        let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 30)).unwrap();
+        term.draw(|f| neko_tui::render::draw(f, app)).unwrap();
+        let buf = term.backend().buffer().clone();
+        (0..buf.area.height)
+            .map(|y| {
+                (0..buf.area.width)
+                    .map(|x| buf[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .filter(|l| l.contains('['))
+            // Spaces removed for the same reason as `flat`: the buffer leaves
+            // a padding cell beside every double-width character, so 邮箱
+            // reads back as "邮 箱".
+            .map(|l| l.replace(' ', ""))
+            .collect()
+    }
+
+    for locale in neko_i18n::LOCALES {
+        neko_i18n::set_locale(locale);
+
+        // First run: email, password, confirm.
+        let mut app = App::new(std::path::PathBuf::from("/tmp/neko-no-such-vault.db"));
+        app.set_viewport(100, 30);
+        let rows = fields(&app);
+        assert_eq!(rows.len(), 3, "{locale:?}: expected three fields");
+        for (row, key) in
+            rows.iter()
+                .zip([Key::Common_Email, Key::Common_Password, Key::Common_Confirm])
+        {
+            let want = neko_i18n::t(key).replace(' ', "");
+            assert!(
+                row.contains(&want),
+                "{locale:?}: a first-run field is not labelled {want:?}:\n{row}"
+            );
+        }
+
+        // Login: email and password, on the screen with the cat.
+        let mut app = App::new(std::path::PathBuf::from("/tmp/neko-no-such-vault.db"));
+        app.screen = Screen::Login {
+            email_focused: true,
+        };
+        app.set_viewport(100, 30);
+        let rows = fields(&app);
+        assert_eq!(rows.len(), 2, "{locale:?}: expected two fields");
+        for (row, key) in rows.iter().zip([Key::Common_Email, Key::Common_Password]) {
+            let want = neko_i18n::t(key).replace(' ', "");
+            assert!(
+                row.contains(&want),
+                "{locale:?}: a login field is not labelled {want:?}:\n{row}"
+            );
+        }
+
+        // And the tagline no longer claims this is a TRON wallet.
+        let out = flat(&app);
+        assert!(out.contains(&neko_i18n::t(Key::Login_Tagline).replace(' ', "")));
+        assert!(
+            !out.contains("TRON"),
+            "{locale:?}: the login screen still names one chain"
+        );
+    }
+    neko_i18n::set_locale(neko_i18n::Locale::English);
 }

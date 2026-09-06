@@ -1,4 +1,4 @@
-//! Cryptographic primitives for neko-wallet.
+//! Cryptographic primitives for Neko Wallet.
 //!
 //! Pure functions only: no I/O, no SQL, no async. Everything here is covered by
 //! the frozen cross-language vectors in `vectors/crypto.json`, which were
