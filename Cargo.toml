@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/neko-crypto", "crates/neko-vault", "crates/neko-hd", "crates/neko-tron", "crates/neko-btc", "crates/neko-evm", "crates/neko-solana", "crates/neko-ton", "crates/neko-aptos", "crates/neko-sui", "crates/neko-store", "crates/neko-core", "crates/neko-i18n", "crates/neko-tui", "crates/neko-wallet"]
 
 [workspace.package]
-version      = "0.1.0"
+version      = "0.1.1"
 edition      = "2021"
 rust-version = "1.86"
 license      = "MIT"

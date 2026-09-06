@@ -14,7 +14,7 @@ Sui, Solana, Bitcoin and TON.
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
-![Version](https://img.shields.io/badge/VERSION-v0.1.0-8A2BE2?style=for-the-badge&labelColor=444)
+![Version](https://img.shields.io/badge/VERSION-v0.1.1-8A2BE2?style=for-the-badge&labelColor=444)
 ![Platform](https://img.shields.io/badge/PLATFORM-MACOS%20%7C%20LINUX%20%7C%20WINDOWS-00B5E2?style=for-the-badge&labelColor=444)
 ![Chains](https://img.shields.io/badge/CHAINS-TRON%20%7C%20ETH%20%7C%20BNB%20%7C%20SOL%20%7C%20BTC-1BC47D?style=for-the-badge&labelColor=444)
 ![Rust](https://img.shields.io/badge/RUST-1.86%2B-000000?style=for-the-badge&labelColor=444)
