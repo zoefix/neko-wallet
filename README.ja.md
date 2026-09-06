@@ -258,8 +258,11 @@ Ethereum への公開費用をガスの数値に織り込むためで、Arbitrum
 ところで、キーは不要です。ここで扱うチェーンのうち対応しているのはこの 2 つだけで、
 他の 10 には `chain not supported` を返します。そしてこの 2 つにとっては唯一の
 インデックスです。NodeReal はどちらも扱わず、Blockscout インスタンスもありません。
-履歴に自分の Etherscan キーが要るチェーンは HyperEVM と Linea だけになり、その 2 つは
-失敗を装わずそう表示します。
+**Linea の Blockscout は、自身のエクスプローラが公開していないホストにあります。**
+`explorer.linea.build` はフロントエンドで、どの API パスにも HTML を返します。実際の
+バックエンドは `api-explorer.linea.build` です。これで履歴に自分の Etherscan キーが
+要るチェーンは **HyperEVM** だけになりました。そこの Blockscout だった Hyperscan は
+現在、宣伝ページへリダイレクトします。失敗を装わずそう表示します。
 
 **Avalanche は名前にネットワークを含みます** — `Avalanche (AVAX C-Chain)`。実際には
 3 つのチェーンがあり、アドレスだけではどれか分からないからです。取引所は 3 つとも

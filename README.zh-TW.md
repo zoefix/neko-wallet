@@ -228,8 +228,10 @@ ETH 價是 7.55 和 264。歷史紀錄走 Blockscout，只是這家開在自己�
 
 **Avalanche 和 Mantle 的歷史紀錄走 Routescan**，就是跑 Snowtrace 的那家，不需要金鑰。
 這兩條是它在這裡唯一支援的鏈——對另外十條它都回 `chain not supported`——而這也是這兩條鏈
-唯一的索引來源：NodeReal 兩條都不涵蓋，也都沒有 Blockscout 實例。現在只剩 HyperEVM 和
-Linea 的歷史紀錄需要你自己的 Etherscan key，而且它們會直說，不會裝作出錯。
+唯一的索引來源：NodeReal 兩條都不涵蓋，也都沒有 Blockscout 實例。**Linea 的 Blockscout 開在一個它自己的瀏覽器都不寫出來的位址上**——`explorer.linea.build`
+是個前端，對所有 API 路徑都回傳 HTML，真正的後端在 `api-explorer.linea.build`。
+這樣一來只剩 **HyperEVM** 一條鏈的歷史紀錄需要你自己的 Etherscan key：它的 Blockscout
+原本是 Hyperscan，現在已經跳轉到一個宣傳頁了。它會直說，不會裝作出錯。
 
 **Avalanche 的名字裡帶著網路**——`Avalanche (AVAX C-Chain)`——因為它其實是三條鏈，
 而位址本身說不清是哪一條。交易所三條都提供，其中兩條接受 `0x` 位址：C-Chain（就是這條），

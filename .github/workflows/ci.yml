@@ -205,6 +205,11 @@ jobs:
           #                             does not list Scroll or zkSync Era,
           #                             which is why those two read this way
           #   zksync.blockscout.com     zkSync Era history, keyless
+          #   api-explorer.linea.build  Linea history, keyless. Not the host
+          #                             its own explorer runs on:
+          #                             explorer.linea.build is a front end
+          #                             that serves HTML on every API path,
+          #                             and this is the backend behind it
           #   explorer.optimism.io      Optimism history, and the one entry
           #                             here that does not look like what it
           #                             is: it is a Blockscout instance on its
@@ -260,7 +265,7 @@ jobs:
           # before and after each transaction.
           found="$(grep -rhoE 'https?://[a-zA-Z0-9._/-]+' crates/*/src \
                    | sort -u \
-                   | grep -vE 'trongrid\.io|bsc-dataseed|mainnet-beta\.solana\.com|ethereum-rpc\.publicnode\.com|polygon-bor-rpc\.publicnode\.com|polygonscan\.com|base-rpc\.publicnode\.com|basescan\.org|arbitrum-one-rpc\.publicnode\.com|arbiscan\.io|optimism-rpc\.publicnode\.com|explorer\.optimism\.io|avalanche-c-chain-rpc\.publicnode\.com|rpc\.hyperliquid\.xyz|rpc\.mantle\.xyz|rpc\.linea\.build|mainnet\.era\.zksync\.io|rpc\.scroll\.io|scrollscan\.com|snowtrace\.io|hyperevmscan\.io|mantlescan\.xyz|lineascan\.build|explorer\.zksync\.io|fullnode\.mainnet\.aptoslabs\.com|api\.mainnet\.aptoslabs\.com|explorer\.aptoslabs\.com|sui-rpc\.publicnode\.com|suiscan\.xyz|api\.routescan\.io|blockstream\.info|nodereal\.io|tronscan\.org|bscscan\.com|solscan\.io|etherscan\.io|mempool\.space|blockscout\.com|api\.etherscan\.io|toncenter\.com|tonviewer\.com|tether\.to|my-node\.example|x\.example|example\.invalid' || true)"
+                   | grep -vE 'trongrid\.io|bsc-dataseed|mainnet-beta\.solana\.com|ethereum-rpc\.publicnode\.com|polygon-bor-rpc\.publicnode\.com|polygonscan\.com|base-rpc\.publicnode\.com|basescan\.org|arbitrum-one-rpc\.publicnode\.com|arbiscan\.io|optimism-rpc\.publicnode\.com|explorer\.optimism\.io|avalanche-c-chain-rpc\.publicnode\.com|rpc\.hyperliquid\.xyz|rpc\.mantle\.xyz|rpc\.linea\.build|mainnet\.era\.zksync\.io|rpc\.scroll\.io|scrollscan\.com|snowtrace\.io|hyperevmscan\.io|mantlescan\.xyz|lineascan\.build|explorer\.zksync\.io|fullnode\.mainnet\.aptoslabs\.com|api\.mainnet\.aptoslabs\.com|explorer\.aptoslabs\.com|sui-rpc\.publicnode\.com|suiscan\.xyz|api\.routescan\.io|api-explorer\.linea\.build|blockstream\.info|nodereal\.io|tronscan\.org|bscscan\.com|solscan\.io|etherscan\.io|mempool\.space|blockscout\.com|api\.etherscan\.io|toncenter\.com|tonviewer\.com|tether\.to|my-node\.example|x\.example|example\.invalid' || true)"
           if [ -n "$found" ]; then
             echo "::error::unexpected network destinations in the program:"
             printf '%s\n' "$found"

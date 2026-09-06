@@ -484,6 +484,11 @@ pub const MANTLE: EvmChain = EvmChain {
 /// not answer `getAmountsOut` - so its ether is priced from Ethereum like the
 /// rollups'. And **Binance does not send anything here**: not ether, not USDT,
 /// not USDC, only the LINEA token itself. Funding this chain means bridging.
+///
+/// Its Blockscout is at a host the explorer does not advertise. The page at
+/// `explorer.linea.build` is a front end that serves HTML to every API path;
+/// the backend answering it is `api-explorer.linea.build`, and that is what
+/// is named below.
 pub const LINEA: EvmChain = EvmChain {
     chain_id: 59_144,
     native_symbol: "ETH",
@@ -501,7 +506,9 @@ pub const LINEA: EvmChain = EvmChain {
     history_host: None,
     l1_fee_oracle: None,
     prices_on: Some(1),
-    blockscout: None,
+    // The backend behind `explorer.linea.build`, which serves HTML rather
+    // than JSON on every API path of its own.
+    blockscout: Some("https://api-explorer.linea.build"),
     routescan: None,
 };
 
@@ -836,7 +843,7 @@ mod tests {
         for c in [POLYGON, AVALANCHE, HYPER_EVM, MANTLE, LINEA] {
             assert_eq!(c.history_host, None, "chain {}", c.chain_id);
         }
-        for c in [AVALANCHE, HYPER_EVM, MANTLE, LINEA] {
+        for c in [AVALANCHE, HYPER_EVM, MANTLE] {
             assert_eq!(
                 c.blockscout, None,
                 "chain {} has no Blockscout instance",
@@ -844,17 +851,19 @@ mod tests {
             );
         }
 
-        // Every chain reaches an index without a key, except two. Routescan
-        // covers Avalanche and Mantle, which had none at all; HyperEVM and
-        // Linea are the only chains left where history needs the user's own
-        // Etherscan key, and they say so rather than failing.
+        // Every chain reaches an index without a key except one. Routescan
+        // covers Avalanche and Mantle; Linea's Blockscout is at a host its own
+        // explorer does not advertise. HyperEVM is the only chain left where
+        // history needs the user's own Etherscan key - its Blockscout, which
+        // was Hyperscan, now redirects to a marketing page - and it says so
+        // rather than failing.
         let keyless: Vec<u64> = ALL
             .iter()
             .filter(|c| c.blockscout.is_some() || c.routescan.is_some())
             .map(|c| c.chain_id)
             .collect();
-        // Six Blockscout instances and two Routescan.
-        assert_eq!(keyless.len(), 8, "eight chains need nothing configured");
+        // Seven Blockscout instances and two Routescan.
+        assert_eq!(keyless.len(), 9, "nine chains need nothing configured");
         // And a chain never has both, which would make the order in
         // `chain::history` a silent preference rather than a fallback.
         for c in ALL {
@@ -864,13 +873,15 @@ mod tests {
                 c.chain_id
             );
         }
-        for c in [HYPER_EVM, LINEA] {
-            assert!(
-                c.blockscout.is_none() && c.routescan.is_none(),
-                "chain {} gained a keyless index",
-                c.chain_id
-            );
-        }
+        assert!(
+            HYPER_EVM.blockscout.is_none() && HYPER_EVM.routescan.is_none(),
+            "HyperEVM gained a keyless index"
+        );
+        assert_eq!(
+            LINEA.blockscout,
+            Some("https://api-explorer.linea.build"),
+            "not explorer.linea.build, which serves HTML on every API path"
+        );
         assert!(AVALANCHE.routescan.is_some());
         assert!(MANTLE.routescan.is_some());
         assert_eq!(

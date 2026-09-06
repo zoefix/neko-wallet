@@ -294,8 +294,12 @@ nobody can see.
 Snowtrace and asks for no key. They are the only two chains here it serves -
 it answers `chain not supported` for the other ten - and it is the only index
 either of them has, since NodeReal covers neither and neither has a
-Blockscout instance. HyperEVM and Linea are now the only chains where history
-needs your own Etherscan key, and they say so rather than failing.
+Blockscout instance. **Linea's Blockscout is at a host its own explorer does not advertise** -
+`explorer.linea.build` is a front end that serves HTML on every API path, and
+`api-explorer.linea.build` is the backend behind it. That leaves **HyperEVM as
+the only chain** where history needs your own Etherscan key: its Blockscout
+was Hyperscan, and that now redirects to a marketing page. It says so rather
+than failing.
 
 **Avalanche is named with its network** - `Avalanche (AVAX C-Chain)` - because
 it is three chains and the address does not say which. An exchange offers all
