@@ -241,6 +241,7 @@ recording = "asciinema がこのセッションを録画しています。"
 [history]
 needs_indexer = "BNB Chain の履歴にはインデクサが必要です。nodereal.io で無料のキーを取得し、設定に入力してください。"
 no_indexer = "このチェーンには利用できる転送インデックスがないため、履歴は表示できません。残高と送金は通常どおり動作します。"
+needs_etherscan_key = "このチェーンの履歴には Etherscan のキーが必要です。etherscan.io で無料で取得でき、1 つでここの全 EVM チェーンをカバーします。設定に入力してください。残高と送金はキーなしで動きます。"
 col_when = "日時"
 col_asset = "資産"
 col_amount = "金額"

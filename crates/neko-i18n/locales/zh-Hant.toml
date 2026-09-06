@@ -241,6 +241,7 @@ recording = "asciinema 正在錄製這個工作階段。"
 [history]
 needs_indexer = "BNB Chain 的歷史需要索引服務。請去 nodereal.io 免費註冊一個 Key，填進設定裡。"
 no_indexer = "這條鏈沒有可用的轉帳索引服務，所以看不了歷史紀錄。餘額和轉帳不受影響。"
+needs_etherscan_key = "這條鏈的歷史紀錄需要 Etherscan Key。去 etherscan.io 免費註冊一個，一個 Key 涵蓋這裡所有 EVM 鏈，填進設定裡就行。餘額和轉帳不受影響。"
 col_when = "時間"
 col_asset = "資產"
 col_amount = "金額"

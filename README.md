@@ -296,10 +296,14 @@ it answers `chain not supported` for the other ten - and it is the only index
 either of them has, since NodeReal covers neither and neither has a
 Blockscout instance. **Linea's Blockscout is at a host its own explorer does not advertise** -
 `explorer.linea.build` is a front end that serves HTML on every API path, and
-`api-explorer.linea.build` is the backend behind it. That leaves **HyperEVM as
-the only chain** where history needs your own Etherscan key: its Blockscout
-was Hyperscan, and that now redirects to a marketing page. It says so rather
-than failing.
+`api-explorer.linea.build` is the backend behind it. That leaves **HyperEVM as the only chain** where history needs your own
+Etherscan key. Its Blockscout was Hyperscan, and that now redirects to a
+marketing page; Hyperliquid's own explorer API lists only what an address
+*sent*, which is the half-history this wallet already shipped once and will
+not ship again; and `eth_getLogs` there caps at 1,000 blocks, about
+seventeen minutes. Etherscan V2 does cover it, so the screen says to add a
+key rather than that there is nowhere to look - those are different facts,
+and the second one would be false.
 
 **Avalanche is named with its network** - `Avalanche (AVAX C-Chain)` - because
 it is three chains and the address does not say which. An exchange offers all

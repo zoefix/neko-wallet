@@ -1185,8 +1185,16 @@ pub async fn history(
                 rs.transfers(a, usdt, limit as usize).await
             } else if chain.history_host.is_some() {
                 // There is an index for this chain and no key for it, which is
-                // a different thing from there being none.
+                // a different thing from there being none. NodeReal's, named
+                // by the message.
                 return Err(neko_i18n::t(neko_i18n::Key::History_NeedsIndexer).to_string());
+            } else if chain.etherscan_v2 {
+                // Also an index and no key - a different one, from a
+                // different place, so a different sentence. Saying "this
+                // chain has no index" here would be false: HyperEVM is on
+                // Etherscan's own chainlist, and a free key would show the
+                // history immediately.
+                return Err(neko_i18n::t(neko_i18n::Key::History_NeedsEtherscanKey).to_string());
             } else {
                 return Err(neko_i18n::t(neko_i18n::Key::History_NoIndexer).to_string());
             }

@@ -104,6 +104,19 @@ pub struct EvmChain {
     /// without this its history screen could only say "unavailable" - and a
     /// keyless index is the same trade Bitcoin already makes with Esplora.
     pub blockscout: Option<&'static str>,
+    /// Whether Etherscan V2 indexes this chain.
+    ///
+    /// Read from Etherscan's own `/v2/chainlist`, which covers ten of the
+    /// twelve chains here - all but zkSync Era and Scroll, both of which have
+    /// a keyless Blockscout instead.
+    ///
+    /// This exists to tell two different silences apart. A chain with no
+    /// keyless index and no Etherscan coverage genuinely has nowhere to look;
+    /// a chain Etherscan covers has somewhere, and the user only needs to say
+    /// so. Telling somebody "this chain has no index" when a key they can get
+    /// for free in a minute would fix it is not a true statement about their
+    /// options.
+    pub etherscan_v2: bool,
     /// A keyless Etherscan-shaped index at Routescan, where one exists.
     ///
     /// The full base URL, chain id and all, so it can be read rather than
@@ -137,6 +150,7 @@ pub const BSC: EvmChain = EvmChain {
     l1_fee_oracle: None,
     prices_on: None,
     blockscout: None,
+    etherscan_v2: true,
     routescan: None,
 };
 
@@ -165,6 +179,7 @@ pub const ETHEREUM: EvmChain = EvmChain {
     l1_fee_oracle: None,
     prices_on: None,
     blockscout: None,
+    etherscan_v2: true,
     routescan: None,
 };
 
@@ -206,6 +221,7 @@ pub const POLYGON: EvmChain = EvmChain {
     l1_fee_oracle: None,
     prices_on: None,
     blockscout: Some("https://polygon.blockscout.com"),
+    etherscan_v2: true,
     routescan: None,
 };
 
@@ -250,6 +266,7 @@ pub const BASE: EvmChain = EvmChain {
     l1_fee_oracle: Some("0x420000000000000000000000000000000000000F"),
     prices_on: Some(1),
     blockscout: Some("https://base.blockscout.com"),
+    etherscan_v2: true,
     routescan: None,
 };
 
@@ -294,6 +311,7 @@ pub const ARBITRUM: EvmChain = EvmChain {
     l1_fee_oracle: None,
     prices_on: Some(1),
     blockscout: Some("https://arbitrum.blockscout.com"),
+    etherscan_v2: true,
     routescan: None,
 };
 
@@ -353,6 +371,7 @@ pub const OPTIMISM: EvmChain = EvmChain {
     prices_on: Some(1),
     // `optimism.blockscout.com` answers 301 and points here.
     blockscout: Some("https://explorer.optimism.io"),
+    etherscan_v2: true,
     routescan: None,
 };
 
@@ -394,6 +413,7 @@ pub const AVALANCHE: EvmChain = EvmChain {
     // Routescan runs Snowtrace and serves this chain without a key, which is
     // the only index this wallet has here: NodeReal does not cover it, there
     // is no Blockscout instance, and Etherscan V2 lists it but wants a key.
+    etherscan_v2: true,
     routescan: Some("https://api.routescan.io/v2/network/mainnet/evm/43114/etherscan/api"),
 };
 
@@ -432,6 +452,7 @@ pub const HYPER_EVM: EvmChain = EvmChain {
     l1_fee_oracle: None,
     prices_on: None,
     blockscout: None,
+    etherscan_v2: true,
     routescan: None,
 };
 
@@ -471,6 +492,7 @@ pub const MANTLE: EvmChain = EvmChain {
     prices_on: None,
     blockscout: None,
     // The second of the two chains Routescan serves keylessly.
+    etherscan_v2: true,
     routescan: Some("https://api.routescan.io/v2/network/mainnet/evm/5000/etherscan/api"),
 };
 
@@ -509,6 +531,7 @@ pub const LINEA: EvmChain = EvmChain {
     // The backend behind `explorer.linea.build`, which serves HTML rather
     // than JSON on every API path of its own.
     blockscout: Some("https://api-explorer.linea.build"),
+    etherscan_v2: true,
     routescan: None,
 };
 
@@ -541,6 +564,9 @@ pub const ZKSYNC_ERA: EvmChain = EvmChain {
     l1_fee_oracle: None,
     prices_on: Some(1),
     blockscout: Some("https://zksync.blockscout.com"),
+    // Etherscan V2's chainlist does not include this chain; its keyless
+    // Blockscout is what serves history here.
+    etherscan_v2: false,
     routescan: None,
 };
 
@@ -576,6 +602,9 @@ pub const SCROLL: EvmChain = EvmChain {
     prices_on: Some(1),
     // Scroll's explorer serves the Blockscout v2 API, keyless.
     blockscout: Some("https://scrollscan.com"),
+    // Etherscan V2's chainlist does not include this chain; its keyless
+    // Blockscout is what serves history here.
+    etherscan_v2: false,
     routescan: None,
 };
 
@@ -877,6 +906,38 @@ mod tests {
             HYPER_EVM.blockscout.is_none() && HYPER_EVM.routescan.is_none(),
             "HyperEVM gained a keyless index"
         );
+        // And HyperEVM is not without one entirely: Etherscan V2 covers it,
+        // so the screen can say "add a key" rather than "there is nowhere to
+        // look". Those are different facts and the second one would be false.
+        //
+        // Read from Etherscan's own `/v2/chainlist`, and compared as a set so
+        // that a chain gaining or losing coverage shows up as itself rather
+        // than as a count that happens to still add up.
+        let on_etherscan: Vec<u64> = ALL
+            .iter()
+            .filter(|c| c.etherscan_v2)
+            .map(|c| c.chain_id)
+            .collect();
+        assert_eq!(
+            on_etherscan,
+            vec![56, 1, 137, 8453, 42_161, 10, 43_114, 999, 5_000, 59_144],
+            "Etherscan V2's coverage of these chains changed"
+        );
+        // The two it misses are exactly the two with a keyless Blockscout, so
+        // no chain is left with nothing at all.
+        let missed: Vec<u64> = ALL
+            .iter()
+            .filter(|c| !c.etherscan_v2)
+            .map(|c| c.chain_id)
+            .collect();
+        assert_eq!(missed, vec![324, 534_352]);
+        for c in ALL {
+            assert!(
+                c.etherscan_v2 || c.blockscout.is_some() || c.routescan.is_some(),
+                "chain {} has no index at all and no key that would give it one",
+                c.chain_id
+            );
+        }
         assert_eq!(
             LINEA.blockscout,
             Some("https://api-explorer.linea.build"),

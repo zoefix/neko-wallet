@@ -241,6 +241,7 @@ recording = "asciinema 正在录制这个会话。"
 [history]
 needs_indexer = "BNB Chain 的历史需要索引服务。请去 nodereal.io 免费注册一个 Key，填进设置里。"
 no_indexer = "这条链没有可用的转账索引服务，所以看不了历史记录。余额和转账不受影响。"
+needs_etherscan_key = "这条链的历史记录需要 Etherscan Key。去 etherscan.io 免费注册一个，一个 Key 覆盖这里所有 EVM 链，填进设置里就行。余额和转账不受影响。"
 col_when = "时间"
 col_asset = "资产"
 col_amount = "金额"

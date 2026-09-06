@@ -246,6 +246,7 @@ recording = "asciinema is recording this session."
 [history]
 needs_indexer = "BNB Chain history needs an indexer. Add a free key from nodereal.io in settings."
 no_indexer = "This chain has no transfer index available, so history cannot be shown. Balances and transfers work normally."
+needs_etherscan_key = "This chain's history needs an Etherscan key. One free key from etherscan.io covers every EVM chain here - add it in settings. Balances and transfers work without it."
 col_when = "When"
 col_asset = "Asset"
 col_amount = "Amount"
