@@ -481,7 +481,10 @@ mod l1_fee_query {
         // No byte repeats, so there is no run for a compressor to collapse.
         let mut seen = [false; 256];
         for b in pad {
-            assert!(!seen[*b as usize], "byte {b:#04x} appears twice in the padding");
+            assert!(
+                !seen[*b as usize],
+                "byte {b:#04x} appears twice in the padding"
+            );
             seen[*b as usize] = true;
         }
 

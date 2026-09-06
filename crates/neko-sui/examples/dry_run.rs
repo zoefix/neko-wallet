@@ -10,9 +10,9 @@ use neko_sui::SuiAddress;
 #[tokio::main]
 async fn main() {
     let rpc = Rpc::new(None);
-    let who = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "0x77776760c06997206b13fa76f127aa016d24a645f04fce516be153ece0bddf23".into());
+    let who = std::env::args().nth(1).unwrap_or_else(|| {
+        "0x77776760c06997206b13fa76f127aa016d24a645f04fce516be153ece0bddf23".into()
+    });
     let sender = SuiAddress::parse(&who).unwrap();
     let to =
         SuiAddress::parse("0x0000000000000000000000000000000000000000000000000000000000000002")
@@ -50,8 +50,12 @@ async fn main() {
     }
     let objs: Vec<_> = usdc.iter().map(|c| c.object).collect();
     let data = tx::pay_token(sender, to, 1_000, &objs, gas).unwrap();
-    println!("USDC transfer: {} bytes, {} inputs, {} commands",
-        data.to_bytes().len(), data.inputs.len(), data.commands.len());
+    println!(
+        "USDC transfer: {} bytes, {} inputs, {} commands",
+        data.to_bytes().len(),
+        data.inputs.len(),
+        data.commands.len()
+    );
     match rpc.dry_run(&data.to_bytes()).await {
         Ok(g) => println!(
             "  ACCEPTED  computation {} + storage {} - rebate {} = {} MIST",

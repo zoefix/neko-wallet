@@ -8,13 +8,13 @@
 pub mod abi;
 pub mod blockscout;
 pub mod chain_consts;
-pub mod routescan;
 pub mod client;
 pub mod error;
 pub mod etherscan;
 pub mod history;
 pub mod price;
 pub mod rlp;
+pub mod routescan;
 pub mod tx;
 
 pub use chain_consts::*;

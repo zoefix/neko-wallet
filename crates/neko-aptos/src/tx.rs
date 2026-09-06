@@ -152,7 +152,10 @@ pub struct SignedTransaction {
 /// a wrong one here means the key or the message was wrong, and both produce a
 /// transaction that is broadcast, accepted into a mempool, and then silently
 /// dropped.
-pub fn sign(raw: &RawTransaction, sk: &Zeroizing<[u8; 32]>) -> Result<SignedTransaction, AptosError> {
+pub fn sign(
+    raw: &RawTransaction,
+    sk: &Zeroizing<[u8; 32]>,
+) -> Result<SignedTransaction, AptosError> {
     let pk = neko_hd::aptos::public_key(sk);
     let derived = AptosAddress::from_public_key(&pk);
     if derived != raw.sender {
@@ -186,7 +189,9 @@ fn verify(pk: &[u8; 32], message: &[u8], sig: &[u8; 64]) -> Result<(), AptosErro
     let vk = VerifyingKey::from_bytes(pk)
         .map_err(|_| AptosError::BadReply("the derived public key is not on the curve".into()))?;
     vk.verify(message, &Signature::from_bytes(sig))
-        .map_err(|_| AptosError::BadReply("the signature this wallet just made does not verify".into()))
+        .map_err(|_| {
+            AptosError::BadReply("the signature this wallet just made does not verify".into())
+        })
 }
 
 /// The hash an explorer knows this transaction by.
@@ -454,4 +459,3 @@ mod encoding {
         }
     }
 }
-

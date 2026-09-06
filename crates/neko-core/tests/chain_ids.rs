@@ -28,7 +28,11 @@ fn optimisms_row_id_matching_its_chain_id_is_a_coincidence() {
         .filter(|c| c.evm().is_some_and(|e| e.chain_id == db_row(**c) as u64))
         .map(|c| c.slug())
         .collect();
-    assert_eq!(both, ["optimism"], "only one chain has the two numbers equal");
+    assert_eq!(
+        both,
+        ["optimism"],
+        "only one chain has the two numbers equal"
+    );
 
     // The namespaces overlap in a second way, which is the real reason this
     // file exists: Ethereum's chain id is 1, and 1 is TRON's row id. So a

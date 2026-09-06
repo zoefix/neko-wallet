@@ -59,8 +59,14 @@ fn app_at_review(chain: neko_core::ChainId, quote: FeeQuote) -> App {
         neko_core::ChainId::Solana => (SOL_MINE, SOL_TO),
         neko_core::ChainId::Bitcoin => (BTC_MINE, BTC_TO),
         neko_core::ChainId::Ton => (TON_MINE, TON_TO),
-        neko_core::ChainId::Sui => ("0x5e93a736d04fbb25737aa40bee40171ef79f65fae833749e3c089fe7cc2161f1", "0x0000000000000000000000000000000000000000000000000000000000000002"),
-        neko_core::ChainId::Aptos => ("0xeb663b681209e7087d681c5d3eed12aaa8e1915e7c87794542c3f96e94b3d3bf", "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
+        neko_core::ChainId::Sui => (
+            "0x5e93a736d04fbb25737aa40bee40171ef79f65fae833749e3c089fe7cc2161f1",
+            "0x0000000000000000000000000000000000000000000000000000000000000002",
+        ),
+        neko_core::ChainId::Aptos => (
+            "0xeb663b681209e7087d681c5d3eed12aaa8e1915e7c87794542c3f96e94b3d3bf",
+            "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        ),
         neko_core::ChainId::Ethereum
         | neko_core::ChainId::Polygon
         | neko_core::ChainId::Base
@@ -130,15 +136,13 @@ fn app_at_review(chain: neko_core::ChainId, quote: FeeQuote) -> App {
                 budget: 10_000_000,
             }))
         }
-        neko_core::ChainId::Aptos => {
-            neko_core::ChainTxParams::Aptos(neko_aptos::tx::TxParams {
-                sequence_number: 0,
-                max_gas_amount: 2_000,
-                gas_unit_price: 100,
-                expiration_timestamp_secs: 1_900_000_000,
-                chain_id: neko_aptos::CHAIN_ID,
-            })
-        }
+        neko_core::ChainId::Aptos => neko_core::ChainTxParams::Aptos(neko_aptos::tx::TxParams {
+            sequence_number: 0,
+            max_gas_amount: 2_000,
+            gas_unit_price: 100,
+            expiration_timestamp_secs: 1_900_000_000,
+            chain_id: neko_aptos::CHAIN_ID,
+        }),
         neko_core::ChainId::Ton => {
             neko_core::ChainTxParams::Ton(Box::new(neko_core::TonTxParams {
                 seqno: 0,

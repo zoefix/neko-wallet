@@ -220,18 +220,12 @@ impl Session {
                 ChainId::HyperEvm => {
                     ChainAddress::HyperEvm(derive::evm_address_from_private_key(&sk)?)
                 }
-                ChainId::Mantle => {
-                    ChainAddress::Mantle(derive::evm_address_from_private_key(&sk)?)
-                }
-                ChainId::Linea => {
-                    ChainAddress::Linea(derive::evm_address_from_private_key(&sk)?)
-                }
+                ChainId::Mantle => ChainAddress::Mantle(derive::evm_address_from_private_key(&sk)?),
+                ChainId::Linea => ChainAddress::Linea(derive::evm_address_from_private_key(&sk)?),
                 ChainId::ZkSyncEra => {
                     ChainAddress::ZkSyncEra(derive::evm_address_from_private_key(&sk)?)
                 }
-                ChainId::Scroll => {
-                    ChainAddress::Scroll(derive::evm_address_from_private_key(&sk)?)
-                }
+                ChainId::Scroll => ChainAddress::Scroll(derive::evm_address_from_private_key(&sk)?),
                 ChainId::Solana => {
                     ChainAddress::Solana(neko_hd::solana::address_from_private_key(&sk)?)
                 }
@@ -241,9 +235,9 @@ impl Session {
                 ChainId::Ton => ChainAddress::Ton(neko_ton::wallet::address_for(
                     &neko_hd::ton::public_key(&sk),
                 )?),
-                ChainId::Aptos => ChainAddress::Aptos(
-                    neko_aptos::AptosAddress::from_public_key(&neko_hd::aptos::public_key(&sk)),
-                ),
+                ChainId::Aptos => ChainAddress::Aptos(neko_aptos::AptosAddress::from_public_key(
+                    &neko_hd::aptos::public_key(&sk),
+                )),
                 ChainId::Sui => ChainAddress::Sui(neko_sui::SuiAddress::from_public_key(
                     &neko_hd::sui::public_key(&sk),
                 )),

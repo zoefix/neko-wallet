@@ -13,6 +13,8 @@ pub use amount::Amount;
 pub use chain::{Asset, ChainAddress, ChainId, CHAINS};
 pub use error::CoreError;
 pub use session::{Session, VaultFile};
-pub use transfer::{BtcTxParams, ChainTxParams, SignedTransfer, TonTxParams, SuiTxParams, TransferRequest};
+pub use transfer::{
+    BtcTxParams, ChainTxParams, SignedTransfer, SuiTxParams, TonTxParams, TransferRequest,
+};
 pub use value::{Prices, PRICE_SCALE};
 pub use wallets::{CachedAssets, NewWalletSpec, WalletView};

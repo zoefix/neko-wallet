@@ -278,8 +278,9 @@ fn verify(pk: &[u8; 32], digest: &[u8; 32], sig: &[u8; 64]) -> Result<(), SuiErr
     use ed25519_dalek::{Signature, Verifier, VerifyingKey};
     let vk = VerifyingKey::from_bytes(pk)
         .map_err(|_| SuiError::BadReply("the derived public key is not on the curve".into()))?;
-    vk.verify(digest, &Signature::from_bytes(sig))
-        .map_err(|_| SuiError::BadReply("the signature this wallet just made does not verify".into()))
+    vk.verify(digest, &Signature::from_bytes(sig)).map_err(|_| {
+        SuiError::BadReply("the signature this wallet just made does not verify".into())
+    })
 }
 
 /// The name the chain knows this transaction by.
@@ -331,12 +332,7 @@ fn bs58_encode(b: &[u8]) -> String {
 /// The coin being spent is the gas coin, which is the pattern the chain's own
 /// builder uses: split the amount off whatever is paying for the transaction,
 /// then hand the piece over. The remainder stays where it was.
-pub fn pay_sui(
-    sender: SuiAddress,
-    to: SuiAddress,
-    amount: u64,
-    gas: GasData,
-) -> TransactionData {
+pub fn pay_sui(sender: SuiAddress, to: SuiAddress, amount: u64, gas: GasData) -> TransactionData {
     TransactionData {
         inputs: vec![
             CallArg::Pure(amount.to_le_bytes().to_vec()),
@@ -434,9 +430,7 @@ mod encoding {
             payment: vec![ObjectRef {
                 id: bytes32("aa649b915f683af20595631a46826e99a2bb6e0b093b5dd4a4a6ccee89cdaf23"),
                 version: 985_513_514,
-                digest: bytes32(
-                    "90668da58c70bbde13fc25de770c787c489498250bcf74115759be7a4ab98473",
-                ),
+                digest: bytes32("90668da58c70bbde13fc25de770c787c489498250bcf74115759be7a4ab98473"),
             }],
             owner: addr("0xffd4f043057226453aeba59732d41c6093516f54823ebc3a16d17f8a77d2f0ad"),
             price: 100,
@@ -483,9 +477,18 @@ mod encoding {
         let d = base.signing_digest();
 
         let other = addr("0x0000000000000000000000000000000000000000000000000000000000000003");
-        assert_ne!(pay_sui(sender, other, 1_000_000, reference_gas()).signing_digest(), d);
-        assert_ne!(pay_sui(sender, to, 1_000_001, reference_gas()).signing_digest(), d);
-        assert_ne!(pay_sui(other, to, 1_000_000, reference_gas()).signing_digest(), d);
+        assert_ne!(
+            pay_sui(sender, other, 1_000_000, reference_gas()).signing_digest(),
+            d
+        );
+        assert_ne!(
+            pay_sui(sender, to, 1_000_001, reference_gas()).signing_digest(),
+            d
+        );
+        assert_ne!(
+            pay_sui(other, to, 1_000_000, reference_gas()).signing_digest(),
+            d
+        );
 
         // The gas coin's version is signed over too. A stale one is rejected
         // rather than applied to the newer state, which is the property that

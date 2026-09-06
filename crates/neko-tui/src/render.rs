@@ -1239,7 +1239,8 @@ fn draw_send(f: &mut Frame, area: Rect, app: &App, st: &SendState) {
                             Span::styled(fee_label(t(Key::Send_Gas)), theme::hint()),
                             Span::raw(format!(
                                 "{} SUI after the storage rebate",
-                                s.fee_amount().to_display_string_trim(crate::chain::BALANCE_FRAC)
+                                s.fee_amount()
+                                    .to_display_string_trim(crate::chain::BALANCE_FRAC)
                             )),
                         ]));
                         lines.push(Line::from(Span::styled(

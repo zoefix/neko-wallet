@@ -44,10 +44,7 @@ impl Rest {
             .await
             .map_err(|e| AptosError::Rpc(e.to_string()))?;
         let status = r.status();
-        let body = r
-            .text()
-            .await
-            .map_err(|e| AptosError::Rpc(e.to_string()))?;
+        let body = r.text().await.map_err(|e| AptosError::Rpc(e.to_string()))?;
         if !status.is_success() {
             return Err(AptosError::Rpc(short(&body)));
         }
@@ -63,10 +60,7 @@ impl Rest {
             .await
             .map_err(|e| AptosError::Rpc(e.to_string()))?;
         let status = r.status();
-        let text = r
-            .text()
-            .await
-            .map_err(|e| AptosError::Rpc(e.to_string()))?;
+        let text = r.text().await.map_err(|e| AptosError::Rpc(e.to_string()))?;
         if !status.is_success() {
             return Err(AptosError::Rpc(short(&text)));
         }

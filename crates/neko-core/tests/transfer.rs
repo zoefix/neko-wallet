@@ -438,9 +438,9 @@ fn every_evm_chain_signs_for_itself_and_no_other() {
                     gas_price: 30_000_000_000,
                 },
             });
-            let signed = s.sign_transfer(&req, &params).unwrap_or_else(|e| {
-                panic!("{chain:?} could not sign {}: {e}", asset.symbol())
-            });
+            let signed = s
+                .sign_transfer(&req, &params)
+                .unwrap_or_else(|e| panic!("{chain:?} could not sign {}: {e}", asset.symbol()));
             raws.push((*chain, asset.symbol(), signed.raw));
         }
     }

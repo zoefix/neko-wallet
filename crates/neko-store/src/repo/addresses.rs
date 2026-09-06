@@ -51,20 +51,9 @@ pub const BITCOIN_SCRIPT_LENS: [usize; 4] = [22, 23, 25, 34];
 pub fn width_is_plausible(chain_id: i64, len: usize) -> bool {
     match chain_id {
         TRON_CHAIN_ID => len == 21,
-        BSC_CHAIN_ID
-        | ETHEREUM_CHAIN_ID
-        | POLYGON_CHAIN_ID
-        | BASE_CHAIN_ID
-        | ARBITRUM_CHAIN_ID
-        | OPTIMISM_CHAIN_ID
-        | AVALANCHE_CHAIN_ID
-        | HYPEREVM_CHAIN_ID
-        | MANTLE_CHAIN_ID
-        | LINEA_CHAIN_ID
-        | ZKSYNC_ERA_CHAIN_ID
-        | SCROLL_CHAIN_ID => {
-            len == 20
-        }
+        BSC_CHAIN_ID | ETHEREUM_CHAIN_ID | POLYGON_CHAIN_ID | BASE_CHAIN_ID | ARBITRUM_CHAIN_ID
+        | OPTIMISM_CHAIN_ID | AVALANCHE_CHAIN_ID | HYPEREVM_CHAIN_ID | MANTLE_CHAIN_ID
+        | LINEA_CHAIN_ID | ZKSYNC_ERA_CHAIN_ID | SCROLL_CHAIN_ID => len == 20,
         // Both are 32 bytes, and both are checked here rather than
         // sharing an arm: the widths agreeing is a coincidence.
         SOLANA_CHAIN_ID | APTOS_CHAIN_ID | SUI_CHAIN_ID => len == 32,

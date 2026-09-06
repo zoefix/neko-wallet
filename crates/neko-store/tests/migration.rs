@@ -588,9 +588,11 @@ fn optimisms_row_id_is_not_its_chain_id_even_though_they_match() {
     neko_store::migrate::run(&conn).unwrap();
 
     let (slug, coin): (String, i64) = conn
-        .query_row("SELECT slug, coin_type FROM chains WHERE id = 10", [], |r| {
-            Ok((r.get(0)?, r.get(1)?))
-        })
+        .query_row(
+            "SELECT slug, coin_type FROM chains WHERE id = 10",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
         .expect("no optimism row in chains");
     assert_eq!(slug, "optimism");
     assert_eq!(coin, 60, "coin type 60, like every EVM chain here");

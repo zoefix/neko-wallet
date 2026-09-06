@@ -7,9 +7,9 @@ use neko_core::{ChainAddress, ChainId, TransferRequest};
 
 #[tokio::main]
 async fn main() {
-    let who = std::env::args().nth(1).unwrap_or_else(|| {
-        "0xF977814e90dA44bFA03b6295A0616a897441aceC".to_string()
-    });
+    let who = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "0xF977814e90dA44bFA03b6295A0616a897441aceC".to_string());
     let addr = neko_hd::EvmAddress::parse(&who).unwrap();
 
     for chain in [
@@ -21,7 +21,11 @@ async fn main() {
         ChainId::Scroll,
     ] {
         let evm = chain.evm().unwrap();
-        println!("\n===== {} (chain id {}) =====", chain.label(), evm.chain_id);
+        println!(
+            "\n===== {} (chain id {}) =====",
+            chain.label(),
+            evm.chain_id
+        );
         let client = neko_tui::chain::Client::for_chain(chain, None, None);
         assert_eq!(client.chain(), chain, "the client lost its chain");
         let mine = ChainAddress::parse(chain, &addr.to_string()).unwrap();
@@ -66,7 +70,11 @@ async fn main() {
 
         let to = ChainAddress::parse(chain, "0x742d35Cc6634C0532925a3b844Bc454e4438f44e").unwrap();
         for asset in chain.assets() {
-            let raw: i128 = if asset.is_native() { 1_000_000_000_000 } else { 1_000 };
+            let raw: i128 = if asset.is_native() {
+                1_000_000_000_000
+            } else {
+                1_000
+            };
             let req = TransferRequest {
                 wallet_id: 1,
                 from: mine,
@@ -77,7 +85,10 @@ async fn main() {
             print!("  quote {:<6} ", asset.symbol());
             match neko_tui::chain::quote(&client, &req).await {
                 Ok(neko_tui::event::Quote::Evm {
-                    params, l1_fee, sending_native, ..
+                    params,
+                    l1_fee,
+                    sending_native,
+                    ..
                 }) => println!(
                     "gas {:<8} type {}  L1 {:<14} native={}",
                     params.gas_limit,

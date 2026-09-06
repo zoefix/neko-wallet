@@ -14,10 +14,9 @@ async fn main() {
     let api = neko_aptos::DEFAULT_API;
     let http = reqwest::Client::new();
 
-    let sender = AptosAddress::parse(
-        "0xeb663b681209e7087d681c5d3eed12aaa8e1915e7c87794542c3f96e94b3d3bf",
-    )
-    .unwrap();
+    let sender =
+        AptosAddress::parse("0xeb663b681209e7087d681c5d3eed12aaa8e1915e7c87794542c3f96e94b3d3bf")
+            .unwrap();
     let to =
         AptosAddress::parse("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
             .unwrap();

@@ -41,8 +41,14 @@ fn state(asset: neko_core::Asset, balance: Option<i128>) -> SendState {
         neko_core::ChainId::Solana => (SOLANA_MINE, SOLANA_TO),
         neko_core::ChainId::Bitcoin => (BTC_MINE, BTC_TO),
         neko_core::ChainId::Ton => (TON_MINE, TON_TO),
-        neko_core::ChainId::Sui => ("0x5e93a736d04fbb25737aa40bee40171ef79f65fae833749e3c089fe7cc2161f1", "0x0000000000000000000000000000000000000000000000000000000000000002"),
-        neko_core::ChainId::Aptos => ("0xeb663b681209e7087d681c5d3eed12aaa8e1915e7c87794542c3f96e94b3d3bf", "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
+        neko_core::ChainId::Sui => (
+            "0x5e93a736d04fbb25737aa40bee40171ef79f65fae833749e3c089fe7cc2161f1",
+            "0x0000000000000000000000000000000000000000000000000000000000000002",
+        ),
+        neko_core::ChainId::Aptos => (
+            "0xeb663b681209e7087d681c5d3eed12aaa8e1915e7c87794542c3f96e94b3d3bf",
+            "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        ),
         // The same twenty bytes on every EVM chain, which is the point.
         neko_core::ChainId::Ethereum
         | neko_core::ChainId::Polygon

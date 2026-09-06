@@ -112,9 +112,10 @@ mod tests {
     #[test]
     fn a_shortened_address_is_the_same_account() {
         let short = AptosAddress::parse("0x1").unwrap();
-        let long =
-            AptosAddress::parse("0x0000000000000000000000000000000000000000000000000000000000000001")
-                .unwrap();
+        let long = AptosAddress::parse(
+            "0x0000000000000000000000000000000000000000000000000000000000000001",
+        )
+        .unwrap();
         assert_eq!(short, long);
         // And only one of the two spellings is ever produced.
         assert_eq!(short.to_string(), long.to_string());

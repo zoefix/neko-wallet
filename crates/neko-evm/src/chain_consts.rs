@@ -611,18 +611,8 @@ pub const SCROLL: EvmChain = EvmChain {
 /// Every chain in this file, so a chain id can be turned back into its
 /// parameters without a chain of `if`s that forgets the newest one.
 pub const ALL: [EvmChain; 12] = [
-    BSC,
-    ETHEREUM,
-    POLYGON,
-    BASE,
-    ARBITRUM,
-    OPTIMISM,
-    AVALANCHE,
-    HYPER_EVM,
-    MANTLE,
-    LINEA,
-    ZKSYNC_ERA,
-    SCROLL,
+    BSC, ETHEREUM, POLYGON, BASE, ARBITRUM, OPTIMISM, AVALANCHE, HYPER_EVM, MANTLE, LINEA,
+    ZKSYNC_ERA, SCROLL,
 ];
 
 pub fn by_chain_id(id: u64) -> Option<EvmChain> {
@@ -1133,8 +1123,7 @@ mod rollup_fees {
         // Each is on the chain it belongs to, checked by the one thing that
         // ties them together: the wrapped native each quotes against.
         assert_eq!(
-            AVALANCHE.wrapped_native,
-            "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7",
+            AVALANCHE.wrapped_native, "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7",
             "WAVAX, which Trader Joe's router pairs against"
         );
 

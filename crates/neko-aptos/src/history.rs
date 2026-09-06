@@ -93,8 +93,7 @@ impl Indexer {
             .await
             .map_err(|e| AptosError::Rpc(e.to_string()))?;
         let text = r.text().await.map_err(|e| AptosError::Rpc(e.to_string()))?;
-        let v: Value =
-            serde_json::from_str(&text).map_err(|_| AptosError::BadReply(cut(&text)))?;
+        let v: Value = serde_json::from_str(&text).map_err(|_| AptosError::BadReply(cut(&text)))?;
         if let Some(errs) = v.get("errors") {
             let msg = errs
                 .as_array()
@@ -163,7 +162,9 @@ pub fn parse(body: &Value, who: AptosAddress) -> Vec<Transfer> {
                 symbol: symbol.to_string(),
                 counterparty: String::new(),
                 block_ts: iso_to_millis(
-                    r.get("transaction_timestamp").and_then(Value::as_str).unwrap_or(""),
+                    r.get("transaction_timestamp")
+                        .and_then(Value::as_str)
+                        .unwrap_or(""),
                 ),
                 id: r
                     .get("transaction_version")
@@ -353,8 +354,14 @@ mod tests {
     #[test]
     fn timestamps_are_milliseconds() {
         // 2026-09-05T14:54:05.000000 UTC
-        assert_eq!(iso_to_millis("2026-09-05T14:54:05.000000"), 1_788_620_045_000);
-        assert_eq!(iso_to_millis("2026-09-05T14:54:05.250000"), 1_788_620_045_250);
+        assert_eq!(
+            iso_to_millis("2026-09-05T14:54:05.000000"),
+            1_788_620_045_000
+        );
+        assert_eq!(
+            iso_to_millis("2026-09-05T14:54:05.250000"),
+            1_788_620_045_250
+        );
         // The epoch itself, which catches an off-by-one in the day count.
         assert_eq!(iso_to_millis("1970-01-01T00:00:00.000000"), 0);
         assert_eq!(iso_to_millis("2000-03-01T00:00:00Z"), 951_868_800_000);

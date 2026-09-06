@@ -888,11 +888,20 @@ fn set_node_url(app: &mut App, row: crate::nav::SettingRow, value: &str) {
             keys::OPTIMISM_RPC,
             neko_i18n::Key::Settings_OptimismRpcSaved,
         ),
-        SettingRow::AvalancheRpc => (keys::AVALANCHE_RPC, neko_i18n::Key::Settings_AvalancheRpcSaved),
-        SettingRow::HyperEvmRpc => (keys::HYPEREVM_RPC, neko_i18n::Key::Settings_HyperevmRpcSaved),
+        SettingRow::AvalancheRpc => (
+            keys::AVALANCHE_RPC,
+            neko_i18n::Key::Settings_AvalancheRpcSaved,
+        ),
+        SettingRow::HyperEvmRpc => (
+            keys::HYPEREVM_RPC,
+            neko_i18n::Key::Settings_HyperevmRpcSaved,
+        ),
         SettingRow::MantleRpc => (keys::MANTLE_RPC, neko_i18n::Key::Settings_MantleRpcSaved),
         SettingRow::LineaRpc => (keys::LINEA_RPC, neko_i18n::Key::Settings_LineaRpcSaved),
-        SettingRow::ZkSyncEraRpc => (keys::ZKSYNC_ERA_RPC, neko_i18n::Key::Settings_ZksyncEraRpcSaved),
+        SettingRow::ZkSyncEraRpc => (
+            keys::ZKSYNC_ERA_RPC,
+            neko_i18n::Key::Settings_ZksyncEraRpcSaved,
+        ),
         SettingRow::ScrollRpc => (keys::SCROLL_RPC, neko_i18n::Key::Settings_ScrollRpcSaved),
         SettingRow::AptosApi => (keys::APTOS_API, neko_i18n::Key::Settings_AptosApiSaved),
         SettingRow::SuiApi => (keys::SUI_API, neko_i18n::Key::Settings_SuiApiSaved),

@@ -39,7 +39,9 @@ pub struct Transfer {
 /// this wallet's own.
 pub fn known_coin(coin_type: &str) -> Option<(&'static str, u8)> {
     let t = coin_type.trim();
-    if t == crate::SUI_TYPE || t == "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI" {
+    if t == crate::SUI_TYPE
+        || t == "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
+    {
         return Some(("SUI", crate::SUI_DECIMALS));
     }
     if t == crate::USDC_TYPE {
@@ -101,8 +103,10 @@ pub fn parse(body: &Value, who: SuiAddress) -> Vec<Transfer> {
             if owner != mine {
                 continue;
             }
-            let Some((symbol, decimals)) =
-                ch.get("coinType").and_then(Value::as_str).and_then(known_coin)
+            let Some((symbol, decimals)) = ch
+                .get("coinType")
+                .and_then(Value::as_str)
+                .and_then(known_coin)
             else {
                 continue;
             };

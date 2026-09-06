@@ -358,12 +358,7 @@ impl Session {
                 let from = req.from.as_sui()?;
                 let amount = u64::try_from(req.amount.raw)
                     .map_err(|_| neko_sui::SuiError::AmountTooLarge)?;
-                let data = neko_sui::tx::pay_sui(
-                    from,
-                    req.to.as_sui()?,
-                    amount,
-                    gas_data(from, p),
-                );
+                let data = neko_sui::tx::pay_sui(from, req.to.as_sui()?, amount, gas_data(from, p));
                 let signed = neko_sui::tx::sign(&data, &key)?;
                 Ok(SignedTransfer {
                     raw: sui_raw(&signed),
@@ -728,7 +723,6 @@ fn sign_ton(
     })
 }
 
-
 /// Assemble Sui's gas data from the quote's parameters.
 fn gas_data(owner: neko_sui::SuiAddress, p: &SuiTxParams) -> neko_sui::tx::GasData {
     neko_sui::tx::GasData {
@@ -738,7 +732,6 @@ fn gas_data(owner: neko_sui::SuiAddress, p: &SuiTxParams) -> neko_sui::tx::GasDa
         budget: p.budget,
     }
 }
-
 
 /// Sui's transaction and its signature, concatenated.
 ///

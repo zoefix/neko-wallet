@@ -400,7 +400,11 @@ async fn sui_quote(rpc: &neko_sui::client::Rpc, req: &TransferRequest) -> Result
         .await
         .map_err(|e| e.to_string())?;
 
-    let coins_spent = if coins.is_empty() { gas.len() } else { coins.len() };
+    let coins_spent = if coins.is_empty() {
+        gas.len()
+    } else {
+        coins.len()
+    };
     Ok(Quote::Sui {
         params: Box::new(neko_core::SuiTxParams {
             gas,
@@ -847,9 +851,7 @@ pub async fn native_price(c: &Client) -> Result<i128, String> {
         }
         // The same answer for the same reason: SUI trades on exchanges and in
         // no pool on any chain this wallet is connected to.
-        Client::Sui(_) => {
-            return Err("this wallet has no pool it can quote SUI from".to_string())
-        }
+        Client::Sui(_) => return Err("this wallet has no pool it can quote SUI from".to_string()),
         Client::Tron(t) => (
             t.trx_price_in_usdt().await.map_err(|e| e.to_string())?,
             neko_tron::USDT_DECIMALS,

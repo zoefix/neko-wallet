@@ -33,7 +33,9 @@ impl SuiAddress {
     /// The account an Ed25519 public key controls.
     pub fn from_public_key(pk: &[u8; 32]) -> Self {
         let mut a = [0u8; ADDRESS_BYTES];
-        a.copy_from_slice(&crate::blake2b256(&[&[SCHEME_ED25519][..], &pk[..]].concat()));
+        a.copy_from_slice(&crate::blake2b256(
+            &[&[SCHEME_ED25519][..], &pk[..]].concat(),
+        ));
         SuiAddress(a)
     }
 
