@@ -290,6 +290,13 @@ spot price is right to within 0.1% and a quote for one whole coin comes back
 does not know, which is true, instead of a number that is wrong by an amount
 nobody can see.
 
+**Avalanche and Mantle read their history from Routescan**, which runs
+Snowtrace and asks for no key. They are the only two chains here it serves -
+it answers `chain not supported` for the other ten - and it is the only index
+either of them has, since NodeReal covers neither and neither has a
+Blockscout instance. HyperEVM and Linea are now the only chains where history
+needs your own Etherscan key, and they say so rather than failing.
+
 **And the same three letters are spelled four ways.** Tether's contract calls
 itself `USDT` on Ethereum and Scroll, `USDT0` on Polygon, `USD₮0` with a
 tugrik sign on Arbitrum and HyperEVM, and `USDt` with a lowercase t on

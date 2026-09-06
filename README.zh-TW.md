@@ -226,6 +226,11 @@ ETH 價是 7.55 和 264。歷史紀錄走 Blockscout，只是這家開在自己�
 答案低了 13%，因為一個幣就是池子的六分之一。所以估值那一列直說"不知道」，這是真話；
 總比給一個錯得看不出來的數強。
 
+**Avalanche 和 Mantle 的歷史紀錄走 Routescan**，就是跑 Snowtrace 的那家，不需要金鑰。
+這兩條是它在這裡唯一支援的鏈——對另外十條它都回 `chain not supported`——而這也是這兩條鏈
+唯一的索引來源：NodeReal 兩條都不涵蓋，也都沒有 Blockscout 實例。現在只剩 HyperEVM 和
+Linea 的歷史紀錄需要你自己的 Etherscan key，而且它們會直說，不會裝作出錯。
+
 **同樣三個字母，四種寫法。** Tether 的合約在 Ethereum 和 Scroll 上自稱 `USDT`，
 在 Polygon 上是 `USDT0`，在 Arbitrum 和 HyperEVM 上是帶圖格里克符號的 `USD₮0`，
 在 Avalanche 上是小寫 t 的 `USDt`。每一個都會在簽名前跟鏈核對，而且一個都不會顯示到

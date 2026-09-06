@@ -8,6 +8,7 @@
 pub mod abi;
 pub mod blockscout;
 pub mod chain_consts;
+pub mod routescan;
 pub mod client;
 pub mod error;
 pub mod etherscan;

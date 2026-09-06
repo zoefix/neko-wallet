@@ -254,6 +254,13 @@ Ethereum への公開費用をガスの数値に織り込むためで、Arbitrum
 プールの 6 分の 1 だからです。ですから評価額の列は「分からない」と言います。これは
 真実であり、見た目では分からない誤差を含む数値より優れています。
 
+**Avalanche と Mantle の履歴は Routescan から取得します。** Snowtrace を運営している
+ところで、キーは不要です。ここで扱うチェーンのうち対応しているのはこの 2 つだけで、
+他の 10 には `chain not supported` を返します。そしてこの 2 つにとっては唯一の
+インデックスです。NodeReal はどちらも扱わず、Blockscout インスタンスもありません。
+履歴に自分の Etherscan キーが要るチェーンは HyperEVM と Linea だけになり、その 2 つは
+失敗を装わずそう表示します。
+
 **そして同じ 3 文字が 4 通りに綴られます。** Tether のコントラクトは Ethereum と
 Scroll では `USDT`、Polygon では `USDT0`、Arbitrum と HyperEVM ではトゥグルグ記号の
 `USD₮0`、Avalanche では小文字の t で `USDt` と名乗ります。いずれも署名前にチェーンと

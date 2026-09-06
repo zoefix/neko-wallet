@@ -1159,8 +1159,9 @@ pub async fn history(
             ..
         } => {
             // A node's RPC cannot answer "what has this address done"; that
-            // needs an index. Three of them, tried in the order of what the
-            // user has actually supplied.
+            // needs an index. Four of them, tried in the order of what the
+            // user has actually supplied - a key they chose beats one this
+            // wallet reaches for on their behalf.
             let chain = rpc.chain();
             let a = addr.as_evm().map_err(|e| e.to_string())?;
             let usdt = chain.stable_address();
@@ -1179,6 +1180,9 @@ pub async fn history(
                 // No key at all. Polygon's default, and why its history works
                 // with nothing configured.
                 bs.transfers(a, usdt, limit as usize).await
+            } else if let Some(rs) = neko_evm::routescan::Routescan::new(chain) {
+                // Also keyless, and the only index Avalanche and Mantle have.
+                rs.transfers(a, usdt, limit as usize).await
             } else if chain.history_host.is_some() {
                 // There is an index for this chain and no key for it, which is
                 // a different thing from there being none.
