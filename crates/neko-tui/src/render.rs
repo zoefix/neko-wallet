@@ -797,19 +797,6 @@ fn draw_assets(
         ]));
     }
 
-    // A warning about *receiving*, on the one chain where the address alone
-    // does not say which network it belongs to.
-    if let Some((first, second)) = deposit_note(chain) {
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            format!("   {}", t(first)),
-            Style::default().fg(theme::ACCENT),
-        )));
-        for l in hint_lines(t(second), inner.width) {
-            lines.push(l);
-        }
-    }
-
     if let Some(e) = &app.balances_error {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
@@ -823,45 +810,6 @@ fn draw_assets(
     }
 
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
-}
-
-/// A warning about receiving, for a chain where the address does not say which
-/// network it belongs to.
-///
-/// Only Avalanche has one, and it earns it: an exchange offers three networks
-/// for AVAX and *two* of them accept a `0x` address. `AVAXC` is the C-Chain
-/// and is right. Plain `Avalanche` is the X-Chain, whose addresses start with
-/// `X-avax`, so it is refused - correctly, and visibly. The dangerous one is
-/// BNB Chain, which accepts the same twenty bytes and would deliver the coin
-/// somewhere this wallet's Avalanche screen will never show it.
-///
-/// Exhaustive on purpose. Every chain added here has to answer whether its
-/// address is ambiguous about the network, which is a question this wallet
-/// only thought to ask after somebody hit it.
-fn deposit_note(chain: neko_core::ChainId) -> Option<(Key, Key)> {
-    use neko_core::ChainId as C;
-    match chain {
-        C::Avalanche => Some((Key::Assets_AvaxDeposit, Key::Assets_AvaxDeposit2)),
-        // Every other chain here either has an address format that belongs to
-        // one network, or is offered under one name only.
-        C::Tron
-        | C::Bsc
-        | C::Solana
-        | C::Bitcoin
-        | C::Ethereum
-        | C::Ton
-        | C::Polygon
-        | C::Base
-        | C::Arbitrum
-        | C::Optimism
-        | C::HyperEvm
-        | C::Mantle
-        | C::Linea
-        | C::ZkSyncEra
-        | C::Scroll
-        | C::Aptos
-        | C::Sui => None,
-    }
 }
 
 fn draw_reveal(f: &mut Frame, area: Rect, app: &App, name: &str, stage: &RevealStage) {

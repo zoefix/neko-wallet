@@ -146,7 +146,7 @@ phrase, or a new thing to back up.
 | Base | working | ETH, USDC (ERC20) |
 | Arbitrum | working | ETH, USDT (ERC20) |
 | Optimism | working | ETH, USDT (ERC20) |
-| Avalanche | working | AVAX, USDT (ERC20) |
+| Avalanche (AVAX C-Chain) | working | AVAX, USDT (ERC20) |
 | HyperEVM | working | HYPE, USDT (ERC20) |
 | Mantle | working | MNT, USDC (ERC20) |
 | Linea | working | ETH, USDC (ERC20) |
@@ -296,6 +296,13 @@ it answers `chain not supported` for the other ten - and it is the only index
 either of them has, since NodeReal covers neither and neither has a
 Blockscout instance. HyperEVM and Linea are now the only chains where history
 needs your own Etherscan key, and they say so rather than failing.
+
+**Avalanche is named with its network** - `Avalanche (AVAX C-Chain)` - because
+it is three chains and the address does not say which. An exchange offers all
+three for AVAX and two of them accept a `0x` address: the C-Chain, which is
+this one, and BNB Chain, which takes the same twenty bytes and delivers the
+coin somewhere this wallet's Avalanche screen never looks. The X-Chain refuses
+the address visibly and is the only one of the three that protects itself.
 
 **And the same three letters are spelled four ways.** Tether's contract calls
 itself `USDT` on Ethereum and Scroll, `USDT0` on Polygon, `USD₮0` with a

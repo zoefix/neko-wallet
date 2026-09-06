@@ -109,8 +109,6 @@ col_balance = "残高"
 balance_error = "残高を取得できませんでした：%{error}"
 retry = "R で再試行"
 hint = "jk 切替  s 送金  t 取引履歴  y アドレスをコピー  R 更新  Esc 戻る"
-avax_deposit = "ここへの入金は C-Chain（AVAXC）ネットワークを選んでください。"
-avax_deposit2 = "取引所が単に Avalanche と呼ぶネットワークは X-Chain で、アドレスは X-avax で始まります。このアドレスを BNB Chain 宛として受け付ける取引所もあり、その場合コインは別のチェーンに届きます。"
 
 [send]
 gas = "Gas"

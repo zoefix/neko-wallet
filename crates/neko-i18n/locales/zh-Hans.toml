@@ -109,8 +109,6 @@ col_balance = "余额"
 balance_error = "无法读取余额：%{error}"
 retry = "按 R 重试"
 hint = "jk 切换  s 转账  t 交易记录  y 复制地址  R 刷新  Esc 返回"
-avax_deposit = "往这里充值请选 C-Chain（AVAXC）网络。"
-avax_deposit2 = "交易所那个只叫 Avalanche 的网络是 X-Chain，地址以 X-avax 开头。有的交易所也会接受这个地址走 BNB Chain，那样币会落到另一条链上。"
 
 [send]
 gas = "Gas"

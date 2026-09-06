@@ -114,8 +114,6 @@ col_balance = "Balance"
 balance_error = "could not read balances: %{error}"
 retry = "press R to retry"
 hint = "jk asset  s send  t history  y copy addr  R refresh  Esc back"
-avax_deposit = "Depositing here: choose the C-Chain (AVAXC) network."
-avax_deposit2 = "The network an exchange calls plain Avalanche is the X-Chain, whose addresses start with X-avax. Some will also accept this address for BNB Chain, which would put the coin on a different chain entirely."
 
 [send]
 gas = "Gas"

@@ -144,7 +144,7 @@ BIP44 の導出パスはそのためのものです。チェーンを増やす�
 | Base | 動作 | ETH、USDC (ERC20) |
 | Arbitrum | 動作 | ETH、USDT (ERC20) |
 | Optimism | 動作 | ETH、USDT (ERC20) |
-| Avalanche | 動作 | AVAX、USDT (ERC20) |
+| Avalanche (AVAX C-Chain) | 動作 | AVAX、USDT (ERC20) |
 | HyperEVM | 動作 | HYPE、USDT (ERC20) |
 | Mantle | 動作 | MNT、USDC (ERC20) |
 | Linea | 動作 | ETH、USDC (ERC20) |
@@ -260,6 +260,13 @@ Ethereum への公開費用をガスの数値に織り込むためで、Arbitrum
 インデックスです。NodeReal はどちらも扱わず、Blockscout インスタンスもありません。
 履歴に自分の Etherscan キーが要るチェーンは HyperEVM と Linea だけになり、その 2 つは
 失敗を装わずそう表示します。
+
+**Avalanche は名前にネットワークを含みます** — `Avalanche (AVAX C-Chain)`。実際には
+3 つのチェーンがあり、アドレスだけではどれか分からないからです。取引所は 3 つとも
+提供し、そのうち 2 つが `0x` アドレスを受け付けます。C-Chain（これがそれです）と、
+BNB Chain です。後者は同じ 20 バイトを受け取り、このウォレットの Avalanche 画面が
+決して見ない場所へコインを届けます。X-Chain はアドレスをその場で拒否し、3 つのうち
+自分で守ってくれる唯一のものです。
 
 **そして同じ 3 文字が 4 通りに綴られます。** Tether のコントラクトは Ethereum と
 Scroll では `USDT`、Polygon では `USDT0`、Arbitrum と HyperEVM ではトゥグルグ記号の

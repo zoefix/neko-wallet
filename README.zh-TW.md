@@ -135,7 +135,7 @@ neko-wallet
 | Base | 可用 | ETH、USDC (ERC20) |
 | Arbitrum | 可用 | ETH、USDT (ERC20) |
 | Optimism | 可用 | ETH、USDT (ERC20) |
-| Avalanche | 可用 | AVAX、USDT (ERC20) |
+| Avalanche (AVAX C-Chain) | 可用 | AVAX、USDT (ERC20) |
 | HyperEVM | 可用 | HYPE、USDT (ERC20) |
 | Mantle | 可用 | MNT、USDC (ERC20) |
 | Linea | 可用 | ETH、USDC (ERC20) |
@@ -230,6 +230,11 @@ ETH 價是 7.55 和 264。歷史紀錄走 Blockscout，只是這家開在自己�
 這兩條是它在這裡唯一支援的鏈——對另外十條它都回 `chain not supported`——而這也是這兩條鏈
 唯一的索引來源：NodeReal 兩條都不涵蓋，也都沒有 Blockscout 實例。現在只剩 HyperEVM 和
 Linea 的歷史紀錄需要你自己的 Etherscan key，而且它們會直說，不會裝作出錯。
+
+**Avalanche 的名字裡帶著網路**——`Avalanche (AVAX C-Chain)`——因為它其實是三條鏈，
+而位址本身說不清是哪一條。交易所三條都提供，其中兩條接受 `0x` 位址：C-Chain（就是這條），
+還有 BNB Chain——它照單全收同樣的二十個位元組，然後把幣送到這個錢包的 Avalanche 頁面
+永遠不會去看的地方。X-Chain 會當場拒絕這個位址，是三者裡唯一自己會攔的。
 
 **同樣三個字母，四種寫法。** Tether 的合約在 Ethereum 和 Scroll 上自稱 `USDT`，
 在 Polygon 上是 `USDT0`，在 Arbitrum 和 HyperEVM 上是帶圖格里克符號的 `USD₮0`，

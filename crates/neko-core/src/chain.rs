@@ -97,7 +97,12 @@ impl ChainId {
             ChainId::Base => "Base",
             ChainId::Arbitrum => "Arbitrum",
             ChainId::Optimism => "Optimism",
-            ChainId::Avalanche => "Avalanche",
+            // Named with its network, because the address alone does not
+            // say which one it belongs to. Avalanche is three chains, and an
+            // exchange offers all three: this wallet is on the C-Chain, and
+            // two of the three accept a `0x` address - the X-Chain refuses it
+            // visibly, BNB Chain does not.
+            ChainId::Avalanche => "Avalanche (AVAX C-Chain)",
             ChainId::HyperEvm => "HyperEVM",
             ChainId::Mantle => "Mantle",
             ChainId::Linea => "Linea",
@@ -1144,6 +1149,49 @@ mod tests {
             assert_eq!(a.to_string(), text);
             assert_eq!(ChainAddress::from_bytes(chain, &a.as_bytes()).unwrap(), a);
             assert_eq!(a.chain(), chain);
+        }
+    }
+
+    /// Avalanche's label names its network, and that is not decoration.
+    ///
+    /// Avalanche is three chains. An exchange offers all three for AVAX and
+    /// two of them accept a `0x` address: the C-Chain, which is this one, and
+    /// BNB Chain, which would take the same twenty bytes and deliver the coin
+    /// somewhere this wallet's Avalanche screen never looks. The X-Chain
+    /// refuses the address visibly and is the only one of the three that
+    /// protects itself.
+    ///
+    /// So the network is in the name, where it is on screen whenever the
+    /// address is. The slug is untouched - it is written into the database and
+    /// renaming it would orphan every row that carries it.
+    #[test]
+    fn avalanche_says_which_of_its_chains_this_is() {
+        assert_eq!(ChainId::Avalanche.label(), "Avalanche (AVAX C-Chain)");
+        assert_eq!(ChainId::Avalanche.slug(), "avalanche", "stored, not shown");
+        // It is the only label that needs one, and the only one with a
+        // parenthesis - a second would mean a second chain with an ambiguous
+        // address, which is worth noticing rather than copying.
+        let annotated: Vec<&str> = CHAINS
+            .into_iter()
+            .filter(|c| c.label().contains('('))
+            .map(|c| c.label())
+            .collect();
+        assert_eq!(annotated, ["Avalanche (AVAX C-Chain)"]);
+    }
+
+    /// No two chains share a label, or the picker would offer the same word
+    /// twice.
+    #[test]
+    fn every_chain_is_named_distinctly() {
+        let labels: Vec<&str> = CHAINS.into_iter().map(|c| c.label()).collect();
+        for (i, a) in labels.iter().enumerate() {
+            for b in &labels[i + 1..] {
+                assert_ne!(a, b, "two chains share a label");
+            }
+            assert!(!a.is_empty());
+            // The narrowest terminal this wallet supports is 80 columns, and
+            // the label shares its line with a wallet name.
+            assert!(a.chars().count() <= 24, "{a:?} is too long for the picker");
         }
     }
 
