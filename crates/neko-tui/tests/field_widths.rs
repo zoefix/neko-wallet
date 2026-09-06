@@ -11,6 +11,15 @@ use neko_tui::app::{App, Screen};
 use neko_tui::nav::{SettingsState, WalletForm};
 use neko_tui::send::{SendState, SendStep};
 
+/// The active locale is process-global and Rust runs tests in parallel, so a
+/// test that sets it races with every other test in this binary. That is not
+/// theoretical: it turned up on Windows in CI as a Solana fee screen rendered
+/// in Chinese while the test looked for an English sentence.
+///
+/// Every test here takes this before it renders. The same guard `borders.rs`
+/// and `language.rs` already use; these two files were the ones without it.
+static LOCALE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// The longest address each chain can produce.
 fn longest_address(chain: neko_core::ChainId) -> &'static str {
     match chain {
@@ -96,6 +105,7 @@ fn sending(chain: neko_core::ChainId, cols: u16) -> App {
 /// columns - nothing may be elided.
 #[test]
 fn a_destination_is_shown_in_full_when_it_fits() {
+    let _g = LOCALE.lock().unwrap_or_else(|e| e.into_inner());
     for chain in neko_core::CHAINS {
         for locale in neko_i18n::LOCALES {
             neko_i18n::set_locale(locale);
@@ -113,6 +123,7 @@ fn a_destination_is_shown_in_full_when_it_fits() {
 /// The field grows with the terminal rather than sitting at a fixed forty.
 #[test]
 fn the_field_uses_the_width_it_is_given() {
+    let _g = LOCALE.lock().unwrap_or_else(|e| e.into_inner());
     neko_i18n::set_locale(neko_i18n::Locale::English);
     let chain = neko_core::ChainId::Bitcoin;
     let addr = longest_address(chain);
@@ -138,6 +149,7 @@ fn the_field_uses_the_width_it_is_given() {
 /// of these were.
 #[test]
 fn no_label_is_truncated_in_any_language() {
+    let _g = LOCALE.lock().unwrap_or_else(|e| e.into_inner());
     for locale in neko_i18n::LOCALES {
         neko_i18n::set_locale(locale);
 
@@ -181,6 +193,7 @@ fn no_label_is_truncated_in_any_language() {
 /// a node URL is long and must not be silently shortened either.
 #[test]
 fn a_configured_node_url_is_readable() {
+    let _g = LOCALE.lock().unwrap_or_else(|e| e.into_inner());
     neko_i18n::set_locale(neko_i18n::Locale::English);
     let mut app = App::new(std::path::PathBuf::from("/tmp/neko-fields.db"));
     app.eth_rpc = Some("https://mainnet.example.com/v2/some-fairly-long-key".into());
@@ -203,6 +216,7 @@ fn a_configured_node_url_is_readable() {
 /// which moved two of them again.
 #[test]
 fn the_password_step_lines_up() {
+    let _g = LOCALE.lock().unwrap_or_else(|e| e.into_inner());
     use neko_tui::input::Field;
 
     const TO: &str = "0x74224e8D997f1C438cbFd2cE147C8bbDCd5FA0c8";

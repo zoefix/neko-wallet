@@ -8,6 +8,15 @@
 use neko_tui::app::{App, Screen};
 use neko_tui::send::{BtcFee, EvmFee, FeeQuote, SendState, SendStep, SolanaFee, TronFee};
 
+/// The active locale is process-global and Rust runs tests in parallel, so a
+/// test that sets it races with every other test in this binary. That is not
+/// theoretical: it turned up on Windows in CI as a Solana fee screen rendered
+/// in Chinese while the test looked for an English sentence.
+///
+/// Every test here takes this before it renders. The same guard `borders.rs`
+/// and `language.rs` already use; these two files were the ones without it.
+static LOCALE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 const TRON_MINE: &str = "TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH";
 const TRON_TO: &str = "TNYxHL2s6Wjpx86NRwhekYzc27p3oDYrk6";
 const BSC_MINE: &str = "0x1111111111111111111111111111111111111111";
@@ -205,6 +214,7 @@ fn tron_quote() -> FeeQuote {
 /// which is the one thing it must not say.
 #[test]
 fn a_sub_cent_fee_says_it_is_under_a_cent_not_zero() {
+    let _g = LOCALE.lock().unwrap_or_else(|e| e.into_inner());
     let mut app = app_at_review(neko_core::ChainId::Bsc, bsc_quote());
     app.prices
         .set_native(neko_core::ChainId::Bsc, BNB_PRICE, 1_756_000_000);
@@ -227,6 +237,7 @@ fn a_sub_cent_fee_says_it_is_under_a_cent_not_zero() {
 /// tells somebody whether the transfer is worth making.
 #[test]
 fn a_tron_burn_is_priced_in_usdt() {
+    let _g = LOCALE.lock().unwrap_or_else(|e| e.into_inner());
     let mut app = app_at_review(neko_core::ChainId::Tron, tron_quote());
     app.prices
         .set_native(neko_core::ChainId::Tron, TRX_PRICE, 1_756_000_000);
@@ -242,6 +253,7 @@ fn a_tron_burn_is_priced_in_usdt() {
 /// option: a zero here would be read as "this costs nothing".
 #[test]
 fn an_unknown_price_prices_nothing_rather_than_zero() {
+    let _g = LOCALE.lock().unwrap_or_else(|e| e.into_inner());
     let app = app_at_review(neko_core::ChainId::Bsc, bsc_quote());
     assert!(app.prices.is_empty());
     let out = render(&app, 135, 40);
@@ -258,6 +270,7 @@ fn an_unknown_price_prices_nothing_rather_than_zero() {
 /// counting exercise.
 #[test]
 fn the_signed_amount_sheds_its_zeros_but_not_its_digits() {
+    let _g = LOCALE.lock().unwrap_or_else(|e| e.into_inner());
     let app = app_at_review(neko_core::ChainId::Bsc, bsc_quote());
     let out = render(&app, 135, 40);
 
@@ -274,6 +287,7 @@ fn the_signed_amount_sheds_its_zeros_but_not_its_digits() {
 /// costs forty times the last one.
 #[test]
 fn the_rent_for_a_new_token_account_is_shown_and_priced() {
+    let _g = LOCALE.lock().unwrap_or_else(|e| e.into_inner());
     let quote = FeeQuote::Solana(SolanaFee {
         compute_units: neko_solana::COMPUTE_UNITS_TOKEN_WITH_ATA,
         compute_unit_price: 10_000,
@@ -308,6 +322,7 @@ fn the_rent_for_a_new_token_account_is_shown_and_priced() {
 /// so rather than rounding to zero.
 #[test]
 fn a_transfer_to_an_existing_account_is_under_a_cent() {
+    let _g = LOCALE.lock().unwrap_or_else(|e| e.into_inner());
     let quote = FeeQuote::Solana(SolanaFee {
         compute_units: neko_solana::COMPUTE_UNITS_TOKEN,
         compute_unit_price: 0,
@@ -338,6 +353,7 @@ fn a_transfer_to_an_existing_account_is_under_a_cent() {
 /// "insufficient funds" from the cluster.
 #[test]
 fn a_wallet_with_no_sol_is_told_what_it_needs() {
+    let _g = LOCALE.lock().unwrap_or_else(|e| e.into_inner());
     let quote = FeeQuote::Solana(SolanaFee {
         compute_units: neko_solana::COMPUTE_UNITS_TOKEN_WITH_ATA,
         compute_unit_price: 0,
@@ -370,6 +386,7 @@ fn a_wallet_with_no_sol_is_told_what_it_needs() {
 /// to be two cells to the left.
 #[test]
 fn the_markers_sit_under_the_characters_they_point_at() {
+    let _g = LOCALE.lock().unwrap_or_else(|e| e.into_inner());
     for locale in neko_i18n::LOCALES {
         neko_i18n::set_locale(locale);
         let app = app_at_review(neko_core::ChainId::Bsc, bsc_quote());
@@ -417,6 +434,7 @@ fn the_markers_sit_under_the_characters_they_point_at() {
 /// and there is nothing on the screen to explain that unless it is put there.
 #[test]
 fn a_bitcoin_fee_says_how_many_coins_it_is_spending() {
+    let _g = LOCALE.lock().unwrap_or_else(|e| e.into_inner());
     let quote = FeeQuote::Bitcoin(BtcFee {
         fee_rate: neko_btc::coins::FeeRate::from_sat_per_vb(12.0),
         vbytes: 1_500,
@@ -452,6 +470,7 @@ fn a_bitcoin_fee_says_how_many_coins_it_is_spending() {
 /// higher than the rate explains and there is no way to find out why.
 #[test]
 fn change_folded_into_the_fee_is_explained() {
+    let _g = LOCALE.lock().unwrap_or_else(|e| e.into_inner());
     let quote = FeeQuote::Bitcoin(BtcFee {
         fee_rate: neko_btc::coins::FeeRate::from_sat_per_vb(10.0),
         vbytes: 110,
