@@ -65,14 +65,16 @@ jobs:
           # for Windows' MSYS perl instead of Strawberry Perl, and OpenSSL's
           # Configure died on the missing Locale::Maketext::Simple. Pinning
           # also keeps the glibc floor of the Linux builds predictable, which
-          # decides which distributions the binary runs on.
+          # decides which distributions the binary runs on. A pinned image is
+          # also retired on a date: v0.1.3's macOS jobs were refused in one
+          # second because macos-14 went away on 2 November 2026.
           - { os: ubuntu-22.04,     target: x86_64-unknown-linux-gnu }
           - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
-          - { os: macos-14,         target: aarch64-apple-darwin }
+          - { os: macos-15,         target: aarch64-apple-darwin }
           # Cross-compiled from Apple silicon rather than built on an Intel
           # runner: the Apple SDK is universal, so this needs no extra setup,
           # and the Intel pool queues for a long time.
-          - { os: macos-14,         target: x86_64-apple-darwin }
+          - { os: macos-15,         target: x86_64-apple-darwin }
           - { os: windows-2022,     target: x86_64-pc-windows-msvc }
     steps:
       - uses: actions/checkout@v5
