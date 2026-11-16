@@ -13,6 +13,7 @@
 //! make it sign away coins.
 
 use neko_hd::BtcAddress;
+use neko_net::{Reply, Request, Service};
 use serde_json::Value;
 
 use crate::chain_consts;
@@ -20,62 +21,24 @@ use crate::error::BtcError;
 use crate::tx::{OutPoint, Utxo};
 
 pub struct Esplora {
-    base: String,
-    http: reqwest::Client,
+    net: Service,
 }
 
 impl Esplora {
+    /// A configured `base` is the only Esplora asked. Without one, the
+    /// default is asked first and [`crate::endpoints`] stand behind it.
     pub fn new(base: Option<&str>) -> Self {
-        let base = base
-            .filter(|u| !u.is_empty())
-            .unwrap_or(chain_consts::DEFAULT_API)
-            .trim_end_matches('/')
-            .to_string();
         Esplora {
-            base,
-            http: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
-                .build()
-                .unwrap_or_default(),
+            net: Service::for_chain(base, chain_consts::DEFAULT_API, crate::endpoints::FALLBACKS),
         }
     }
 
     pub fn endpoint(&self) -> &str {
-        &self.base
+        self.net.primary()
     }
 
     async fn get(&self, path: &str) -> Result<String, BtcError> {
-        let url = format!("{}{path}", self.base);
-        let mut last = None;
-        for attempt in 0..3u32 {
-            if attempt > 0 {
-                tokio::time::sleep(std::time::Duration::from_secs(1 << (attempt - 1))).await;
-            }
-            let resp = match self.http.get(&url).send().await {
-                Ok(r) => r,
-                Err(e) => {
-                    last = Some(BtcError::Network(e.to_string()));
-                    continue;
-                }
-            };
-            let status = resp.status();
-            if status.is_server_error() || status.as_u16() == 429 {
-                last = Some(BtcError::Network(format!("HTTP {status}")));
-                continue;
-            }
-            let body = resp
-                .text()
-                .await
-                .map_err(|e| BtcError::BadReply(e.to_string()))?;
-            if !status.is_success() {
-                // Esplora puts its reason in the body, and it is usually the
-                // useful part - "sendrawtransaction RPC error: min relay fee
-                // not met" says exactly what to change.
-                return Err(BtcError::Rpc(body.trim().to_string()));
-            }
-            return Ok(body);
-        }
-        Err(last.unwrap_or_else(|| BtcError::Network("no attempt succeeded".into())))
+        read(self.net.send(Request::get(path)).await)
     }
 
     async fn get_json(&self, path: &str) -> Result<Value, BtcError> {
@@ -171,28 +134,30 @@ impl Esplora {
 
     /// Broadcast. Returns the txid, which we already knew - segwit fixed
     /// malleability, so the id does not depend on the signature.
+    ///
+    /// Never sent twice - see [`neko_net::Policy::Submit`].
     pub async fn broadcast(&self, raw: &[u8]) -> Result<String, BtcError> {
-        let url = format!("{}/tx", self.base);
-        let resp = self
-            .http
-            .post(&url)
-            .body(hex::encode(raw))
-            .send()
-            .await
-            .map_err(|e| BtcError::Network(e.to_string()))?;
-        let status = resp.status();
-        let body = resp
-            .text()
-            .await
-            .map_err(|e| BtcError::BadReply(e.to_string()))?;
-        if !status.is_success() {
-            return Err(BtcError::Rpc(body.trim().to_string()));
-        }
-        Ok(body.trim().to_string())
+        let req = Request::post_text("/tx", hex::encode(raw)).submit();
+        Ok(read(self.net.send(req).await)?.trim().to_string())
     }
 
     /// Recent transactions touching this address, newest first.
     pub async fn address_txs(&self, addr: BtcAddress) -> Result<Value, BtcError> {
         self.get_json(&format!("/address/{addr}/txs")).await
     }
+}
+
+/// Esplora puts its reason in the body, and it is usually the useful part -
+/// "sendrawtransaction RPC error: min relay fee not met" says exactly what to
+/// change. A rate limit or a server error that outlasted the retries is the
+/// network's fault rather than the request's, and is reported as such.
+fn read(reply: Result<Reply, neko_net::NetError>) -> Result<String, BtcError> {
+    let reply = reply.map_err(|e| BtcError::Network(e.to_string()))?;
+    if reply.is_success() {
+        return Ok(reply.body);
+    }
+    if reply.rate_limited() || reply.status >= 500 {
+        return Err(BtcError::Network(format!("HTTP {}", reply.status)));
+    }
+    Err(BtcError::Rpc(reply.body.trim().to_string()))
 }

@@ -27,6 +27,25 @@ pub enum TxType {
     Eip1559,
 }
 
+/// One token contract this wallet knows on a chain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EvmToken {
+    pub address: &'static str,
+    /// **Read this rather than assuming.** BNB Chain's dollars have eighteen.
+    pub decimals: u8,
+    /// What this wallet calls it on screen.
+    pub label: &'static str,
+    /// What the contract calls itself, checked against the chain before a
+    /// transfer is signed.
+    pub symbol: &'static str,
+}
+
+impl EvmToken {
+    pub fn address(&self) -> EvmAddress {
+        parse_const(self.address)
+    }
+}
+
 /// One EVM chain's parameters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EvmChain {
@@ -53,6 +72,11 @@ pub struct EvmChain {
     /// answers "is this the right contract"; the label answers "what do we
     /// call it".
     pub stable_symbol: &'static str,
+    /// Circle's dollar, on a chain whose [`Self::stable`] is Tether's.
+    ///
+    /// `None` where `stable` already is USDC - Base, Mantle, Linea and zkSync
+    /// Era - so no chain lists the same token twice.
+    pub usdc: Option<EvmToken>,
     pub default_rpc: &'static str,
     pub explorer_tx: &'static str,
     /// A Uniswap-V2-compatible router, used only to *quote* a price. This
@@ -140,6 +164,14 @@ pub const BSC: EvmChain = EvmChain {
     stable_decimals: 18,
     stable_symbol: "USDT",
     stable_label: "USDT",
+    // Binance-Peg USDC: eighteen decimals, like this chain's USDT, and the
+    // contract Binance itself sends to when USDC leaves on BNB Chain.
+    usdc: Some(EvmToken {
+        address: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
+        decimals: 18,
+        label: "USDC",
+        symbol: "USDC",
+    }),
     default_rpc: "https://bsc-dataseed.bnbchain.org",
     explorer_tx: "https://bscscan.com/tx/",
     // PancakeSwap V2, a Uniswap V2 fork - same `getAmountsOut`.
@@ -170,6 +202,12 @@ pub const ETHEREUM: EvmChain = EvmChain {
     stable_decimals: 6,
     stable_symbol: "USDT",
     stable_label: "USDT",
+    usdc: Some(EvmToken {
+        address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+        decimals: 6,
+        label: "USDC",
+        symbol: "USDC",
+    }),
     default_rpc: "https://ethereum-rpc.publicnode.com",
     explorer_tx: "https://etherscan.io/tx/",
     router: Some("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"),
@@ -207,6 +245,13 @@ pub const POLYGON: EvmChain = EvmChain {
     stable_symbol: "USDT0",
     // Shown as USDT: it is the token everyone means by that name.
     stable_label: "USDT",
+    // Circle's native USDC, not the bridged `USDC.e` at 0x2791...4174.
+    usdc: Some(EvmToken {
+        address: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
+        decimals: 6,
+        label: "USDC",
+        symbol: "USDC",
+    }),
     // polygon-rpc.com answers 401 without a key; this one does not.
     default_rpc: "https://polygon-bor-rpc.publicnode.com",
     explorer_tx: "https://polygonscan.com/tx/",
@@ -252,6 +297,7 @@ pub const BASE: EvmChain = EvmChain {
     stable_decimals: 6,
     stable_symbol: "USDC",
     stable_label: "USDC",
+    usdc: None,
     default_rpc: "https://base-rpc.publicnode.com",
     explorer_tx: "https://basescan.org/tx/",
     // None, though a nearly-empty V2 router does exist here. A router that
@@ -300,6 +346,13 @@ pub const ARBITRUM: EvmChain = EvmChain {
     // U+20AE TUGRIK SIGN. Read from the chain, not typed from the ticker.
     stable_symbol: "USD\u{20ae}0",
     stable_label: "USDT",
+    // Circle's native USDC, not the bridged `USDC.e` at 0xFF97...5CC8.
+    usdc: Some(EvmToken {
+        address: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+        decimals: 6,
+        label: "USDC",
+        symbol: "USDC",
+    }),
     default_rpc: "https://arbitrum-one-rpc.publicnode.com",
     explorer_tx: "https://arbiscan.io/tx/",
     // None, for the same reason as Base's.
@@ -350,6 +403,13 @@ pub const OPTIMISM: EvmChain = EvmChain {
     stable_decimals: 6,
     stable_symbol: "USDT",
     stable_label: "USDT",
+    // Circle's native USDC, not the bridged `USDC.e` at 0x7F5c...bfB0.
+    usdc: Some(EvmToken {
+        address: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
+        decimals: 6,
+        label: "USDC",
+        symbol: "USDC",
+    }),
     default_rpc: "https://optimism-rpc.publicnode.com",
     explorer_tx: "https://optimistic.etherscan.io/tx/",
     // None. A Uniswap V2 router does exist here, at an address that is
@@ -400,6 +460,12 @@ pub const AVALANCHE: EvmChain = EvmChain {
     // Lowercase `t`. Read from the chain.
     stable_symbol: "USDt",
     stable_label: "USDT",
+    usdc: Some(EvmToken {
+        address: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
+        decimals: 6,
+        label: "USDC",
+        symbol: "USDC",
+    }),
     default_rpc: "https://avalanche-c-chain-rpc.publicnode.com",
     explorer_tx: "https://snowtrace.io/tx/",
     // Trader Joe V1, a Uniswap V2 fork. Its WAVAX/USDt pool held $41,887.
@@ -442,6 +508,13 @@ pub const HYPER_EVM: EvmChain = EvmChain {
     // U+20AE again, as on Arbitrum.
     stable_symbol: "USD\u{20ae}0",
     stable_label: "USDT",
+    // Circle's native USDC, live since September 2025.
+    usdc: Some(EvmToken {
+        address: "0xb88339CB7199b77E23DB6E890353E22632Ba630f",
+        decimals: 6,
+        label: "USDC",
+        symbol: "USDC",
+    }),
     default_rpc: "https://rpc.hyperliquid.xyz/evm",
     explorer_tx: "https://hyperevmscan.io/tx/",
     // HyperSwap exists and is far too thin to quote from - see above.
@@ -481,6 +554,7 @@ pub const MANTLE: EvmChain = EvmChain {
     stable_decimals: 6,
     stable_symbol: "USDC",
     stable_label: "USDC",
+    usdc: None,
     default_rpc: "https://rpc.mantle.xyz",
     explorer_tx: "https://mantlescan.xyz/tx/",
     router: None,
@@ -520,6 +594,7 @@ pub const LINEA: EvmChain = EvmChain {
     stable_decimals: 6,
     stable_symbol: "USDC",
     stable_label: "USDC",
+    usdc: None,
     default_rpc: "https://rpc.linea.build",
     explorer_tx: "https://lineascan.build/tx/",
     router: None,
@@ -555,6 +630,7 @@ pub const ZKSYNC_ERA: EvmChain = EvmChain {
     stable_decimals: 6,
     stable_symbol: "USDC",
     stable_label: "USDC",
+    usdc: None,
     default_rpc: "https://mainnet.era.zksync.io",
     explorer_tx: "https://explorer.zksync.io/tx/",
     router: None,
@@ -591,6 +667,12 @@ pub const SCROLL: EvmChain = EvmChain {
     stable_decimals: 6,
     stable_symbol: "USDT",
     stable_label: "USDT",
+    usdc: Some(EvmToken {
+        address: "0x06eFdBFf2a14a7c8E15944D1F4A48F9F95F663A4",
+        decimals: 6,
+        label: "USDC",
+        symbol: "USDC",
+    }),
     default_rpc: "https://rpc.scroll.io",
     explorer_tx: "https://scrollscan.com/tx/",
     router: None,
@@ -635,6 +717,23 @@ impl EvmChain {
     pub fn stable_address(&self) -> EvmAddress {
         parse_const(self.stable)
     }
+
+    /// Every token this wallet knows here, in the order the screens list them:
+    /// the chain's primary stablecoin first, then USDC where that is a second.
+    pub fn tokens(&self) -> Vec<EvmToken> {
+        let primary = EvmToken {
+            address: self.stable,
+            decimals: self.stable_decimals,
+            label: self.stable_label,
+            symbol: self.stable_symbol,
+        };
+        std::iter::once(primary).chain(self.usdc).collect()
+    }
+
+    /// The known token at this contract, if there is one.
+    pub fn token(&self, contract: EvmAddress) -> Option<EvmToken> {
+        self.tokens().into_iter().find(|t| t.address() == contract)
+    }
     /// `None` on a chain with no router - see [`Self::router`]. A caller that
     /// wants a price has to handle that rather than receive a plausible
     /// number from a pool that does not exist.
@@ -668,9 +767,14 @@ mod tests {
     #[test]
     fn every_constant_address_is_checksummed() {
         for c in ALL {
-            for s in [Some(c.stable), c.router, Some(c.wrapped_native)]
-                .into_iter()
-                .flatten()
+            for s in [
+                Some(c.stable),
+                c.usdc.map(|t| t.address),
+                c.router,
+                Some(c.wrapped_native),
+            ]
+            .into_iter()
+            .flatten()
             {
                 assert_eq!(
                     EvmAddress::parse(s).unwrap().to_string(),
@@ -799,6 +903,62 @@ mod tests {
             OPTIMISM.stable, "0x94b008aA00579c1307B0EF2c499aD98a8ce58e58",
             "Tether's contract on Optimism, the address Binance itself lists"
         );
+    }
+
+    /// Every chain here carries Circle's dollar, once.
+    ///
+    /// The eight whose primary stablecoin is Tether's list USDC second; the four
+    /// whose primary already is USDC must not list it again, or the assets
+    /// screen would show two rows for one balance. Each address and precision
+    /// was read back from the chain: `symbol()` answers `USDC` for all eight,
+    /// and `decimals()` answers 18 on BNB Chain and 6 everywhere else.
+    #[test]
+    fn every_chain_carries_usdc_exactly_once() {
+        for c in ALL {
+            let usdc: Vec<EvmToken> = c
+                .tokens()
+                .into_iter()
+                .filter(|t| t.label == "USDC")
+                .collect();
+            assert_eq!(usdc.len(), 1, "chain {}", c.chain_id);
+            assert_eq!(usdc[0].symbol, "USDC", "chain {}", c.chain_id);
+            assert_eq!(
+                c.usdc.is_some(),
+                c.stable_label == "USDT",
+                "chain {}",
+                c.chain_id
+            );
+            assert_eq!(c.token(usdc[0].address()), Some(usdc[0]));
+        }
+        assert_eq!(BSC.usdc.unwrap().decimals, 18, "Binance-Peg USDC");
+        for c in [
+            ETHEREUM, POLYGON, ARBITRUM, OPTIMISM, AVALANCHE, HYPER_EVM, SCROLL,
+        ] {
+            assert_eq!(c.usdc.unwrap().decimals, 6, "chain {}", c.chain_id);
+        }
+        // Native USDC, not the bridged `USDC.e` that still circulates beside it.
+        assert_eq!(
+            POLYGON.usdc.unwrap().address,
+            "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
+        );
+        assert_eq!(
+            ARBITRUM.usdc.unwrap().address,
+            "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
+        );
+        assert_eq!(
+            OPTIMISM.usdc.unwrap().address,
+            "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85"
+        );
+    }
+
+    /// The primary stablecoin stays first: it is the one the price pools quote
+    /// in, and the order is the order the assets screen lists.
+    #[test]
+    fn the_primary_stablecoin_is_listed_first() {
+        for c in ALL {
+            assert_eq!(c.tokens()[0].address, c.stable, "chain {}", c.chain_id);
+            assert!(c.token(c.wrapped_native_address()).is_none());
+        }
     }
 
     /// A coin that cannot be priced where it lives is priced somewhere it can.

@@ -479,36 +479,15 @@ impl Session {
         };
         let now = now();
         for (symbol, decimals, amount) in assets {
-            // Whether this row is the chain's stablecoin rather than its coin.
-            // Asked of the chain rather than compared against "USDT": Base's
-            // is USDC, and a literal here would have stored it with no
-            // contract, beside the native row and indistinguishable from it.
-            let is_stable = chain
-                .stable()
-                .is_some_and(|a| a.symbol() == symbol.as_str());
-            let contract = is_stable.then(|| match chain {
-                ChainId::Tron => neko_tron::usdt_address().as_bytes().to_vec(),
-                ChainId::Bsc => neko_evm::BSC.stable_address().as_bytes().to_vec(),
-                ChainId::Ethereum => neko_evm::ETHEREUM.stable_address().as_bytes().to_vec(),
-                ChainId::Polygon => neko_evm::POLYGON.stable_address().as_bytes().to_vec(),
-                ChainId::Base => neko_evm::BASE.stable_address().as_bytes().to_vec(),
-                ChainId::Arbitrum => neko_evm::ARBITRUM.stable_address().as_bytes().to_vec(),
-                ChainId::Optimism => neko_evm::OPTIMISM.stable_address().as_bytes().to_vec(),
-                ChainId::Avalanche => neko_evm::AVALANCHE.stable_address().as_bytes().to_vec(),
-                ChainId::HyperEvm => neko_evm::HYPER_EVM.stable_address().as_bytes().to_vec(),
-                ChainId::Mantle => neko_evm::MANTLE.stable_address().as_bytes().to_vec(),
-                ChainId::Linea => neko_evm::LINEA.stable_address().as_bytes().to_vec(),
-                ChainId::ZkSyncEra => neko_evm::ZKSYNC_ERA.stable_address().as_bytes().to_vec(),
-                ChainId::Scroll => neko_evm::SCROLL.stable_address().as_bytes().to_vec(),
-                ChainId::Ton => neko_ton::usdt_master().as_bytes(),
-                ChainId::Aptos => neko_aptos::usdt_metadata().as_bytes().to_vec(),
-                // A Move type rather than an address, so its bytes are its name.
-                ChainId::Sui => neko_sui::USDC_TYPE.as_bytes().to_vec(),
-                ChainId::Solana => neko_solana::usdt_mint().as_bytes().to_vec(),
-                // Unreachable: Bitcoin has no stablecoin, so this closure is
-                // never reached for it.
-                ChainId::Bitcoin => Vec::new(),
-            });
+            // Which of the chain's tokens this row is, asked of the chain rather
+            // than compared against "USDT": most chains carry USDC beside it,
+            // and a literal here would store one of them with no contract,
+            // beside the native row and indistinguishable from it.
+            let contract = chain
+                .stables()
+                .into_iter()
+                .find(|a| a.symbol() == symbol.as_str())
+                .and_then(|a| a.contract_bytes());
             let asset = balances::asset_id(conn, db_chain, symbol, contract.as_deref(), *decimals)?;
             balances::upsert(conn, address_id, asset, *amount, 0, now)?;
         }

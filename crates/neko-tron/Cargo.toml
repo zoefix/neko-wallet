@@ -6,10 +6,9 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-reqwest.workspace = true
+neko-net = { path = "../neko-net" }
 serde.workspace = true
 serde_json.workspace = true
-tokio = { workspace = true }
 neko-hd = { path = "../neko-hd" }
 k256.workspace = true
 sha2.workspace = true

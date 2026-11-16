@@ -2080,6 +2080,11 @@ fn draw_settings(f: &mut Frame, area: Rect, app: &App, st: &SettingsState) {
     } else if matches!(st.row(), SettingRow::TonApi) {
         lines.extend(hint_lines(t(Key::Settings_TonApiNote), inner.width));
         lines.extend(hint_lines(t(Key::Settings_TonApiNote2), inner.width));
+    } else if matches!(st.row(), SettingRow::SuiApi) {
+        lines.extend(hint_lines(t(Key::Settings_SuiApiNote), inner.width));
+    } else if matches!(st.row(), SettingRow::ApiKey) && app.api_key.is_some() {
+        // Several keys can be entered; worth saying while one is being edited.
+        lines.extend(hint_lines(t(Key::Settings_ApiKeyNote2), inner.width));
     } else if app.api_key.is_none() {
         lines.extend(hint_lines(t(Key::Settings_ApiKeyNote), inner.width));
         lines.extend(hint_lines(t(Key::Settings_ApiKeyNote2), inner.width));

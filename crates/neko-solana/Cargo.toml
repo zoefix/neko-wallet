@@ -10,13 +10,13 @@ neko-hd = { path = "../neko-hd" }
 bs58.workspace = true
 sha2.workspace = true
 ed25519-dalek.workspace = true
-reqwest.workspace = true
+neko-net = { path = "../neko-net" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 zeroize.workspace = true
-tokio = { workspace = true, features = ["time"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 bs58.workspace = true
+reqwest.workspace = true

@@ -18,6 +18,7 @@ neko-ton    = { path = "../neko-ton" }
 neko-aptos  = { path = "../neko-aptos" }
 neko-sui    = { path = "../neko-sui" }
 neko-i18n   = { path = "../neko-i18n" }
+neko-net    = { path = "../neko-net" }
 ratatui.workspace = true
 crossterm.workspace = true
 tokio.workspace = true

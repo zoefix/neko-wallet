@@ -16,6 +16,7 @@
 //! a real limit and it is reported as itself rather than as the network being
 //! down.
 
+use neko_net::{Request, Service};
 use serde_json::Value;
 
 use crate::address::AptosAddress;
@@ -43,27 +44,19 @@ pub struct Transfer {
 }
 
 pub struct Indexer {
-    url: String,
-    http: reqwest::Client,
+    net: Service,
 }
 
 impl Indexer {
     pub fn new(url: Option<&str>) -> Self {
         Indexer {
-            url: url
-                .map(str::trim)
-                .filter(|u| !u.is_empty())
-                .unwrap_or(DEFAULT_INDEXER)
-                .to_string(),
-            http: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(45))
-                .build()
-                .unwrap_or_default(),
+            net: Service::for_chain(url, DEFAULT_INDEXER, &[])
+                .timeout(std::time::Duration::from_secs(45)),
         }
     }
 
     pub fn endpoint(&self) -> &str {
-        &self.url
+        self.net.primary()
     }
 
     /// Both assets, newest first.
@@ -85,14 +78,15 @@ impl Indexer {
                  transaction_version is_transaction_success \
                }} }}"
         );
-        let r = self
-            .http
-            .post(&self.url)
-            .json(&serde_json::json!({ "query": query }))
-            .send()
+        let reply = self
+            .net
+            .send(Request::post_json(
+                "",
+                &serde_json::json!({ "query": query }),
+            ))
             .await
             .map_err(|e| AptosError::Rpc(e.to_string()))?;
-        let text = r.text().await.map_err(|e| AptosError::Rpc(e.to_string()))?;
+        let text = reply.body;
         let v: Value = serde_json::from_str(&text).map_err(|_| AptosError::BadReply(cut(&text)))?;
         if let Some(errs) = v.get("errors") {
             let msg = errs
@@ -199,6 +193,9 @@ pub fn known_asset(asset_type: &str) -> Option<(&'static str, u8)> {
     if addr == crate::usdt_metadata() {
         // Shown as USDT. The contract calls itself `USDt`.
         return Some(("USDT", crate::USDT_DECIMALS));
+    }
+    if addr == crate::usdc_metadata() {
+        return Some(("USDC", crate::USDC_DECIMALS));
     }
     None
 }
@@ -318,6 +315,11 @@ mod tests {
         // And the token, which the indexer sends unpadded because it is
         // already full width.
         assert_eq!(known_asset(super::super::USDT_METADATA).unwrap().0, "USDT");
+        assert_eq!(
+            known_asset(super::super::USDC_METADATA),
+            Some(("USDC", 6)),
+            "Circle's dollar is a fungible asset here too"
+        );
         // Neither of them is everything.
         assert_eq!(known_asset("0xb"), None);
     }

@@ -6,9 +6,8 @@
 //! **We never call `/wallet/createtransaction`.** The node supplies a block
 //! reference and nothing else; the wallet builds and signs the bytes itself.
 
-use std::time::Duration;
-
 use neko_hd::Address;
+use neko_net::{NetError, Reply, Request, Service};
 use serde_json::{json, Value};
 
 use crate::tx::TxParams;
@@ -34,16 +33,9 @@ pub enum ChainError {
     NoHistoryApi,
 }
 
-impl ChainError {
-    fn retryable(&self) -> bool {
-        match self {
-            // A deterministic failure will fail again identically.
-            ChainError::Business(_) | ChainError::Broadcast(_) | ChainError::NoHistoryApi => false,
-            ChainError::Malformed(_) => false,
-            ChainError::RateLimited => true,
-            ChainError::Http { status, .. } => *status >= 500,
-            ChainError::Transport(_) => true,
-        }
+impl From<NetError> for ChainError {
+    fn from(e: NetError) -> Self {
+        ChainError::Transport(e.to_string())
     }
 }
 
@@ -107,108 +99,72 @@ impl Default for Prices {
     }
 }
 
-pub struct TronGrid {
-    http: reqwest::Client,
-    base: String,
-    api_key: Option<String>,
-}
+/// TronGrid's key header. The setting behind it may hold several keys, which
+/// are used in turn: TronGrid limits each key on its own.
+const KEY_HEADER: &str = "TRON-PRO-API-KEY";
 
-const MAX_RETRIES: u32 = 3;
-const TIMEOUT: Duration = Duration::from_secs(30);
+pub struct TronGrid {
+    /// The full-node API, `/wallet/*`. Any TRON node serves it, so when none
+    /// is configured the public ones in [`crate::endpoints`] stand behind the
+    /// default.
+    wallet: Service,
+    /// The v1 indexer, for history. Only TronGrid has it, so it has no
+    /// fallback.
+    v1: Service,
+}
 
 impl TronGrid {
     /// `base_url` chooses which server speaks for mainnet; it does not choose a
     /// chain. Mainnet is the only chain this wallet knows.
+    ///
+    /// `api_key` may be several keys separated by commas or spaces. They go to
+    /// TronGrid, or to the node that was configured - never to a fallback.
     pub fn new(base_url: Option<&str>, api_key: Option<String>) -> Self {
+        let configured = base_url.filter(|u| !u.trim().is_empty());
+        let keys = api_key.as_deref();
+        let default = crate::chain_consts::DEFAULT_URL;
         Self {
-            http: reqwest::Client::builder()
-                .timeout(TIMEOUT)
-                .build()
-                .expect("http client must build"),
-            base: base_url
-                .filter(|u| !u.is_empty())
-                .unwrap_or(crate::chain_consts::DEFAULT_URL)
-                .trim_end_matches('/')
-                .to_string(),
-            api_key: api_key.filter(|k| !k.is_empty()),
+            wallet: Service::for_chain(configured, default, crate::endpoints::FALLBACKS)
+                .with_keys(KEY_HEADER, keys),
+            v1: Service::for_chain(configured, default, &[]).with_keys(KEY_HEADER, keys),
         }
     }
 
-    async fn post_once(&self, path: &str, body: &Value) -> Result<Value, ChainError> {
-        let mut req = self.http.post(format!("{}{path}", self.base)).json(body);
-        if let Some(k) = &self.api_key {
-            req = req.header("TRON-PRO-API-KEY", k);
-        }
-        let resp = req
-            .send()
-            .await
-            .map_err(|e| ChainError::Transport(e.to_string()))?;
-        let status = resp.status();
-        let text = resp
-            .text()
-            .await
-            .map_err(|e| ChainError::Transport(e.to_string()))?;
-
-        if status.as_u16() == 429 {
-            return Err(ChainError::RateLimited);
-        }
-        if !status.is_success() {
-            return Err(ChainError::Http {
-                status: status.as_u16(),
-                body: text,
-            });
-        }
-        let v: Value = serde_json::from_str(&text)
-            .map_err(|_| ChainError::Malformed(text.chars().take(200).collect()))?;
-
-        // HTTP 200 with an Error field: deterministic, do not retry.
-        if let Some(e) = v.get("Error").and_then(Value::as_str) {
-            return Err(ChainError::Business(e.to_string()));
-        }
-        Ok(v)
+    /// The node asked first: the configured one, or TronGrid.
+    pub fn endpoint(&self) -> &str {
+        self.wallet.primary()
     }
 
     async fn post(&self, path: &str, body: Value) -> Result<Value, ChainError> {
-        let mut last = None;
-        for attempt in 0..MAX_RETRIES {
-            match self.post_once(path, &body).await {
-                Ok(v) => return Ok(v),
-                Err(e) if e.retryable() => {
-                    // 1s, 2s, 4s.
-                    tokio_sleep(Duration::from_secs(1 << attempt)).await;
-                    last = Some(e);
-                }
-                Err(e) => return Err(e),
-            }
-        }
-        Err(last.unwrap_or_else(|| ChainError::Transport("exhausted retries".into())))
+        read_wallet(self.wallet.send(Request::post_json(path, &body)).await?)
+    }
+
+    /// The one call that must never go out twice. See
+    /// [`neko_net::Policy::Submit`].
+    async fn submit(&self, path: &str, body: Value) -> Result<Value, ChainError> {
+        read_wallet(
+            self.wallet
+                .send(Request::post_json(path, &body).submit())
+                .await?,
+        )
     }
 
     async fn get(&self, path: &str) -> Result<Value, ChainError> {
-        let mut req = self.http.get(format!("{}{path}", self.base));
-        if let Some(k) = &self.api_key {
-            req = req.header("TRON-PRO-API-KEY", k);
-        }
-        let resp = req
-            .send()
-            .await
-            .map_err(|e| ChainError::Transport(e.to_string()))?;
-        let status = resp.status();
-        if status.as_u16() == 404 {
+        let reply = self.v1.send(Request::get(path)).await?;
+        if reply.status == 404 {
             return Err(ChainError::NoHistoryApi);
         }
-        let text = resp
-            .text()
-            .await
-            .map_err(|e| ChainError::Transport(e.to_string()))?;
-        if !status.is_success() {
+        if reply.rate_limited() {
+            return Err(ChainError::RateLimited);
+        }
+        if !reply.is_success() {
             return Err(ChainError::Http {
-                status: status.as_u16(),
-                body: text,
+                status: reply.status,
+                body: reply.body,
             });
         }
-        serde_json::from_str(&text)
-            .map_err(|_| ChainError::Malformed(text.chars().take(200).collect()))
+        serde_json::from_str(&reply.body)
+            .map_err(|_| ChainError::Malformed(reply.body.chars().take(200).collect()))
     }
 
     /// The only thing we take from the node when building a transaction.
@@ -458,7 +414,7 @@ impl TronGrid {
     /// Broadcast a fully signed transaction.
     pub async fn broadcast(&self, raw_tx: &[u8]) -> Result<String, ChainError> {
         let v = self
-            .post(
+            .submit(
                 "/wallet/broadcasthex",
                 json!({ "transaction": hex_encode(raw_tx) }),
             )
@@ -506,8 +462,24 @@ impl TronGrid {
     }
 }
 
-async fn tokio_sleep(d: Duration) {
-    tokio::time::sleep(d).await;
+/// A `/wallet/*` reply. HTTP 200 with an `Error` field is TronGrid's way of
+/// saying no - deterministic, and handed back rather than retried.
+fn read_wallet(reply: Reply) -> Result<Value, ChainError> {
+    if reply.rate_limited() {
+        return Err(ChainError::RateLimited);
+    }
+    if !reply.is_success() {
+        return Err(ChainError::Http {
+            status: reply.status,
+            body: reply.body,
+        });
+    }
+    let v: Value = serde_json::from_str(&reply.body)
+        .map_err(|_| ChainError::Malformed(reply.body.chars().take(200).collect()))?;
+    if let Some(e) = v.get("Error").and_then(Value::as_str) {
+        return Err(ChainError::Business(e.to_string()));
+    }
+    Ok(v)
 }
 
 fn now_ms() -> i64 {
@@ -641,26 +613,50 @@ mod tests {
         assert_eq!(parse_energy(&empty), EnergyEstimate::default());
     }
 
+    /// Retrying a deterministic failure only burns API quota: an `Error`
+    /// field in a 200 is final to the network layer and a business error here.
     #[test]
     fn business_errors_are_never_retried() {
-        // Retrying a deterministic failure only burns API quota.
-        assert!(!ChainError::Business("bad".into()).retryable());
-        assert!(!ChainError::Broadcast("SIGERROR".into()).retryable());
-        assert!(!ChainError::Malformed("x".into()).retryable());
-        assert!(!ChainError::NoHistoryApi.retryable());
+        use neko_net::{classify, Verdict};
+        let reply = Reply::new(200, r#"{"Error":"class ContractValidateException"}"#);
+        assert_eq!(classify::by_status(&reply), Verdict::Final);
+        assert!(matches!(read_wallet(reply), Err(ChainError::Business(_))));
 
-        assert!(ChainError::RateLimited.retryable());
-        assert!(ChainError::Transport("reset".into()).retryable());
-        assert!(ChainError::Http {
-            status: 503,
-            body: String::new()
-        }
-        .retryable());
-        assert!(!ChainError::Http {
-            status: 400,
-            body: String::new()
-        }
-        .retryable());
+        let reply = Reply::new(400, "bad");
+        assert_eq!(classify::by_status(&reply), Verdict::Final);
+        assert!(matches!(
+            read_wallet(reply),
+            Err(ChainError::Http { status: 400, .. })
+        ));
+
+        assert_eq!(
+            classify::by_status(&Reply::new(503, "")),
+            Verdict::Unavailable
+        );
+    }
+
+    /// TronGrid's suspension notice is a 403, and it is a rate limit.
+    #[test]
+    fn a_suspended_key_reads_as_rate_limited() {
+        let reply = Reply::new(
+            403,
+            r#"{"Error":"The key exceeds the frequency limit(15), and the query server is suspended for 30s"}"#,
+        );
+        assert!(matches!(read_wallet(reply), Err(ChainError::RateLimited)));
+        assert!(matches!(
+            read_wallet(Reply::new(429, "")),
+            Err(ChainError::RateLimited)
+        ));
+    }
+
+    #[test]
+    fn the_configured_node_is_the_endpoint() {
+        assert_eq!(TronGrid::new(None, None).endpoint(), crate::DEFAULT_URL);
+        assert_eq!(TronGrid::new(Some(""), None).endpoint(), crate::DEFAULT_URL);
+        assert_eq!(
+            TronGrid::new(Some("https://tron.my-node.example/"), None).endpoint(),
+            "https://tron.my-node.example"
+        );
     }
 
     #[test]

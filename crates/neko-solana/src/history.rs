@@ -48,11 +48,12 @@ pub struct Transfer {
 const BATCH: usize = 5;
 
 impl Rpc {
-    /// Recent transfers involving `addr`, newest first.
+    /// Recent transfers involving `addr`, newest first: SOL, and each of
+    /// `tokens` - a mint and the name this wallet shows for it.
     pub async fn transfers(
         &self,
         addr: SolanaAddress,
-        mint: SolanaAddress,
+        tokens: &[(SolanaAddress, &str)],
         limit: usize,
     ) -> Result<Vec<Transfer>, SolanaError> {
         let sigs = self.signatures_for(addr, limit).await?;
@@ -65,7 +66,7 @@ impl Rpc {
             match self.get_transactions(chunk).await {
                 Ok(txs) => {
                     for (sig, tx) in chunk.iter().zip(txs) {
-                        if let Some(t) = extract(&tx, addr, mint, sig) {
+                        if let Some(t) = extract(&tx, addr, tokens, sig) {
                             out.extend(t);
                         }
                     }
@@ -117,14 +118,14 @@ impl Rpc {
     }
 }
 
-/// Everything this transaction did to `owner`, in SOL and in one token.
+/// Everything this transaction did to `owner`, in SOL and in each of `tokens`.
 ///
-/// A transaction can touch both, so this returns a list rather than an option:
-/// collapsing them would silently drop half of what happened.
+/// A transaction can touch several, so this returns a list rather than an
+/// option: collapsing them would silently drop part of what happened.
 pub fn extract(
     tx: &Value,
     owner: SolanaAddress,
-    mint: SolanaAddress,
+    tokens: &[(SolanaAddress, &str)],
     signature: &str,
 ) -> Option<Vec<Transfer>> {
     let meta = tx.get("meta")?;
@@ -180,44 +181,53 @@ pub fn extract(
         }
     }
 
-    // --- The token ---
-    let mint_s = mint.to_string();
-    let find = |field: &str| -> Option<i128> {
-        meta.get(field)?.as_array()?.iter().find_map(|e| {
-            (e.get("owner").and_then(Value::as_str) == Some(owner_s.as_str())
-                && e.get("mint").and_then(Value::as_str) == Some(mint_s.as_str()))
-            .then(|| {
-                e.get("uiTokenAmount")
-                    .and_then(|u| u.get("amount"))
-                    .and_then(Value::as_str)
-                    .and_then(|s| s.parse::<i128>().ok())
-                    .unwrap_or(0)
+    // --- The tokens ---
+    for (mint, label) in tokens {
+        let mint_s = mint.to_string();
+        let find = |field: &str| -> Option<i128> {
+            meta.get(field)?.as_array()?.iter().find_map(|e| {
+                (e.get("owner").and_then(Value::as_str) == Some(owner_s.as_str())
+                    && e.get("mint").and_then(Value::as_str) == Some(mint_s.as_str()))
+                .then(|| {
+                    e.get("uiTokenAmount")
+                        .and_then(|u| u.get("amount"))
+                        .and_then(Value::as_str)
+                        .and_then(|s| s.parse::<i128>().ok())
+                        .unwrap_or(0)
+                })
             })
-        })
-    };
-    // A missing entry on one side is a zero on that side: an account that did
-    // not exist before the transaction held nothing, which is exactly what a
-    // first-ever receipt looks like.
-    let (pre_t, post_t) = (find("preTokenBalances"), find("postTokenBalances"));
-    if pre_t.is_some() || post_t.is_some() {
-        let delta = post_t.unwrap_or(0) - pre_t.unwrap_or(0);
-        if delta != 0 && !failed {
-            let decimals = token_decimals(meta).unwrap_or(crate::chain_consts::USDT_DECIMALS);
-            out.push(Transfer {
-                signature: signature.to_string(),
-                block_time,
-                symbol: "USDT".into(),
-                decimals,
-                amount: delta.abs(),
-                direction: if delta > 0 {
-                    Direction::In
-                } else {
-                    Direction::Out
-                },
-                counterparty: token_other_party(meta, &owner_s, &mint_s, delta),
-                failed,
-            });
+        };
+        // A missing entry on one side is a zero on that side: an account that
+        // did not exist before the transaction held nothing, which is exactly
+        // what a first-ever receipt looks like.
+        let (pre_t, post_t) = (find("preTokenBalances"), find("postTokenBalances"));
+        if pre_t.is_none() && post_t.is_none() {
+            continue;
         }
+        let delta = post_t.unwrap_or(0) - pre_t.unwrap_or(0);
+        if delta == 0 || failed {
+            continue;
+        }
+        // This mint's own precision. A transaction that also moved another
+        // token lists that one's too, and the first entry is not necessarily
+        // this mint's.
+        let Some(decimals) = token_decimals(meta, &mint_s) else {
+            continue;
+        };
+        out.push(Transfer {
+            signature: signature.to_string(),
+            block_time,
+            symbol: (*label).to_string(),
+            decimals,
+            amount: delta.abs(),
+            direction: if delta > 0 {
+                Direction::In
+            } else {
+                Direction::Out
+            },
+            counterparty: token_other_party(meta, &owner_s, &mint_s, delta),
+            failed,
+        });
     }
 
     Some(out)
@@ -332,12 +342,13 @@ fn token_other_party(meta: &Value, owner: &str, mint: &str, delta: i128) -> Stri
 
 /// Precision as the cluster reported it for this transaction, rather than as
 /// this crate assumes. One token name has three precisions across three chains.
-fn token_decimals(meta: &Value) -> Option<u8> {
+fn token_decimals(meta: &Value, mint: &str) -> Option<u8> {
     ["postTokenBalances", "preTokenBalances"]
         .iter()
         .filter_map(|f| meta.get(*f))
         .filter_map(Value::as_array)
         .flatten()
+        .filter(|e| e.get("mint").and_then(Value::as_str) == Some(mint))
         .find_map(|e| {
             e.get("uiTokenAmount")
                 .and_then(|u| u.get("decimals"))
@@ -359,8 +370,8 @@ mod tests {
     fn me() -> SolanaAddress {
         SolanaAddress::parse(ME).unwrap()
     }
-    fn mint() -> SolanaAddress {
-        SolanaAddress::parse(MINT).unwrap()
+    fn mint() -> [(SolanaAddress, &'static str); 1] {
+        [(SolanaAddress::parse(MINT).unwrap(), "USDT")]
     }
 
     fn tx(keys: &[&str], pre: &[i64], post: &[i64], fee: i64, err: Value) -> Value {
@@ -390,7 +401,7 @@ mod tests {
             5_000,
             Value::Null,
         );
-        let out = extract(&t, me(), mint(), "sig").unwrap();
+        let out = extract(&t, me(), &mint(), "sig").unwrap();
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].direction, Direction::Out);
         assert_eq!(out[0].amount, 100_000_000, "the fee was counted as sent");
@@ -413,7 +424,7 @@ mod tests {
             5_000,
             Value::Null,
         );
-        let out = extract(&t, me(), mint(), "sig").unwrap();
+        let out = extract(&t, me(), &mint(), "sig").unwrap();
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].direction, Direction::In);
         assert_eq!(out[0].amount, 100_000_000);
@@ -435,7 +446,7 @@ mod tests {
             5_000,
             Value::Null,
         );
-        let out = extract(&t, me(), mint(), "sig").unwrap();
+        let out = extract(&t, me(), &mint(), "sig").unwrap();
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].amount, 1);
         assert_eq!(out[0].counterparty, THEM);
@@ -452,7 +463,7 @@ mod tests {
             5_000,
             json!({"InstructionError": [0, {"Custom": 1}]}),
         );
-        assert!(extract(&t, me(), mint(), "sig").unwrap().is_empty());
+        assert!(extract(&t, me(), &mint(), "sig").unwrap().is_empty());
     }
 
     /// The first time an address receives a token it has no prior balance, so
@@ -470,7 +481,7 @@ mod tests {
         t["meta"]["preTokenBalances"] = json!([]);
         t["meta"]["postTokenBalances"] = json!([token_entry(ME, "5000000")]);
 
-        let out = extract(&t, me(), mint(), "sig").unwrap();
+        let out = extract(&t, me(), &mint(), "sig").unwrap();
         let usdt: Vec<_> = out.iter().filter(|e| e.symbol == "USDT").collect();
         assert_eq!(usdt.len(), 1, "a first receipt was dropped");
         assert_eq!(usdt[0].direction, Direction::In);
@@ -493,7 +504,7 @@ mod tests {
         t["meta"]["postTokenBalances"] =
             json!([token_entry(ME, "1000000"), token_entry(THEM, "4000000")]);
 
-        let out = extract(&t, me(), mint(), "sig").unwrap();
+        let out = extract(&t, me(), &mint(), "sig").unwrap();
         assert_eq!(out.len(), 2);
         let sol = out.iter().find(|e| e.symbol == "SOL").unwrap();
         let usdt = out.iter().find(|e| e.symbol == "USDT").unwrap();
@@ -515,7 +526,7 @@ mod tests {
             5_000,
             Value::Null,
         );
-        assert!(extract(&t, me(), mint(), "sig").unwrap().is_empty());
+        assert!(extract(&t, me(), &mint(), "sig").unwrap().is_empty());
     }
 
     /// Another token's movement is not ours. The mint is matched, not assumed
@@ -535,6 +546,6 @@ mod tests {
         t["meta"]["postTokenBalances"] = json!([{
             "owner": ME, "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
             "uiTokenAmount": {"amount": "9000000", "decimals": 6}}]);
-        assert!(extract(&t, me(), mint(), "sig").unwrap().is_empty());
+        assert!(extract(&t, me(), &mint(), "sig").unwrap().is_empty());
     }
 }

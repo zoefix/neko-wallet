@@ -14,10 +14,12 @@
 //! "no transactions found" reply that arrives dressed as an error.
 
 use neko_hd::EvmAddress;
+use neko_net::{Reply, Request, Service, Verdict};
 use serde_json::Value;
 
 use crate::error::EvmError;
 use crate::history::Transfer;
+use crate::EvmToken;
 
 pub const BASE: &str = "https://api.etherscan.io/v2/api";
 pub const SIGNUP_URL: &str = "https://etherscan.io/apis";
@@ -25,7 +27,7 @@ pub const SIGNUP_URL: &str = "https://etherscan.io/apis";
 pub struct Etherscan {
     chain: crate::EvmChain,
     api_key: String,
-    http: reqwest::Client,
+    net: Service,
 }
 
 impl Etherscan {
@@ -37,54 +39,58 @@ impl Etherscan {
         Some(Etherscan {
             chain,
             api_key: api_key.to_string(),
-            http: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
-                .build()
-                .unwrap_or_default(),
+            net: Service::new(BASE)
+                .keyed_by(api_key)
+                .classify(rate_limit_in_result),
         })
     }
 
     async fn call(&self, action: &str, who: &str, extra: &str) -> Result<Value, EvmError> {
-        let url = format!(
-            "{BASE}?chainid={}&module=account&action={action}&address={who}{extra}\
+        let query = format!(
+            "?chainid={}&module=account&action={action}&address={who}{extra}\
              &page=1&offset=50&sort=desc&apikey={}",
             self.chain.chain_id, self.api_key
         );
-        let resp = self
-            .http
-            .get(&url)
-            .send()
+        let reply = self
+            .net
+            .send(Request::get(query))
             .await
             .map_err(|e| EvmError::Network(e.to_string()))?;
-        let v: Value = resp
-            .json()
-            .await
-            .map_err(|e| EvmError::BadReply(e.to_string()))?;
+        let v: Value =
+            serde_json::from_str(&reply.body).map_err(|e| EvmError::BadReply(e.to_string()))?;
         result_of(&v)
     }
 
     pub async fn transfers(
         &self,
         who: EvmAddress,
-        token: EvmAddress,
+        tokens: &[EvmToken],
         limit: usize,
     ) -> Result<Vec<Transfer>, EvmError> {
         let a = who.to_string();
-        let contract = format!("&contractaddress={token}");
-        let (coins, tokens) = tokio::join!(
-            self.call("txlist", &a, ""),
-            self.call("tokentx", &a, &contract),
-        );
+        // One `tokentx` per token, in turn: the filter takes one contract, and
+        // an unfiltered list lets any token that spams this address crowd the
+        // real ones out of the page.
+        let token_leg = async {
+            let mut rows = Vec::new();
+            let mut failure = None;
+            for t in tokens {
+                let contract = format!("&contractaddress={}", t.address());
+                match self.call("tokentx", &a, &contract).await {
+                    Ok(v) => rows.extend(parse_tokens(&v, *t)),
+                    Err(e) => failure = failure.or(Some(e)),
+                }
+            }
+            (rows, failure)
+        };
+        let (coins, (token_rows, token_failure)) =
+            tokio::join!(self.call("txlist", &a, ""), token_leg);
 
-        let mut out = Vec::new();
-        let mut failure = None;
+        let mut out = token_rows;
+        let mut failure = token_failure;
         match coins {
             Ok(v) => out.extend(parse_coins(&v, self.chain)),
             Err(e) => failure = Some(e),
-        }
-        match tokens {
-            Ok(v) => out.extend(parse_tokens(&v, self.chain)),
-            Err(e) => failure = failure.or(Some(e)),
         }
         // Only if nothing at all came back: half a history beats none.
         if out.is_empty() {
@@ -96,6 +102,18 @@ impl Etherscan {
         out.truncate(limit);
         Ok(out)
     }
+}
+
+/// Etherscan's rate limit arrives as an ordinary `status: "0"` reply with the
+/// reason in `result` - "Max calls per sec rate limit reached" - and is worth
+/// waiting out, unlike every other `status: "0"`.
+pub(crate) fn rate_limit_in_result(reply: &Reply) -> Option<Verdict> {
+    let v: Value = serde_json::from_str(&reply.body).ok()?;
+    let says = v.get("status").and_then(Value::as_str) == Some("0")
+        && v.get("result")
+            .and_then(Value::as_str)
+            .is_some_and(neko_net::classify::says_rate_limited);
+    says.then_some(Verdict::RateLimited { retry_after: None })
 }
 
 /// Unwrap Etherscan's envelope.
@@ -147,20 +165,27 @@ pub fn parse_coins(result: &Value, chain: crate::EvmChain) -> Vec<Transfer> {
         .collect()
 }
 
-/// Token movements, out of `tokentx`, which was already filtered to one
-/// contract by the request.
-pub fn parse_tokens(result: &Value, chain: crate::EvmChain) -> Vec<Transfer> {
+/// Token movements, out of `tokentx`, which was already filtered to `token`
+/// by the request. A row naming a different contract is dropped rather than
+/// shown under this token's name.
+pub fn parse_tokens(result: &Value, token: EvmToken) -> Vec<Transfer> {
+    let wanted = token.address().to_string();
     rows(result)
         .iter()
         .filter_map(|t| {
+            if let Some(c) = t.get("contractAddress").and_then(Value::as_str) {
+                if !c.eq_ignore_ascii_case(&wanted) {
+                    return None;
+                }
+            }
             Some(Transfer {
                 hash: t.get("hash")?.as_str()?.to_string(),
                 from: t.get("from")?.as_str()?.to_string(),
                 to: t.get("to")?.as_str()?.to_string(),
                 amount: dec_str(t.get("value")?)?,
-                // The chain's own label, not `tokenSymbol` from the reply -
+                // This wallet's own label, not `tokenSymbol` from the reply -
                 // see the note at the top of `crate::history`.
-                symbol: chain.stable_label.to_string(),
+                symbol: token.label.to_string(),
                 // Stated by the reply. Six on Ethereum and Polygon, eighteen
                 // on BNB Chain, for the same token name.
                 decimals: dec_str(t.get("tokenDecimal")?)? as u8,
@@ -240,7 +265,7 @@ mod tests {
             "tokenDecimal": "6",
             "timeStamp": "1782547200",
         }]);
-        let rows = parse_tokens(&result, crate::POLYGON);
+        let rows = parse_tokens(&result, crate::POLYGON.tokens()[0]);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].amount, 2_700_000);
         assert_eq!(rows[0].decimals, 6, "not the chain's eighteen");

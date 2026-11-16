@@ -2,6 +2,11 @@
 //!
 //! A dry run that returns a cost has been decoded by the chain's own parser,
 //! which is the strongest check available without spending anything.
+//!
+//! Then the same bytes go to `executeTransaction` under an all-zero
+//! signature, which no key can have produced: the node has to refuse it, and
+//! how it refuses is the shape a real broadcast's failure takes. Nothing here
+//! can move funds.
 
 use neko_sui::client::Rpc;
 use neko_sui::tx::{self, GasData};
@@ -33,7 +38,8 @@ async fn main() {
         budget: neko_sui::GAS_BUDGET_TRANSFER,
     };
 
-    let data = tx::pay_sui(sender, to, 1_000_000, gas.clone());
+    let sui_tx = tx::pay_sui(sender, to, 1_000_000, gas.clone());
+    let data = sui_tx.clone();
     println!("\nSUI transfer: {} bytes", data.to_bytes().len());
     match rpc.dry_run(&data.to_bytes()).await {
         Ok(g) => println!(
@@ -45,11 +51,27 @@ async fn main() {
 
     let usdc = rpc.coins(sender, neko_sui::USDC_TYPE).await.unwrap();
     println!("\nUSDC coin objects: {}", usdc.len());
-    if usdc.is_empty() {
-        return;
+    if !usdc.is_empty() {
+        usdc_dry_run(&rpc, sender, to, &usdc, gas).await;
     }
+
+    let unsigned = [0u8; neko_sui::SIGNATURE_BYTES];
+    println!("\nexecute with a zero signature:");
+    match rpc.execute(&sui_tx.to_bytes(), &unsigned).await {
+        Ok(d) => println!("  ACCEPTED?! {d}"),
+        Err(e) => println!("  refused: {e}"),
+    }
+}
+
+async fn usdc_dry_run(
+    rpc: &Rpc,
+    sender: SuiAddress,
+    to: SuiAddress,
+    usdc: &[neko_sui::client::Coin],
+    gas: GasData,
+) {
     let objs: Vec<_> = usdc.iter().map(|c| c.object).collect();
-    let data = tx::pay_token(sender, to, 1_000, &objs, gas).unwrap();
+    let data = tx::pay_token(sender, to, 10_000, &objs, gas).unwrap();
     println!(
         "USDC transfer: {} bytes, {} inputs, {} commands",
         data.to_bytes().len(),

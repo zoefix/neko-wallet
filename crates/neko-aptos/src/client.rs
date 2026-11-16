@@ -6,65 +6,55 @@
 //! now lives in two places at once - a legacy coin store and a fungible-asset
 //! store - and `0x1::coin::balance` is the view that adds them up.
 
+use neko_net::{Reply, Request, Service};
 use serde_json::{json, Value};
 
 use crate::address::AptosAddress;
 use crate::error::AptosError;
 
+/// What a signed transaction is sent as, for simulation and for submission.
+const BCS: &str = "application/x.aptos.signed_transaction+bcs";
+
 pub struct Rest {
-    base: String,
-    http: reqwest::Client,
+    net: Service,
 }
 
 impl Rest {
+    /// A configured `url` is the only node asked. Without one, Aptos Labs'
+    /// fullnode is asked first and [`crate::endpoints`] stand behind it.
     pub fn new(url: Option<&str>) -> Self {
         Rest {
-            base: url
-                .map(str::trim)
-                .filter(|u| !u.is_empty())
-                .unwrap_or(crate::DEFAULT_API)
-                .trim_end_matches('/')
-                .to_string(),
-            http: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
-                .build()
-                .unwrap_or_default(),
+            net: Service::for_chain(url, crate::DEFAULT_API, crate::endpoints::FALLBACKS),
         }
     }
 
     pub fn endpoint(&self) -> &str {
-        &self.base
+        self.net.primary()
     }
 
     async fn get(&self, path: &str) -> Result<Value, AptosError> {
-        let r = self
-            .http
-            .get(format!("{}/{path}", self.base))
-            .send()
-            .await
-            .map_err(|e| AptosError::Rpc(e.to_string()))?;
-        let status = r.status();
-        let body = r.text().await.map_err(|e| AptosError::Rpc(e.to_string()))?;
-        if !status.is_success() {
-            return Err(AptosError::Rpc(short(&body)));
-        }
-        serde_json::from_str(&body).map_err(|_| AptosError::BadReply(short(&body)))
+        json_of(self.send(Request::get(format!("/{path}"))).await?)
     }
 
     async fn post(&self, path: &str, body: Value) -> Result<Value, AptosError> {
-        let r = self
-            .http
-            .post(format!("{}/{path}", self.base))
-            .json(&body)
-            .send()
+        json_of(
+            self.send(Request::post_json(format!("/{path}"), &body))
+                .await?,
+        )
+    }
+
+    /// A non-2xx reply's body is the node's reason, and is what the error
+    /// carries - `account_not_found` is read out of it further up.
+    async fn send(&self, req: Request) -> Result<Reply, AptosError> {
+        let reply = self
+            .net
+            .send(req)
             .await
             .map_err(|e| AptosError::Rpc(e.to_string()))?;
-        let status = r.status();
-        let text = r.text().await.map_err(|e| AptosError::Rpc(e.to_string()))?;
-        if !status.is_success() {
-            return Err(AptosError::Rpc(short(&text)));
+        if !reply.is_success() {
+            return Err(AptosError::Rpc(short(&reply.body)));
         }
-        serde_json::from_str(&text).map_err(|_| AptosError::BadReply(short(&text)))
+        Ok(reply)
     }
 
     /// A view function's first return value, as a string.
@@ -199,21 +189,8 @@ impl Rest {
     /// field and ignores its contents, which is why zeros are acceptable here
     /// and only here.
     pub async fn simulate(&self, signed_bcs: &[u8]) -> Result<u64, AptosError> {
-        let r = self
-            .http
-            .post(format!("{}/transactions/simulate", self.base))
-            .header("content-type", "application/x.aptos.signed_transaction+bcs")
-            .body(signed_bcs.to_vec())
-            .send()
-            .await
-            .map_err(|e| AptosError::Rpc(e.to_string()))?;
-        let status = r.status();
-        let text = r.text().await.map_err(|e| AptosError::Rpc(e.to_string()))?;
-        if !status.is_success() {
-            return Err(AptosError::Rpc(short(&text)));
-        }
-        let v: Value =
-            serde_json::from_str(&text).map_err(|_| AptosError::BadReply(short(&text)))?;
+        let req = Request::post_bytes("/transactions/simulate", signed_bcs.to_vec(), BCS);
+        let v = json_of(self.send(req).await?)?;
         let first = v.as_array().and_then(|a| a.first()).unwrap_or(&v);
         if first.get("success").and_then(Value::as_bool) == Some(false) {
             let why = first
@@ -231,27 +208,20 @@ impl Rest {
 
     /// Broadcast. The BCS body is the same bytes that were signed plus the
     /// authenticator, so nothing is re-encoded between signing and sending.
+    ///
+    /// Never sent twice - see [`neko_net::Policy::Submit`].
     pub async fn submit(&self, signed_bcs: &[u8]) -> Result<String, AptosError> {
-        let r = self
-            .http
-            .post(format!("{}/transactions", self.base))
-            .header("content-type", "application/x.aptos.signed_transaction+bcs")
-            .body(signed_bcs.to_vec())
-            .send()
-            .await
-            .map_err(|e| AptosError::Rpc(e.to_string()))?;
-        let status = r.status();
-        let text = r.text().await.map_err(|e| AptosError::Rpc(e.to_string()))?;
-        if !status.is_success() {
-            return Err(AptosError::Rpc(short(&text)));
-        }
-        let v: Value =
-            serde_json::from_str(&text).map_err(|_| AptosError::BadReply(short(&text)))?;
+        let req = Request::post_bytes("/transactions", signed_bcs.to_vec(), BCS).submit();
+        let v = json_of(self.send(req).await?)?;
         v.get("hash")
             .and_then(Value::as_str)
             .map(str::to_string)
             .ok_or_else(|| AptosError::BadReply(format!("no hash in {v}")))
     }
+}
+
+fn json_of(reply: Reply) -> Result<Value, AptosError> {
+    serde_json::from_str(&reply.body).map_err(|_| AptosError::BadReply(short(&reply.body)))
 }
 
 /// Keep an error readable. A node's failure body can be a page of JSON, and

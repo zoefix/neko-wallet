@@ -9,6 +9,7 @@ pub mod abi;
 pub mod blockscout;
 pub mod chain_consts;
 pub mod client;
+pub mod endpoints;
 pub mod error;
 pub mod etherscan;
 pub mod history;

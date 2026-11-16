@@ -11,6 +11,7 @@
 //! worth another attempt.
 
 use neko_hd::EvmAddress;
+use neko_net::{Request, Service};
 use serde_json::{json, Value};
 
 use crate::abi;
@@ -18,70 +19,64 @@ use crate::error::EvmError;
 use crate::tx::TxParams;
 
 pub struct Rpc {
-    url: String,
     /// Which chain this talks to. Carried rather than assumed: the chain id
     /// goes into every signature, and the wrong one produces a transaction
     /// that is replayable where the same address holds different funds.
     chain: crate::EvmChain,
-    http: reqwest::Client,
+    net: Service,
 }
 
 impl Rpc {
+    /// A configured `url` is the only node asked. Without one, the chain's
+    /// default is asked first and [`crate::endpoints`] stand behind it.
     pub fn new(chain: crate::EvmChain, url: Option<&str>) -> Self {
         Rpc {
-            url: url
-                .filter(|u| !u.is_empty())
-                .unwrap_or(chain.default_rpc)
-                .to_string(),
+            net: Service::for_chain(
+                url,
+                chain.default_rpc,
+                crate::endpoints::fallbacks(chain.chain_id),
+            )
+            .classify(neko_net::classify::jsonrpc),
             chain,
-            http: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
-                .build()
-                .unwrap_or_default(),
         }
+    }
+
+    /// The node asked first.
+    pub fn endpoint(&self) -> &str {
+        self.net.primary()
     }
 
     async fn call(&self, method: &str, params: Value) -> Result<Value, EvmError> {
         let body = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
-        let mut last = None;
-        // Three attempts, but only for failures that could plausibly differ
-        // next time.
-        for attempt in 0..3u32 {
-            if attempt > 0 {
-                tokio::time::sleep(std::time::Duration::from_secs(1 << (attempt - 1))).await;
-            }
-            let resp = match self.http.post(&self.url).json(&body).send().await {
-                Ok(r) => r,
-                Err(e) => {
-                    last = Some(EvmError::Network(e.to_string()));
-                    continue;
-                }
-            };
-            if resp.status().is_server_error() {
-                last = Some(EvmError::Network(format!("HTTP {}", resp.status())));
-                continue;
-            }
-            if !resp.status().is_success() {
-                return Err(EvmError::Network(format!("HTTP {}", resp.status())));
-            }
-            let v: Value = resp
-                .json()
-                .await
-                .map_err(|e| EvmError::BadReply(e.to_string()))?;
-            if let Some(err) = v.get("error") {
-                // The node decided. Trying again changes nothing.
-                let msg = err
-                    .get("message")
-                    .and_then(Value::as_str)
-                    .unwrap_or("unknown error");
-                return Err(EvmError::Rpc(clean_revert(msg)));
-            }
-            return v
-                .get("result")
-                .cloned()
-                .ok_or_else(|| EvmError::BadReply("reply has no result".into()));
+        self.request(Request::post_json("", &body)).await
+    }
+
+    /// Transport failures, 429 and 5xx are retried by the network layer; a
+    /// JSON-RPC `error` object is the node's decision and is not.
+    async fn request(&self, req: Request) -> Result<Value, EvmError> {
+        let reply = self
+            .net
+            .send(req)
+            .await
+            .map_err(|e| EvmError::Network(e.to_string()))?;
+        let parsed = serde_json::from_str::<Value>(&reply.body);
+        // Read before the status: some nodes - Optimism's own among them -
+        // send a JSON-RPC error with a 400, and the reason is the useful part.
+        if let Some(err) = parsed.as_ref().ok().and_then(|v| v.get("error")) {
+            // The node decided. Trying again changes nothing.
+            let msg = err
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown error");
+            return Err(EvmError::Rpc(clean_revert(msg)));
         }
-        Err(last.unwrap_or_else(|| EvmError::Network("no attempt succeeded".into())))
+        if !reply.is_success() {
+            return Err(EvmError::Network(format!("HTTP {}", reply.status)));
+        }
+        let v = parsed.map_err(|e| EvmError::BadReply(e.to_string()))?;
+        v.get("result")
+            .cloned()
+            .ok_or_else(|| EvmError::BadReply("reply has no result".into()))
     }
 
     async fn quantity(&self, method: &str, params: Value) -> Result<u128, EvmError> {
@@ -206,13 +201,14 @@ impl Rpc {
         Ok((sym, dec as u8))
     }
 
+    /// Broadcast. Never sent twice - see [`neko_net::Policy::Submit`].
     pub async fn send_raw(&self, raw: &[u8]) -> Result<String, EvmError> {
-        let v = self
-            .call(
-                "eth_sendRawTransaction",
-                json!([format!("0x{}", hex::encode(raw))]),
-            )
-            .await?;
+        let body = json!({
+            "jsonrpc": "2.0", "id": 1,
+            "method": "eth_sendRawTransaction",
+            "params": [format!("0x{}", hex::encode(raw))],
+        });
+        let v = self.request(Request::post_json("", &body).submit()).await?;
         v.as_str()
             .map(str::to_string)
             .ok_or_else(|| EvmError::BadReply("broadcast returned no hash".into()))
@@ -428,14 +424,20 @@ mod tests {
 
     #[test]
     fn the_default_endpoint_is_used_when_none_is_configured() {
-        assert_eq!(Rpc::new(crate::BSC, None).url, crate::BSC.default_rpc);
-        assert_eq!(Rpc::new(crate::BSC, Some("")).url, crate::BSC.default_rpc);
         assert_eq!(
-            Rpc::new(crate::ETHEREUM, None).url,
+            Rpc::new(crate::BSC, None).endpoint(),
+            crate::BSC.default_rpc
+        );
+        assert_eq!(
+            Rpc::new(crate::BSC, Some("")).endpoint(),
+            crate::BSC.default_rpc
+        );
+        assert_eq!(
+            Rpc::new(crate::ETHEREUM, None).endpoint(),
             crate::ETHEREUM.default_rpc
         );
         assert_eq!(
-            Rpc::new(crate::BSC, Some("https://x.example")).url,
+            Rpc::new(crate::BSC, Some("https://x.example")).endpoint(),
             "https://x.example"
         );
     }

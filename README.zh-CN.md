@@ -23,8 +23,8 @@
 ## 这东西是干什么的
 
 一个在终端里运行的加密货币钱包。私钥存在本地加密的 SQLite 金库里；没有账号要登录，
-没有服务器保存任何东西，也不做同步。程序会联系的只有**你自己指定的链节点**，
-以及 —— 仅当你自己填了 Key 时 —— 一个用于 BNB Chain 历史的索引服务。
+没有服务器保存任何东西，也不做同步。程序会联系的只有链节点 —— **你自己指定的**，
+或某条链留空时的内置公共节点（见[限流与备用节点](#限流与备用节点)）—— 以及提供交易记录的索引服务。
 不检查更新、不上报数据、没有任何统计，**也没有行情服务**：钱包列表里那个估值
 是从链上的兑换池直接问出来的，所以显示它不花费任何隐私。它以 USDT 计价而不是美元，
 并且界面上如实标注 —— 因为那才是实际问到的东西。
@@ -127,23 +127,29 @@ neko-wallet
 | 链 | 状态 | 资产 |
 |---|---|---|
 | TRON | 可用 | TRX、USDT (TRC20) |
-| BNB Chain | 可用 | BNB、USDT (BEP20) |
-| Solana | 可用 | SOL、USDT (SPL) |
+| BNB Chain | 可用 | BNB、USDT、USDC (BEP20) |
+| Solana | 可用 | SOL、USDT、USDC (SPL) |
 | Bitcoin | 可用 | BTC |
-| Ethereum | 可用 | ETH、USDT (ERC20) |
-| Polygon | 可用 | POL、USDT (ERC20) |
+| Ethereum | 可用 | ETH、USDT、USDC (ERC20) |
+| Polygon | 可用 | POL、USDT、USDC (ERC20) |
 | Base | 可用 | ETH、USDC (ERC20) |
-| Arbitrum | 可用 | ETH、USDT (ERC20) |
-| Optimism | 可用 | ETH、USDT (ERC20) |
-| Avalanche (AVAX C-Chain) | 可用 | AVAX、USDT (ERC20) |
-| HyperEVM | 可用 | HYPE、USDT (ERC20) |
+| Arbitrum | 可用 | ETH、USDT、USDC (ERC20) |
+| Optimism | 可用 | ETH、USDT、USDC (ERC20) |
+| Avalanche (AVAX C-Chain) | 可用 | AVAX、USDT、USDC (ERC20) |
+| HyperEVM | 可用 | HYPE、USDT、USDC (ERC20) |
 | Mantle | 可用 | MNT、USDC (ERC20) |
 | Linea | 可用 | ETH、USDC (ERC20) |
 | zkSync Era | 可用 | ETH、USDC (ERC20) |
-| Scroll | 可用 | ETH、USDT (ERC20) |
-| Aptos | 可用 | APT、USDT (fungible asset) |
+| Scroll | 可用 | ETH、USDT、USDC (ERC20) |
+| Aptos | 可用 | APT、USDT、USDC (fungible asset) |
 | Sui | 可用 | SUI、USDC (coin objects) |
 | TON | 可用 | GRAM、USDT (jetton) |
+
+有 USDC 在流通的链上，USDC 都列在 USDT 旁边 —— 十八条里有十五条。剩下三条没有可列的：
+Bitcoin 没有代币；Circle 在 2024 年停止支持 TRON 上的 USDC，交易所也不再收；TON 上只有跨
+链桥包装的版本，不是 Circle 发行的。每个 USDC 合约的名称和小数位都从它自己的链上读回核对
+过，每次转账前也会像 USDT 一样再查一次。BNB Chain 上的是 Binance-Peg USDC，18 位小数；
+Polygon、Arbitrum、Optimism 用的是 Circle 原生 USDC，不是旁边还在流通的桥接版 `USDC.e`。
 
 Polygon 也用同一个币种编号，所以同一句助记词在三条 EVM 链上是**同一个地址**。
 它有两件自己的事。它的币叫 **POL**，2024 年 9 月从 MATIC 改名 —— 这一点是链自己说的，
@@ -276,8 +282,10 @@ Ed25519 钥匙、两个 32 字节地址，把两个操作数调换一下，得�
 读懂它才能给它定价。有一个后果值得知道——Sui 会退还它收取的一部分存储费，而把币对象
 合并起来正好释放存储，所以一笔把三十个对象折在一起的转账**可能一分钱都不花**。
 
-一个提醒：Sui 官方的公共全节点已经**停用**了 JSON-RPC，对所有方法都回
-"Method not found"。这里默认用的是另一个还在提供它的节点。
+Sui 的公共节点已经全部停用 JSON-RPC，所以这个钱包改用 Sui 的 **GraphQL**，地址是
+`graphql.mainnet.sui.io`。你为 Sui 自定义的节点也必须是 GraphQL 端点。有一个限制值得知道：Sui
+现在可以把余额直接存在地址本身，而不是存成币对象。这部分 SUI 会算进这里显示的余额，但转账是用
+币对象组出来的，所以目前还不能从这个钱包花用它。
 
 TON 在这里是唯一一条**地址不是从密钥算出来的**链。TON 上的钱包本身就是一个智能合约，
 地址是这个合约初始代码和存储的哈希。由此带来的两件事都摆在界面上，而不是等你自己撞上：
@@ -294,6 +302,51 @@ TON 在这里是唯一一条**地址不是从密钥算出来的**链。TON 上�
 链相关的代码只集中在一个 crate 里。密钥派生、存储、加密和界面都是共用且与链无关的，
 数据库从第一版迁移起就带着一张有 SLIP-44 币种编号的 `chains` 表。
 本文里关于能量、带宽和手续费估算的部分是 TRON 特有的；其余内容适用于任何链。
+
+---
+
+## 限流与备用节点
+
+公共节点会限制回答的量，而钱包列表一次就要向每条链询问每个钱包。所以所有请求都走同一层：
+
+- **一个共用连接池，每台主机各排一条队。** 对同一台服务器的请求会在它开口拒绝之前就先放慢；
+  它真的拒绝时 —— `429`、TronGrid 的 `403`，或藏在 JSON-RPC 错误里的限流 —— 再放得更慢，
+  之后慢慢恢复。服务器给了 `Retry-After` 就照办。
+- **只在不会出事的地方重试。** 被拒或失败的查询，会隔一段越来越长的时间再问一次；节点已经做出的
+  决定 —— 调用回滚、地址无效 —— 不会重问。**可能已经送到节点的交易，绝不会再发一次**，
+  不管是同一个节点还是别的节点。只有确定没送到的 —— 根本没连上，或在门口就被 `429` 挡下 ——
+  才会重发。
+- **备用节点，只在你没有自己选节点时使用。** 某条链的节点设置留空，就先问内置默认节点；它拒绝、
+  失败，或后面排队超过约一秒时，请求改发到内置的公共备用节点。这些节点和默认节点一样，
+  看得到你在查哪些地址。只要你设置了节点，那条链就只会联系它，即使它挂了也一样。
+- **密钥不会离开它所属的服务。** TronGrid 或 toncenter 的密钥只会发到该服务自己的主机，
+  或你设置的节点 —— 绝不发到备用节点。
+
+| 链 | 备用节点（依次） |
+|---|---|
+| TRON | tron-rpc.publicnode.com（只用于节点调用；交易记录仍走 TronGrid） |
+| BNB Chain | bsc-dataseed1.binance.org、bsc-dataseed1.defibit.io |
+| Ethereum | eth.drpc.org |
+| Polygon | polygon.drpc.org |
+| Base | mainnet.base.org、base.drpc.org |
+| Arbitrum | arb1.arbitrum.io、arbitrum.drpc.org |
+| Optimism | mainnet.optimism.io、optimism.drpc.org |
+| Avalanche (AVAX C-Chain) | api.avax.network、avalanche.drpc.org |
+| HyperEVM | hyperliquid-rpc.publicnode.com、hyperliquid.drpc.org |
+| Mantle | mantle-rpc.publicnode.com |
+| Linea | linea-rpc.publicnode.com、linea.drpc.org |
+| Scroll | scroll-rpc.publicnode.com、scroll.drpc.org |
+| Bitcoin | mempool.space |
+| Aptos | aptos-rest.publicnode.com、api.mainnet.aptoslabs.com |
+| Solana、TON、Sui、zkSync Era | 无：没有免密钥的节点能通过钱包用到的每一个调用，所以这几条改靠放慢节奏 |
+
+每个备用节点在加进来之前，都对照过该链客户端的每一个调用实测，包括广播交易。
+
+**TronGrid** 没有密钥时，每个 IP 每秒大约只回答三个请求，超过就把这个 IP 暂停。密钥能提高上限，
+而且 **设置 → TronGrid API Key 可以填好几把，用逗号隔开**：每把各有自己的额度，请求轮流使用，
+刚被 TronGrid 暂停的那把会跳过，直到它恢复。密钥在 trongrid.io 免费申请。
+
+实测：没有密钥时同时查 40 个 TRON 余额，以前只回来 3 个、37 个被拒；现在全部回来，约三秒。
 
 ---
 
@@ -502,7 +555,7 @@ curl -fsSL https://raw.githubusercontent.com/zoefix/neko-wallet/main/install.sh 
 开了一条远程代码通道，再多的签名验证也不会让这条通道比「根本没有」更小。
 CI 会强制这一点：依赖树里一旦重新出现自替换相关的 crate，
 或者程序多出白名单以外的联网目标，构建就会失败。
-白名单必须手动修改才能扩大，目前只有：三条链的节点、可选的 BNB Chain 历史索引服务，
+白名单必须手动修改才能扩大，目前只有：各链的节点与备用节点、交易记录的索引服务，
 以及浏览器链接（只复制给你，钱包自己从不访问）。
 
 ---
@@ -547,6 +600,7 @@ neko-evm      五条 EVM 链：RLP、EIP-155/1559 签名、ABI、JSON-RPC、roll
 neko-solana   Solana：Ed25519、交易编码、代币账户、集群 RPC
 neko-btc      Bitcoin：bech32、隔离见证签名、选币、Esplora
 neko-ton      TON：cell 与 BoC、钱包合约 v4R2、jetton、toncenter
+neko-net      共用 HTTP 层：连接池、每台主机的节流、重试、备用节点、密钥轮换
 neko-core     界面唯一对话的门面
 neko-i18n     编译期校验的翻译表
 neko-tui      ratatui 界面

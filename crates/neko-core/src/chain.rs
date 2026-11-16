@@ -197,116 +197,175 @@ impl ChainId {
         }
     }
 
-    /// The stablecoin this wallet knows about on each chain.
+    /// The chain's primary stablecoin: the first of [`Self::stables`], and the
+    /// one its price pools quote in. `None` on Bitcoin, which has none.
+    pub fn stable(self) -> Option<Asset> {
+        self.stables().into_iter().next()
+    }
+
+    /// Every stablecoin this wallet knows on the chain, primary first.
     ///
-    /// **Not always USDT.** Seven of these chains carry Tether; Base carries
-    /// USDC, because Tether's contract there holds 23 million against Circle's
-    /// 4.2 billion and Binance will not send USDT to that chain at all. A USDT
-    /// row on Base is a row nobody can put anything into.
+    /// **Not always USDT first.** Base, Mantle, Linea, zkSync Era and Sui carry
+    /// USDC as their primary, because Tether's supply there is a rounding
+    /// error and Binance sends no USDT to most of them - a USDT row on Base is
+    /// a row nobody can put anything into. Everywhere else Tether's is primary
+    /// and Circle's is listed second, except on three chains with no USDC to
+    /// list: Bitcoin has no tokens at all, Circle stopped supporting TRON in
+    /// 2024 and exchanges no longer accept it there, and TON has only a
+    /// bridged wrapper that is not Circle's.
     ///
     /// Same name where it is the same token, different precision: 6 decimals
     /// on TRON, 18 on BNB Chain. Treating one like the other is a factor of a
     /// million million, which is why the number travels with the asset rather
-    /// than living in a constant. `None` on a chain with no such token.
-    ///
-    /// Bitcoin is the one: it carries one asset and no contracts, so a screen
-    /// that assumed two assets per chain would show an empty row where nothing
-    /// exists.
-    pub fn stable(self) -> Option<Asset> {
+    /// than living in a constant.
+    pub fn stables(self) -> Vec<Asset> {
         match self {
-            ChainId::Tron => Some(Asset::Trc20 {
+            ChainId::Tron => vec![Asset::Trc20 {
                 contract: neko_tron::usdt_address(),
                 decimals: neko_tron::USDT_DECIMALS,
+                stable: Stable::Usdt,
+            }],
+            ChainId::Solana => vec![
+                Asset::SplToken {
+                    mint: neko_solana::usdt_mint(),
+                    decimals: neko_solana::USDT_DECIMALS,
+                    stable: Stable::Usdt,
+                },
+                Asset::SplToken {
+                    mint: neko_solana::usdc_mint(),
+                    decimals: neko_solana::USDC_DECIMALS,
+                    stable: Stable::Usdc,
+                },
+            ],
+            ChainId::Bitcoin => Vec::new(),
+            // Eighteen decimals for both of BNB Chain's dollars, six on
+            // Ethereum's: the precision comes from each token, never the chain.
+            ChainId::Bsc => evm_stables(neko_evm::BSC, |contract, decimals, stable| Asset::Bep20 {
+                contract,
+                decimals,
+                stable,
             }),
-            ChainId::Solana => Some(Asset::SplToken {
-                mint: neko_solana::usdt_mint(),
-                decimals: neko_solana::USDT_DECIMALS,
+            ChainId::Ethereum => evm_stables(neko_evm::ETHEREUM, |contract, decimals, stable| {
+                Asset::Erc20 {
+                    contract,
+                    decimals,
+                    stable,
+                }
             }),
-            ChainId::Bitcoin => None,
-            ChainId::Bsc => Some(Asset::Bep20 {
-                contract: neko_evm::BSC.stable_address(),
-                decimals: neko_evm::BSC.stable_decimals,
+            // Tether's contract here calls itself USDT0 - see
+            // `neko_evm::POLYGON`.
+            ChainId::Polygon => evm_stables(neko_evm::POLYGON, |contract, decimals, stable| {
+                Asset::PolygonErc20 {
+                    contract,
+                    decimals,
+                    stable,
+                }
             }),
-            // A different contract *and* a different precision from BNB
-            // Chain's: six decimals here, eighteen there.
-            ChainId::Ethereum => Some(Asset::Erc20 {
-                contract: neko_evm::ETHEREUM.stable_address(),
-                decimals: neko_evm::ETHEREUM.stable_decimals,
-            }),
-            // Six decimals like Ethereum's, and a contract that calls itself
-            // USDT0 - see `neko_evm::POLYGON`.
-            ChainId::Polygon => Some(Asset::PolygonErc20 {
-                contract: neko_evm::POLYGON.stable_address(),
-                decimals: neko_evm::POLYGON.stable_decimals,
-            }),
-            ChainId::Base => Some(Asset::BaseErc20 {
-                contract: neko_evm::BASE.stable_address(),
-                decimals: neko_evm::BASE.stable_decimals,
+            ChainId::Base => evm_stables(neko_evm::BASE, |contract, decimals, stable| {
+                Asset::BaseErc20 {
+                    contract,
+                    decimals,
+                    stable,
+                }
             }),
             // Real USDT here, unlike Base's - 835 million of it, and Binance
             // will send it. The contract calls itself `USD₮0`.
-            ChainId::Arbitrum => Some(Asset::ArbitrumErc20 {
-                contract: neko_evm::ARBITRUM.stable_address(),
-                decimals: neko_evm::ARBITRUM.stable_decimals,
+            ChainId::Arbitrum => evm_stables(neko_evm::ARBITRUM, |contract, decimals, stable| {
+                Asset::ArbitrumErc20 {
+                    contract,
+                    decimals,
+                    stable,
+                }
             }),
-            // Plain `USDT`, the only one of the three rollups here whose
-            // contract still calls itself that.
-            ChainId::Optimism => Some(Asset::OptimismErc20 {
-                contract: neko_evm::OPTIMISM.stable_address(),
-                decimals: neko_evm::OPTIMISM.stable_decimals,
+            ChainId::Optimism => evm_stables(neko_evm::OPTIMISM, |contract, decimals, stable| {
+                Asset::OptimismErc20 {
+                    contract,
+                    decimals,
+                    stable,
+                }
             }),
-            ChainId::Avalanche => Some(Asset::AvalancheErc20 {
-                contract: neko_evm::AVALANCHE.stable_address(),
-                decimals: neko_evm::AVALANCHE.stable_decimals,
+            ChainId::Avalanche => evm_stables(neko_evm::AVALANCHE, |contract, decimals, stable| {
+                Asset::AvalancheErc20 {
+                    contract,
+                    decimals,
+                    stable,
+                }
             }),
-            ChainId::HyperEvm => Some(Asset::HyperEvmErc20 {
-                contract: neko_evm::HYPER_EVM.stable_address(),
-                decimals: neko_evm::HYPER_EVM.stable_decimals,
+            ChainId::HyperEvm => evm_stables(neko_evm::HYPER_EVM, |contract, decimals, stable| {
+                Asset::HyperEvmErc20 {
+                    contract,
+                    decimals,
+                    stable,
+                }
             }),
-            ChainId::Mantle => Some(Asset::MantleErc20 {
-                contract: neko_evm::MANTLE.stable_address(),
-                decimals: neko_evm::MANTLE.stable_decimals,
+            ChainId::Mantle => evm_stables(neko_evm::MANTLE, |contract, decimals, stable| {
+                Asset::MantleErc20 {
+                    contract,
+                    decimals,
+                    stable,
+                }
             }),
-            ChainId::Linea => Some(Asset::LineaErc20 {
-                contract: neko_evm::LINEA.stable_address(),
-                decimals: neko_evm::LINEA.stable_decimals,
+            ChainId::Linea => evm_stables(neko_evm::LINEA, |contract, decimals, stable| {
+                Asset::LineaErc20 {
+                    contract,
+                    decimals,
+                    stable,
+                }
             }),
-            ChainId::ZkSyncEra => Some(Asset::ZkSyncEraErc20 {
-                contract: neko_evm::ZKSYNC_ERA.stable_address(),
-                decimals: neko_evm::ZKSYNC_ERA.stable_decimals,
+            ChainId::ZkSyncEra => {
+                evm_stables(neko_evm::ZKSYNC_ERA, |contract, decimals, stable| {
+                    Asset::ZkSyncEraErc20 {
+                        contract,
+                        decimals,
+                        stable,
+                    }
+                })
+            }
+            ChainId::Scroll => evm_stables(neko_evm::SCROLL, |contract, decimals, stable| {
+                Asset::ScrollErc20 {
+                    contract,
+                    decimals,
+                    stable,
+                }
             }),
-            ChainId::Scroll => Some(Asset::ScrollErc20 {
-                contract: neko_evm::SCROLL.stable_address(),
-                decimals: neko_evm::SCROLL.stable_decimals,
-            }),
-            ChainId::Ton => Some(Asset::Jetton {
+            ChainId::Ton => vec![Asset::Jetton {
                 master: neko_ton::usdt_master(),
                 decimals: neko_ton::USDT_DECIMALS,
-            }),
-            // A *fungible asset*, not a coin. Aptos has both systems and the
-            // two have different entry points; sending one as the other does
-            // not move a wrong amount, it aborts.
-            ChainId::Aptos => Some(Asset::AptosFa {
-                metadata: neko_aptos::usdt_metadata(),
-                decimals: neko_aptos::USDT_DECIMALS,
-            }),
+                stable: Stable::Usdt,
+            }],
+            // *Fungible assets*, not coins. Aptos has both systems and the two
+            // have different entry points; sending one as the other does not
+            // move a wrong amount, it aborts.
+            ChainId::Aptos => vec![
+                Asset::AptosFa {
+                    metadata: neko_aptos::usdt_metadata(),
+                    decimals: neko_aptos::USDT_DECIMALS,
+                    stable: Stable::Usdt,
+                },
+                Asset::AptosFa {
+                    metadata: neko_aptos::usdc_metadata(),
+                    decimals: neko_aptos::USDC_DECIMALS,
+                    stable: Stable::Usdc,
+                },
+            ],
             // Circle's dollar, and named by a Move *type* rather than by an
             // address. Binance sends USDC here and no USDT at all.
-            ChainId::Sui => Some(Asset::SuiCoin {
+            ChainId::Sui => vec![Asset::SuiCoin {
                 coin_type: neko_sui::USDC_TYPE,
                 decimals: neko_sui::USDC_DECIMALS,
-            }),
+                stable: Stable::Usdc,
+            }],
         }
     }
 
     /// Everything this chain holds, native coin first.
     ///
-    /// One list rather than a pair, because Bitcoin has one asset and the other
-    /// three have two - and a screen that assumed the count would show an empty
-    /// row, or hide a real one, the moment that stopped being true.
+    /// One list rather than a pair, because Bitcoin has one asset and most
+    /// chains now have three - and a screen that assumed the count would show
+    /// an empty row, or hide a real one, the moment that stopped being true.
     pub fn assets(self) -> Vec<Asset> {
         let mut v = vec![self.native()];
-        v.extend(self.stable());
+        v.extend(self.stables());
         v
     }
 
@@ -694,17 +753,63 @@ impl std::fmt::Display for ChainAddress {
 }
 
 /// Something transferable.
+/// Which dollar a token is.
+///
+/// The name on screen comes from here, never from what a contract or a server
+/// calls itself: Tether's contracts answer `USDT0`, `USD₮0` and `USDt` on
+/// different chains, and every one of them is shown as USDT. What a contract
+/// calls itself is checked separately, before signing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Stable {
+    Usdt,
+    Usdc,
+}
+
+impl Stable {
+    pub fn symbol(self) -> &'static str {
+        match self {
+            Stable::Usdt => "USDT",
+            Stable::Usdc => "USDC",
+        }
+    }
+
+    /// The label an EVM chain's constants give a token. Only ever called on
+    /// those constants, and a test walks every one of them.
+    fn from_label(label: &str) -> Self {
+        match label {
+            "USDT" => Stable::Usdt,
+            "USDC" => Stable::Usdc,
+            other => panic!("an EVM chain constant names an unknown stablecoin {other:?}"),
+        }
+    }
+}
+
+/// One EVM chain's stablecoins, each made into that chain's own variant so a
+/// token from one chain can never be mistaken for the same token on another.
+fn evm_stables(
+    chain: neko_evm::EvmChain,
+    make: fn(neko_hd::EvmAddress, u8, Stable) -> Asset,
+) -> Vec<Asset> {
+    chain
+        .tokens()
+        .into_iter()
+        .map(|t| make(t.address(), t.decimals, Stable::from_label(t.label)))
+        .collect()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Asset {
     Trx,
     Trc20 {
         contract: neko_hd::Address,
         decimals: u8,
+        stable: Stable,
     },
     Bnb,
     Bep20 {
         contract: neko_hd::EvmAddress,
         decimals: u8,
+        stable: Stable,
     },
     Sol,
     /// An SPL token. `mint` is the token's own account, not the holder's - on
@@ -712,6 +817,7 @@ pub enum Asset {
     SplToken {
         mint: neko_hd::SolanaAddress,
         decimals: u8,
+        stable: Stable,
     },
     /// The only asset on its chain: no contracts, no tokens.
     Btc,
@@ -719,6 +825,7 @@ pub enum Asset {
     Erc20 {
         contract: neko_hd::EvmAddress,
         decimals: u8,
+        stable: Stable,
     },
     Gram,
     /// Polygon's coin, renamed from MATIC in September 2024.
@@ -731,6 +838,7 @@ pub enum Asset {
     BaseErc20 {
         contract: neko_hd::EvmAddress,
         decimals: u8,
+        stable: Stable,
     },
     /// Arbitrum's coin, which is ETH again.
     ArbitrumEth,
@@ -738,6 +846,7 @@ pub enum Asset {
     ArbitrumErc20 {
         contract: neko_hd::EvmAddress,
         decimals: u8,
+        stable: Stable,
     },
     /// Optimism's coin, which is ETH for the third time.
     OptimismEth,
@@ -745,6 +854,7 @@ pub enum Asset {
     OptimismErc20 {
         contract: neko_hd::EvmAddress,
         decimals: u8,
+        stable: Stable,
     },
     /// Avalanche's coin.
     AvalancheNative,
@@ -752,6 +862,7 @@ pub enum Asset {
     AvalancheErc20 {
         contract: neko_hd::EvmAddress,
         decimals: u8,
+        stable: Stable,
     },
     /// HyperEvm's coin.
     HyperEvmNative,
@@ -759,6 +870,7 @@ pub enum Asset {
     HyperEvmErc20 {
         contract: neko_hd::EvmAddress,
         decimals: u8,
+        stable: Stable,
     },
     /// Mantle's coin.
     MantleNative,
@@ -766,6 +878,7 @@ pub enum Asset {
     MantleErc20 {
         contract: neko_hd::EvmAddress,
         decimals: u8,
+        stable: Stable,
     },
     /// Linea's coin.
     LineaNative,
@@ -773,6 +886,7 @@ pub enum Asset {
     LineaErc20 {
         contract: neko_hd::EvmAddress,
         decimals: u8,
+        stable: Stable,
     },
     /// ZkSyncEra's coin.
     ZkSyncEraNative,
@@ -780,6 +894,7 @@ pub enum Asset {
     ZkSyncEraErc20 {
         contract: neko_hd::EvmAddress,
         decimals: u8,
+        stable: Stable,
     },
     /// Scroll's coin.
     ScrollNative,
@@ -787,6 +902,7 @@ pub enum Asset {
     ScrollErc20 {
         contract: neko_hd::EvmAddress,
         decimals: u8,
+        stable: Stable,
     },
     /// A token on Polygon. Technically an ERC-20 like Ethereum's, and
     /// deliberately not the same variant: [`Asset::Erc20`] means *Ethereum's*,
@@ -796,6 +912,7 @@ pub enum Asset {
     PolygonErc20 {
         contract: neko_hd::EvmAddress,
         decimals: u8,
+        stable: Stable,
     },
     /// Aptos's coin.
     Apt,
@@ -804,6 +921,7 @@ pub enum Asset {
     AptosFa {
         metadata: neko_aptos::AptosAddress,
         decimals: u8,
+        stable: Stable,
     },
     /// Sui's coin.
     Sui,
@@ -812,12 +930,14 @@ pub enum Asset {
     SuiCoin {
         coin_type: &'static str,
         decimals: u8,
+        stable: Stable,
     },
     /// A jetton. `master` is the token's own contract; the balance lives in a
     /// separate per-holder wallet contract derived from both.
     Jetton {
         master: neko_ton::TonAddress,
         decimals: u8,
+        stable: Stable,
     },
 }
 
@@ -905,33 +1025,25 @@ impl Asset {
             Asset::Gram => "GRAM",
             Asset::Apt => "APT",
             Asset::Sui => "SUI",
-            // Circle's dollar, like Base's and three others'.
-            Asset::SuiCoin { .. } => neko_sui::USDC_SYMBOL,
-            // Base's stablecoin is a different token, not a differently named
-            // one - see `ChainId::stable`.
-            Asset::BaseErc20 { .. } => neko_evm::BASE.stable_label,
-            // Four more chains carry Circle's dollar rather than Tether's,
-            // each for its own reason - see `neko_evm`. The label comes from
-            // the chain, never from what a contract or a server calls itself.
-            Asset::MantleErc20 { .. } => neko_evm::MANTLE.stable_label,
-            Asset::LineaErc20 { .. } => neko_evm::LINEA.stable_label,
-            Asset::ZkSyncEraErc20 { .. } => neko_evm::ZKSYNC_ERA.stable_label,
-            // Polygon's contract calls itself USDT0. It is the same token
-            // people mean by USDT and it is shown as USDT; the name the
-            // contract has is what the send path checks against the chain.
-            Asset::Trc20 { .. }
-            | Asset::Bep20 { .. }
-            | Asset::SplToken { .. }
-            | Asset::Erc20 { .. }
-            | Asset::PolygonErc20 { .. }
-            | Asset::ArbitrumErc20 { .. }
-            | Asset::OptimismErc20 { .. }
-            | Asset::AvalancheErc20 { .. }
-            | Asset::HyperEvmErc20 { .. }
-            | Asset::ScrollErc20 { .. }
-            // Aptos's contract calls itself `USDt`, with a lowercase t.
-            | Asset::AptosFa { .. }
-            | Asset::Jetton { .. } => "USDT",
+            // Which dollar, carried by the token itself. Never what a contract
+            // or a server calls itself - see `Stable`.
+            Asset::Trc20 { stable, .. }
+            | Asset::Bep20 { stable, .. }
+            | Asset::SplToken { stable, .. }
+            | Asset::Erc20 { stable, .. }
+            | Asset::PolygonErc20 { stable, .. }
+            | Asset::BaseErc20 { stable, .. }
+            | Asset::ArbitrumErc20 { stable, .. }
+            | Asset::OptimismErc20 { stable, .. }
+            | Asset::AvalancheErc20 { stable, .. }
+            | Asset::HyperEvmErc20 { stable, .. }
+            | Asset::MantleErc20 { stable, .. }
+            | Asset::LineaErc20 { stable, .. }
+            | Asset::ZkSyncEraErc20 { stable, .. }
+            | Asset::ScrollErc20 { stable, .. }
+            | Asset::AptosFa { stable, .. }
+            | Asset::SuiCoin { stable, .. }
+            | Asset::Jetton { stable, .. } => stable.symbol(),
         }
     }
 
@@ -945,18 +1057,42 @@ impl Asset {
     /// rather than the omission. Here the compiler asks instead.
     pub fn evm_token(self) -> Option<(neko_hd::EvmAddress, u8)> {
         match self {
-            Asset::Bep20 { contract, decimals }
-            | Asset::Erc20 { contract, decimals }
-            | Asset::PolygonErc20 { contract, decimals }
-            | Asset::BaseErc20 { contract, decimals }
-            | Asset::ArbitrumErc20 { contract, decimals }
-            | Asset::OptimismErc20 { contract, decimals }
-            | Asset::AvalancheErc20 { contract, decimals }
-            | Asset::HyperEvmErc20 { contract, decimals }
-            | Asset::MantleErc20 { contract, decimals }
-            | Asset::LineaErc20 { contract, decimals }
-            | Asset::ZkSyncEraErc20 { contract, decimals }
-            | Asset::ScrollErc20 { contract, decimals } => Some((contract, decimals)),
+            Asset::Bep20 {
+                contract, decimals, ..
+            }
+            | Asset::Erc20 {
+                contract, decimals, ..
+            }
+            | Asset::PolygonErc20 {
+                contract, decimals, ..
+            }
+            | Asset::BaseErc20 {
+                contract, decimals, ..
+            }
+            | Asset::ArbitrumErc20 {
+                contract, decimals, ..
+            }
+            | Asset::OptimismErc20 {
+                contract, decimals, ..
+            }
+            | Asset::AvalancheErc20 {
+                contract, decimals, ..
+            }
+            | Asset::HyperEvmErc20 {
+                contract, decimals, ..
+            }
+            | Asset::MantleErc20 {
+                contract, decimals, ..
+            }
+            | Asset::LineaErc20 {
+                contract, decimals, ..
+            }
+            | Asset::ZkSyncEraErc20 {
+                contract, decimals, ..
+            }
+            | Asset::ScrollErc20 {
+                contract, decimals, ..
+            } => Some((contract, decimals)),
             Asset::Trx
             | Asset::Trc20 { .. }
             | Asset::Bnb
@@ -1045,6 +1181,92 @@ impl Asset {
     /// which then reserves nothing, and `native_needed`, which then leaves the
     /// amount out of the balance check. Both fail in the direction that offers
     /// a transfer the chain will refuse.
+    /// Which dollar this is, or `None` for a chain's own coin.
+    pub fn stable(self) -> Option<Stable> {
+        match self {
+            Asset::Trc20 { stable, .. }
+            | Asset::Bep20 { stable, .. }
+            | Asset::SplToken { stable, .. }
+            | Asset::Erc20 { stable, .. }
+            | Asset::PolygonErc20 { stable, .. }
+            | Asset::BaseErc20 { stable, .. }
+            | Asset::ArbitrumErc20 { stable, .. }
+            | Asset::OptimismErc20 { stable, .. }
+            | Asset::AvalancheErc20 { stable, .. }
+            | Asset::HyperEvmErc20 { stable, .. }
+            | Asset::MantleErc20 { stable, .. }
+            | Asset::LineaErc20 { stable, .. }
+            | Asset::ZkSyncEraErc20 { stable, .. }
+            | Asset::ScrollErc20 { stable, .. }
+            | Asset::AptosFa { stable, .. }
+            | Asset::SuiCoin { stable, .. }
+            | Asset::Jetton { stable, .. } => Some(stable),
+            Asset::Trx
+            | Asset::Bnb
+            | Asset::Sol
+            | Asset::Btc
+            | Asset::Eth
+            | Asset::Gram
+            | Asset::Pol
+            | Asset::BaseEth
+            | Asset::ArbitrumEth
+            | Asset::OptimismEth
+            | Asset::AvalancheNative
+            | Asset::HyperEvmNative
+            | Asset::MantleNative
+            | Asset::LineaNative
+            | Asset::ZkSyncEraNative
+            | Asset::ScrollNative
+            | Asset::Apt
+            | Asset::Sui => None,
+        }
+    }
+
+    /// What identifies a token on its chain, as the bytes the database keeps.
+    /// `None` for a chain's own coin, which has no contract.
+    ///
+    /// Sui names a token by a Move type rather than an address, so there the
+    /// bytes are its name.
+    pub fn contract_bytes(self) -> Option<Vec<u8>> {
+        match self {
+            Asset::Trc20 { contract, .. } => Some(contract.as_bytes().to_vec()),
+            Asset::SplToken { mint, .. } => Some(mint.as_bytes().to_vec()),
+            Asset::Jetton { master, .. } => Some(master.as_bytes()),
+            Asset::AptosFa { metadata, .. } => Some(metadata.as_bytes().to_vec()),
+            Asset::SuiCoin { coin_type, .. } => Some(coin_type.as_bytes().to_vec()),
+            Asset::Bep20 { contract, .. }
+            | Asset::Erc20 { contract, .. }
+            | Asset::PolygonErc20 { contract, .. }
+            | Asset::BaseErc20 { contract, .. }
+            | Asset::ArbitrumErc20 { contract, .. }
+            | Asset::OptimismErc20 { contract, .. }
+            | Asset::AvalancheErc20 { contract, .. }
+            | Asset::HyperEvmErc20 { contract, .. }
+            | Asset::MantleErc20 { contract, .. }
+            | Asset::LineaErc20 { contract, .. }
+            | Asset::ZkSyncEraErc20 { contract, .. }
+            | Asset::ScrollErc20 { contract, .. } => Some(contract.as_bytes().to_vec()),
+            Asset::Trx
+            | Asset::Bnb
+            | Asset::Sol
+            | Asset::Btc
+            | Asset::Eth
+            | Asset::Gram
+            | Asset::Pol
+            | Asset::BaseEth
+            | Asset::ArbitrumEth
+            | Asset::OptimismEth
+            | Asset::AvalancheNative
+            | Asset::HyperEvmNative
+            | Asset::MantleNative
+            | Asset::LineaNative
+            | Asset::ZkSyncEraNative
+            | Asset::ScrollNative
+            | Asset::Apt
+            | Asset::Sui => None,
+        }
+    }
+
     pub fn is_native(self) -> bool {
         self == self.chain().native()
     }
@@ -1193,6 +1415,67 @@ mod tests {
             // the label shares its line with a wallet name.
             assert!(a.chars().count() <= 24, "{a:?} is too long for the picker");
         }
+    }
+
+    /// USDC on the fifteen chains where Circle's dollar actually circulates,
+    /// and nowhere else: Bitcoin has no tokens, Circle stopped supporting TRON
+    /// in 2024, and TON has only a bridged wrapper that is not Circle's.
+    #[test]
+    fn usdc_is_on_every_chain_that_has_it() {
+        let without = [ChainId::Tron, ChainId::Ton, ChainId::Bitcoin];
+        for c in CHAINS {
+            let usdc: Vec<Asset> = c
+                .stables()
+                .into_iter()
+                .filter(|a| a.stable() == Some(Stable::Usdc))
+                .collect();
+            let want = usize::from(!without.contains(&c));
+            assert_eq!(usdc.len(), want, "{c:?}");
+            for a in &usdc {
+                assert_eq!(a.symbol(), "USDC");
+                assert_eq!(a.chain(), c);
+                assert!(!a.is_native());
+            }
+        }
+        assert_eq!(ChainId::Bsc.assets().len(), 3, "BNB, USDT, USDC");
+        assert_eq!(
+            ChainId::Base.assets().len(),
+            2,
+            "ETH, USDC - never USDC twice"
+        );
+        assert_eq!(ChainId::Bitcoin.assets().len(), 1);
+    }
+
+    /// Two dollars on one chain must stay two rows: distinct names, distinct
+    /// contracts, and the primary - the one the price pools quote in - first.
+    #[test]
+    fn a_chains_stablecoins_are_told_apart() {
+        for c in CHAINS {
+            let stables = c.stables();
+            assert_eq!(c.stable(), stables.first().copied(), "{c:?}");
+            for (i, a) in stables.iter().enumerate() {
+                assert!(a.contract_bytes().is_some(), "{c:?}: {a:?} has no contract");
+                for b in &stables[i + 1..] {
+                    assert_ne!(a.symbol(), b.symbol(), "{c:?}");
+                    assert_ne!(a.contract_bytes(), b.contract_bytes(), "{c:?}");
+                }
+            }
+            assert_eq!(c.native().contract_bytes(), None, "{c:?}");
+            assert_eq!(c.native().stable(), None, "{c:?}");
+        }
+        // BNB Chain's are both eighteen decimals; Ethereum's both six.
+        let bsc: Vec<u8> = ChainId::Bsc
+            .stables()
+            .iter()
+            .map(|a| a.decimals())
+            .collect();
+        assert_eq!(bsc, [18, 18]);
+        let eth: Vec<u8> = ChainId::Ethereum
+            .stables()
+            .iter()
+            .map(|a| a.decimals())
+            .collect();
+        assert_eq!(eth, [6, 6]);
     }
 
     #[test]

@@ -15,15 +15,16 @@
 //! from the fact that it supports two.
 
 use neko_hd::EvmAddress;
+use neko_net::{Request, Service};
 use serde_json::Value;
 
 use crate::error::EvmError;
 use crate::history::Transfer;
+use crate::EvmToken;
 
 pub struct Routescan {
     chain: crate::EvmChain,
-    base: String,
-    http: reqwest::Client,
+    net: Service,
 }
 
 impl Routescan {
@@ -32,34 +33,28 @@ impl Routescan {
     pub fn new(chain: crate::EvmChain) -> Option<Self> {
         Some(Routescan {
             chain,
-            base: chain.routescan?.to_string(),
-            http: reqwest::Client::builder()
+            net: Service::new(chain.routescan?)
                 .timeout(std::time::Duration::from_secs(45))
-                .build()
-                .unwrap_or_default(),
+                .classify(crate::etherscan::rate_limit_in_result),
         })
     }
 
     pub fn endpoint(&self) -> &str {
-        &self.base
+        self.net.primary()
     }
 
     async fn call(&self, action: &str, who: &str, extra: &str) -> Result<Value, EvmError> {
-        let url = format!(
-            "{}?module=account&action={action}&address={who}{extra}\
-             &page=1&offset=50&sort=desc",
-            self.base
+        let query = format!(
+            "?module=account&action={action}&address={who}{extra}\
+             &page=1&offset=50&sort=desc"
         );
-        let resp = self
-            .http
-            .get(&url)
-            .send()
+        let reply = self
+            .net
+            .send(Request::get(query))
             .await
             .map_err(|e| EvmError::Network(e.to_string()))?;
-        let v: Value = resp
-            .json()
-            .await
-            .map_err(|e| EvmError::BadReply(e.to_string()))?;
+        let v: Value =
+            serde_json::from_str(&reply.body).map_err(|e| EvmError::BadReply(e.to_string()))?;
         // The same envelope, including the "no transactions found" reply that
         // arrives dressed as an error.
         crate::etherscan::result_of(&v)
@@ -69,25 +64,33 @@ impl Routescan {
     pub async fn transfers(
         &self,
         who: EvmAddress,
-        token: EvmAddress,
+        tokens: &[EvmToken],
         limit: usize,
     ) -> Result<Vec<Transfer>, EvmError> {
         let a = who.to_string();
-        let contract = format!("&contractaddress={token}");
-        let (coins, tokens) = tokio::join!(
-            self.call("txlist", &a, ""),
-            self.call("tokentx", &a, &contract),
-        );
+        // One `tokentx` per token, in turn: the filter takes one contract, and
+        // an unfiltered list lets any token that spams this address crowd the
+        // real ones out of the page.
+        let token_leg = async {
+            let mut rows = Vec::new();
+            let mut failure = None;
+            for t in tokens {
+                let contract = format!("&contractaddress={}", t.address());
+                match self.call("tokentx", &a, &contract).await {
+                    Ok(v) => rows.extend(crate::etherscan::parse_tokens(&v, *t)),
+                    Err(e) => failure = failure.or(Some(e)),
+                }
+            }
+            (rows, failure)
+        };
+        let (coins, (token_rows, token_failure)) =
+            tokio::join!(self.call("txlist", &a, ""), token_leg);
 
-        let mut out = Vec::new();
-        let mut failure = None;
+        let mut out = token_rows;
+        let mut failure = token_failure;
         match coins {
             Ok(v) => out.extend(crate::etherscan::parse_coins(&v, self.chain)),
             Err(e) => failure = Some(e),
-        }
-        match tokens {
-            Ok(v) => out.extend(crate::etherscan::parse_tokens(&v, self.chain)),
-            Err(e) => failure = failure.or(Some(e)),
         }
         if out.is_empty() {
             if let Some(e) = failure {
@@ -175,7 +178,7 @@ mod tests {
             "tokenDecimal": "6",
             "contractAddress": "0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7"
         }]);
-        let out = crate::etherscan::parse_tokens(&tokens, crate::AVALANCHE);
+        let out = crate::etherscan::parse_tokens(&tokens, crate::AVALANCHE.tokens()[0]);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].amount, 4_960_000);
         assert_eq!(out[0].decimals, 6);

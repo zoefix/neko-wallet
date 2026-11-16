@@ -249,7 +249,7 @@ async fn solana_quote(
 
     let (compute_unit_limit, create_recipient_account, rent) = match req.asset {
         Asset::Sol => (neko_solana::COMPUTE_UNITS_SOL, false, 0),
-        Asset::SplToken { mint, decimals } => {
+        Asset::SplToken { mint, decimals, .. } => {
             // Same reasoning as the other two chains': ask the chain what this
             // token is before trusting a built-in address. Here the number that
             // matters is the precision, because the program checks it and a
@@ -327,6 +327,12 @@ async fn sui_quote(rpc: &neko_sui::client::Rpc, req: &TransferRequest) -> Result
     if gas_coins.is_empty() {
         return Err("there is no SUI here to pay the fee with".into());
     }
+    // The largest objects, as many as one transaction folds together. What
+    // they hold is what this transfer can spend, which is the balance the
+    // affordability check needs - not the address's whole holding.
+    let mut gas_coins = gas_coins;
+    gas_coins.sort_by_key(|c| std::cmp::Reverse(c.balance));
+    gas_coins.truncate(neko_sui::MAX_COINS_PER_TRANSFER);
     let sui_balance: u128 = gas_coins.iter().map(|c| c.balance).sum();
 
     // One gas object is enough unless the transfer is being paid for out of
@@ -364,7 +370,7 @@ async fn sui_quote(rpc: &neko_sui::client::Rpc, req: &TransferRequest) -> Result
             let mut chosen = Vec::new();
             let mut have: u128 = 0;
             for c in sorted {
-                if have >= amount as u128 {
+                if have >= amount as u128 || chosen.len() == neko_sui::MAX_COINS_PER_TRANSFER {
                     break;
                 }
                 have += c.balance;
@@ -449,19 +455,30 @@ async fn aptos_quote(
             let octas = u64::try_from(req.amount.raw).map_err(|_| "that amount is too large")?;
             neko_aptos::tx::transfer_apt(to, octas)
         }
-        Asset::AptosFa { metadata, decimals } => {
+        Asset::AptosFa {
+            metadata, decimals, ..
+        } => {
             // Ask the asset what it is before trusting a built-in address, as
             // on every other chain. Both answers matter: a wrong precision is
             // a factor of a million, and a wrong symbol means a different
-            // token entirely.
+            // token entirely. The name expected follows the address, not the
+            // label on screen.
+            let expected = if metadata == neko_aptos::usdt_metadata() {
+                neko_aptos::USDT_SYMBOL
+            } else if metadata == neko_aptos::usdc_metadata() {
+                neko_aptos::USDC_SYMBOL
+            } else {
+                return Err(format!(
+                    "{metadata} is not an asset this wallet knows - refusing to send"
+                ));
+            };
             let symbol = rest
                 .fa_symbol(metadata)
                 .await
                 .map_err(|e| format!("could not verify the token {metadata}: {e}"))?;
-            if symbol != neko_aptos::USDT_SYMBOL {
+            if symbol != expected {
                 return Err(format!(
-                    "the asset at {metadata} calls itself {symbol:?}, not {:?} - refusing to send",
-                    neko_aptos::USDT_SYMBOL
+                    "the asset at {metadata} calls itself {symbol:?}, not {expected:?} - refusing to send"
                 ));
             }
             let chain_decimals = rest
@@ -541,7 +558,9 @@ async fn ton_quote(
 
     let (jetton_wallet, attached) = match req.asset {
         Asset::Gram => (None, 0),
-        Asset::Jetton { master, decimals } => {
+        Asset::Jetton {
+            master, decimals, ..
+        } => {
             // Same reasoning as the other four chains': ask the contract what
             // it is before trusting a built-in address. Only the precision can
             // be had here - see `neko_ton::jetton::decimals_from_content` for
@@ -652,7 +671,9 @@ async fn tron_quote(c: &TronGrid, req: &TransferRequest) -> Result<Quote, String
                 .map_err(|e| e.to_string())?;
             (neko_tron::EnergyEstimate::default(), false, raw.len())
         }
-        Asset::Trc20 { contract, decimals } => {
+        Asset::Trc20 {
+            contract, decimals, ..
+        } => {
             // Prove on-chain that this really is the token we think it is,
             // before signing anything.
             let (symbol, chain_decimals) = c
@@ -752,6 +773,14 @@ async fn evm_quote(rpc: &neko_evm::client::Rpc, req: &TransferRequest) -> Result
             .evm_token()
             .ok_or_else(|| format!("that asset is not on chain {}", chain.chain_id))?;
         {
+            // The name expected follows the contract. A contract this chain's
+            // constants do not list is refused before the node is even asked.
+            let token = chain.token(contract).ok_or_else(|| {
+                format!(
+                    "{contract} is not a token this wallet knows on chain {} - refusing to send",
+                    chain.chain_id
+                )
+            })?;
             // Same reasoning as TRON's: ask the contract what it is before
             // trusting a built-in address.
             let (symbol, chain_decimals) = rpc
@@ -765,10 +794,10 @@ async fn evm_quote(rpc: &neko_evm::client::Rpc, req: &TransferRequest) -> Result
             }
             // The name the contract has, not the name on the tin. Polygon's
             // reports `USDT0`, and a hardcoded "USDT" here refused to send it.
-            if symbol != chain.stable_symbol {
+            if symbol != token.symbol {
                 return Err(format!(
                     "token contract {contract} reports symbol {symbol:?}, not {:?} - refusing to send",
-                    chain.stable_symbol
+                    token.symbol
                 ));
             }
             let data = req
@@ -966,46 +995,55 @@ pub async fn wallet_assets(
             let chain = r.chain();
             let a = addr.as_evm().map_err(|e| e.to_string())?;
             let native = r.balance(a).await.map_err(|e| e.to_string())?;
-            let usdt_bal = r
-                .token_balance(chain.stable_address(), a)
-                .await
-                .unwrap_or(0);
-            Ok(vec![
-                (
-                    chain.native_symbol.to_string(),
-                    chain.native_decimals,
-                    native as i128,
-                ),
-                // Eighteen decimals on BNB Chain, six on Ethereum. The number
-                // travels with the balance for exactly this reason - and so
-                // does the name, because Base's stablecoin is USDC.
-                (
-                    chain.stable_label.to_string(),
-                    chain.stable_decimals,
-                    usdt_bal as i128,
-                ),
-            ])
+            let tokens = chain.tokens();
+            // A token lookup failing must not discard the native figure we
+            // already have.
+            let held = futures_util::future::join_all(
+                tokens.iter().map(|t| r.token_balance(t.address(), a)),
+            )
+            .await;
+            let mut rows = vec![(
+                chain.native_symbol.to_string(),
+                chain.native_decimals,
+                native as i128,
+            )];
+            // Eighteen decimals on BNB Chain, six on Ethereum. The number
+            // travels with the balance for exactly this reason - and so does
+            // the name, because Base's primary stablecoin is USDC and most
+            // chains carry both.
+            rows.extend(
+                tokens
+                    .iter()
+                    .zip(held)
+                    .map(|(t, b)| (t.label.to_string(), t.decimals, b.unwrap_or(0) as i128)),
+            );
+            Ok(rows)
         }
         Client::Solana(rpc) => {
             let a = addr.as_solana().map_err(|e| e.to_string())?;
-            let mint = neko_solana::usdt_mint();
             let sol = rpc.balance(a).await.map_err(|e| e.to_string())?;
-            // An address that has never held this token has no account for it,
+            // An address that has never held a token has no account for it,
             // which reads as zero here - correct, and different from a failed
             // lookup, which also reads as zero rather than discarding the SOL
             // figure we already have.
-            let usdt = rpc
-                .token_balance(a, mint)
-                .await
-                .ok()
-                .flatten()
-                .map(|b| b.amount)
-                .unwrap_or(0);
+            let held = |mint| async move {
+                rpc.token_balance(a, mint)
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|b| b.amount)
+                    .unwrap_or(0)
+            };
+            let (usdt, usdc) = tokio::join!(
+                held(neko_solana::usdt_mint()),
+                held(neko_solana::usdc_mint())
+            );
             Ok(vec![
                 ("SOL".to_string(), neko_solana::SOL_DECIMALS, sol as i128),
                 // Six here, six on TRON, eighteen on BNB Chain. One token name,
                 // three precisions.
                 ("USDT".to_string(), neko_solana::USDT_DECIMALS, usdt as i128),
+                ("USDC".to_string(), neko_solana::USDC_DECIMALS, usdc as i128),
             ])
         }
         Client::Ton(api) => {
@@ -1066,13 +1104,22 @@ pub async fn wallet_assets(
             let apt = rest.apt_balance(a).await.map_err(|e| e.to_string())?;
             // A token lookup failing must not discard the coin figure we
             // already have.
-            let usdt = rest
-                .fa_balance(a, neko_aptos::usdt_metadata())
-                .await
-                .unwrap_or(0);
+            let (usdt, usdc) = tokio::join!(
+                rest.fa_balance(a, neko_aptos::usdt_metadata()),
+                rest.fa_balance(a, neko_aptos::usdc_metadata()),
+            );
             Ok(vec![
                 ("APT".to_string(), neko_aptos::APT_DECIMALS, apt as i128),
-                ("USDT".to_string(), neko_aptos::USDT_DECIMALS, usdt as i128),
+                (
+                    "USDT".to_string(),
+                    neko_aptos::USDT_DECIMALS,
+                    usdt.unwrap_or(0) as i128,
+                ),
+                (
+                    "USDC".to_string(),
+                    neko_aptos::USDC_DECIMALS,
+                    usdc.unwrap_or(0) as i128,
+                ),
             ])
         }
     }
@@ -1166,25 +1213,25 @@ pub async fn history(
             // wallet reaches for on their behalf.
             let chain = rpc.chain();
             let a = addr.as_evm().map_err(|e| e.to_string())?;
-            let usdt = chain.stable_address();
+            let tokens = chain.tokens();
             let rows = if let Some(es) = etherscan_key
                 .as_deref()
                 .and_then(|k| neko_evm::etherscan::Etherscan::new(chain, k))
             {
                 // One key, every chain. Preferred when it exists.
-                es.transfers(a, usdt, limit as usize).await
+                es.transfers(a, &tokens, limit as usize).await
             } else if let Some(nr) = history_key
                 .as_deref()
                 .and_then(|k| neko_evm::history::Bsctrace::new(chain, k))
             {
-                nr.transfers(a, usdt, limit as usize).await
+                nr.transfers(a, &tokens, limit as usize).await
             } else if let Some(bs) = neko_evm::blockscout::Blockscout::new(chain, None) {
                 // No key at all. Polygon's default, and why its history works
                 // with nothing configured.
-                bs.transfers(a, usdt, limit as usize).await
+                bs.transfers(a, &tokens, limit as usize).await
             } else if let Some(rs) = neko_evm::routescan::Routescan::new(chain) {
                 // Also keyless, and the only index Avalanche and Mantle have.
-                rs.transfers(a, usdt, limit as usize).await
+                rs.transfers(a, &tokens, limit as usize).await
             } else if chain.history_host.is_some() {
                 // There is an index for this chain and no key for it, which is
                 // a different thing from there being none. NodeReal's, named
@@ -1236,8 +1283,18 @@ pub async fn history(
             // difference rather than something to be parsed out of a program's
             // instructions.
             let a = addr.as_solana().map_err(|e| e.to_string())?;
+            // Every SPL token the chain carries, named the way the assets
+            // screen names it.
+            let tokens: Vec<(neko_hd::SolanaAddress, &str)> = ChainId::Solana
+                .stables()
+                .into_iter()
+                .filter_map(|t| match t {
+                    Asset::SplToken { mint, .. } => Some((mint, t.symbol())),
+                    _ => None,
+                })
+                .collect();
             let rows = rpc
-                .transfers(a, neko_solana::usdt_mint(), limit as usize)
+                .transfers(a, &tokens, limit as usize)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(rows

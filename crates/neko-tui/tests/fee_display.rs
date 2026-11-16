@@ -89,6 +89,7 @@ fn review_screen(q: TronFee) -> App {
         neko_core::Asset::Trc20 {
             contract: neko_tron::usdt_address(),
             decimals: 6,
+            stable: neko_core::Stable::Usdt,
         },
         "USDT".into(),
     );

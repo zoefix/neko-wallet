@@ -6,14 +6,14 @@ edition = "2021"
 [dependencies]
 neko-hd = { path = "../neko-hd" }
 sha3.workspace = true
-reqwest.workspace = true
+neko-net = { path = "../neko-net" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 hex.workspace = true
 zeroize.workspace = true
 ed25519-dalek.workspace = true
-tokio = { workspace = true, features = ["time"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
+reqwest.workspace = true

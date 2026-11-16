@@ -14,6 +14,7 @@
 pub mod chain_consts;
 pub mod client;
 pub mod coins;
+pub mod endpoints;
 pub mod error;
 pub mod history;
 pub mod tx;

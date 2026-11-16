@@ -25,8 +25,9 @@
 
 ターミナルで動く暗号資産ウォレットです。鍵はローカルの暗号化された SQLite 金庫に
 入っています。ログインするアカウントはなく、何かを預かるサーバーもなく、同期もしません。
-このプログラムが接続するのは**あなたが指定したチェーンのノード**と、
-——あなた自身がキーを入力した場合に限り——BNB Chain の履歴用インデクサだけです。
+このプログラムが接続するのはチェーンのノード —— **あなたが指定したもの**、
+または未設定のチェーンでは内蔵の公開ノード（[レート制限と予備ノード](#レート制限と予備ノード)を参照）——
+と、取引履歴を提供するインデクサだけです。
 更新確認もテレメトリも解析もなく、**価格サービスもありません**。ウォレット一覧の
 評価額は、すでに接続しているチェーン上のスワッププールから直接引いた値なので、
 表示にプライバシー上の代償がありません。ドルではなく USDT 建てで、その旨を明記します
@@ -136,23 +137,31 @@ BIP44 の導出パスはそのためのものです。チェーンを増やす�
 | チェーン | 状態 | 資産 |
 |---|---|---|
 | TRON | 動作 | TRX、USDT (TRC20) |
-| BNB Chain | 動作 | BNB、USDT (BEP20) |
-| Solana | 動作 | SOL、USDT (SPL) |
+| BNB Chain | 動作 | BNB、USDT、USDC (BEP20) |
+| Solana | 動作 | SOL、USDT、USDC (SPL) |
 | Bitcoin | 動作 | BTC |
-| Ethereum | 動作 | ETH、USDT (ERC20) |
-| Polygon | 動作 | POL、USDT (ERC20) |
+| Ethereum | 動作 | ETH、USDT、USDC (ERC20) |
+| Polygon | 動作 | POL、USDT、USDC (ERC20) |
 | Base | 動作 | ETH、USDC (ERC20) |
-| Arbitrum | 動作 | ETH、USDT (ERC20) |
-| Optimism | 動作 | ETH、USDT (ERC20) |
-| Avalanche (AVAX C-Chain) | 動作 | AVAX、USDT (ERC20) |
-| HyperEVM | 動作 | HYPE、USDT (ERC20) |
+| Arbitrum | 動作 | ETH、USDT、USDC (ERC20) |
+| Optimism | 動作 | ETH、USDT、USDC (ERC20) |
+| Avalanche (AVAX C-Chain) | 動作 | AVAX、USDT、USDC (ERC20) |
+| HyperEVM | 動作 | HYPE、USDT、USDC (ERC20) |
 | Mantle | 動作 | MNT、USDC (ERC20) |
 | Linea | 動作 | ETH、USDC (ERC20) |
 | zkSync Era | 動作 | ETH、USDC (ERC20) |
-| Scroll | 動作 | ETH、USDT (ERC20) |
-| Aptos | 動作 | APT、USDT (fungible asset) |
+| Scroll | 動作 | ETH、USDT、USDC (ERC20) |
+| Aptos | 動作 | APT、USDT、USDC (fungible asset) |
 | Sui | 動作 | SUI、USDC (coin objects) |
 | TON | 動作 | GRAM、USDT (jetton) |
+
+USDC が実際に流通しているチェーンでは、USDC を USDT の隣に並べています —— 18 本のうち 15
+本です。残る 3 本には並べるものがありません。Bitcoin にはトークンがなく、TRON の USDC は
+Circle が 2024 年にサポートを終了して取引所も受け付けなくなり、TON にあるのはブリッジで
+包んだもので Circle の発行ではありません。各 USDC コントラクトの名前と小数桁はそれぞれの
+チェーンから読み戻して確認済みで、送金の前には USDT と同じく毎回もう一度確かめます。BNB
+Chain のものは小数 18 桁の Binance-Peg USDC、Polygon・Arbitrum・Optimism のものはブリッ
+ジ版の `USDC.e` ではなく Circle のネイティブ USDC です。
 
 Polygon も同じコインタイプを使うため、同じフレーズは 3 つの EVM チェーンで
 **同じアドレス**になります。固有の点が 2 つあります。コインは **POL** で、2024 年 9 月に
@@ -311,8 +320,11 @@ BCS は型を持たないため、長さバイトを 1 つ間違えても壊れ�
 オブジェクトの統合はストレージを解放するため、30 個をまとめる送金は**まったく費用が
 かからない**ことがあります。
 
-注意点が 1 つ。Sui 自身の公開フルノードは JSON-RPC を**廃止**し、すべてに
-"Method not found" を返します。ここでの既定ノードは、まだそれを提供する別のノードです。
+Sui の公開ノードはどれも JSON-RPC を止めたため、このウォレットは Sui の **GraphQL**
+（`graphql.mainnet.sui.io`）を使います。Sui 用に設定するノードも GraphQL エンドポイントである
+必要があります。知っておくべき制限が 1 つ。Sui は今、残高をコインオブジェクトではなくアドレス
+そのものに持てるようになりました。その分の SUI はここに表示される残高に含まれますが、送金は
+コインオブジェクトから組み立てるため、今のところこのウォレットからは使えません。
 
 TON はここで唯一、**アドレスが鍵から導出されない**チェーンです。TON のウォレットは
 スマートコントラクトそのものであり、アドレスはそのコントラクトの初期コードとストレージの
@@ -334,6 +346,56 @@ TON はここで唯一、**アドレスが鍵から導出されない**チェー
 SLIP-44 のコインタイプを持つ `chains` テーブルを備えています。
 本 README のエネルギー・帯域・手数料見積もりの節は TRON 固有です。
 それ以外はどのチェーンにも当てはまります。
+
+---
+
+## レート制限と予備ノード
+
+公開ノードは答える量を制限しており、ウォレット一覧は全チェーンに全ウォレットのことを一度に
+尋ねます。そこで、すべてのリクエストは共通の一層を通ります。
+
+- **接続プールは 1 つ、キューはホストごと。** 同じサーバーへのリクエストは、相手に断られる前から
+  間隔を空け、実際に断られたら —— `429`、TronGrid の `403`、JSON-RPC エラーに紛れた制限 ——
+  さらに間隔を広げ、その後ゆっくり戻します。`Retry-After` があれば従います。
+- **再試行は害のない場面だけ。** 断られた・失敗した照会は、徐々に長くなる間を置いて再度尋ねます。
+  ノードが下した判断 —— リバートした呼び出し、無効なアドレス —— は尋ね直しません。
+  **ノードに届いた可能性のあるトランザクションは、どのノードにも二度と送りません。**
+  確実に届いていないもの —— 接続すらできなかった、入口で `429` に止められた —— だけを再送します。
+- **予備ノードは、ノードを自分で選んでいないときだけ。** チェーンのノード設定を空にしておくと、
+  まず内蔵の既定ノードに尋ね、それが断る・失敗する・約 1 秒を超える待ち行列を抱えているときは、
+  内蔵の公開予備ノードに回します。予備ノードにも、既定ノードと同じく照会したアドレスが見えます。
+  ノードを設定すれば、そのチェーンではそれだけに接続します。落ちていても同じです。
+- **キーは属するサービスの外に出ません。** TronGrid や toncenter のキーは、そのサービス自身の
+  ホストか、あなたが設定したノードにだけ送ります —— 予備ノードには決して送りません。
+
+| チェーン | 予備ノード（試す順） |
+|---|---|
+| TRON | tron-rpc.publicnode.com（ノード呼び出しのみ。履歴は TronGrid のまま） |
+| BNB Chain | bsc-dataseed1.binance.org、bsc-dataseed1.defibit.io |
+| Ethereum | eth.drpc.org |
+| Polygon | polygon.drpc.org |
+| Base | mainnet.base.org、base.drpc.org |
+| Arbitrum | arb1.arbitrum.io、arbitrum.drpc.org |
+| Optimism | mainnet.optimism.io、optimism.drpc.org |
+| Avalanche (AVAX C-Chain) | api.avax.network、avalanche.drpc.org |
+| HyperEVM | hyperliquid-rpc.publicnode.com、hyperliquid.drpc.org |
+| Mantle | mantle-rpc.publicnode.com |
+| Linea | linea-rpc.publicnode.com、linea.drpc.org |
+| Scroll | scroll-rpc.publicnode.com、scroll.drpc.org |
+| Bitcoin | mempool.space |
+| Aptos | aptos-rest.publicnode.com、api.mainnet.aptoslabs.com |
+| Solana、TON、Sui、zkSync Era | なし：ウォレットが使う呼び出しをすべて通るキー不要のノードがないため、間隔調整だけで対応 |
+
+どの予備ノードも、追加する前にそのチェーンのクライアントが使う全呼び出し（ブロードキャストを含む）
+で実際に確かめています。
+
+**TronGrid** はキーなしだと IP あたり毎秒 3 リクエスト程度しか答えず、超えるとその IP を一時停止します。
+キーで上限が上がり、さらに **設定 → TronGrid API Key にはカンマ区切りで複数入力できます**。
+キーごとに枠があり、リクエストは順番に振り分けられ、TronGrid に停止されたばかりのキーは
+復帰するまで飛ばします。キーは trongrid.io で無料で取得できます。
+
+実測：キーなしで TRON 残高を 40 件同時に照会すると、以前は 3 件しか返らず 37 件が拒否されました。
+今は約 3 秒で全件返ります。
 
 ---
 
@@ -562,8 +624,8 @@ curl -fsSL https://raw.githubusercontent.com/zoefix/neko-wallet/main/install.sh 
 どれだけ署名検証を重ねてもその経路は「そもそも無い」より小さくはなりません。
 CI がこれを強制します: 自己置換系のクレートが依存ツリーに戻るか、
 許可リストにない通信先が増えると、ビルドが失敗します。
-許可リストは手で書き換えないと広がりません。現在あるのは三つのチェーンのノード、
-任意の BNB Chain 履歴インデクサ、そしてエクスプローラのリンク
+許可リストは手で書き換えないと広がりません。現在あるのは各チェーンのノードと予備ノード、
+取引履歴のインデクサ、そしてエクスプローラのリンク
 （コピーするだけで、ウォレット自身は取得しません）だけです。
 
 ---
@@ -612,6 +674,7 @@ neko-evm      5 つの EVM チェーン: RLP、EIP-155/1559 署名、ABI、JSON-
 neko-solana   Solana: Ed25519、取引エンコード、トークン口座、クラスタ RPC
 neko-btc      Bitcoin: bech32、segwit v0 署名、コイン選択、Esplora
 neko-ton      TON: cell と BoC、ウォレット v4R2、jetton、toncenter
+neko-net      共通 HTTP 層：接続プール、ホストごとの間隔調整、再試行、予備ノード、キーの輪番
 neko-core     UI が話す唯一のファサード
 neko-i18n     コンパイル時に検査される翻訳テーブル
 neko-tui      ratatui のインターフェース

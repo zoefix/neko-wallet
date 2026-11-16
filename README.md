@@ -26,9 +26,10 @@ Sui, Solana, Bitcoin and TON.
 
 A crypto wallet that runs in your terminal. Keys live in a local, encrypted
 SQLite vault; there is no account to sign in to, no server that holds anything,
-and no sync. The only things this program contacts are the chain nodes you
-point it at, and — only if you supply a key for it — one indexer for BNB Chain
-history. No update check, no telemetry, no analytics, and **no price service**:
+and no sync. The only things this program contacts are chain nodes — the ones
+you point it at, or built-in public ones for a chain you leave unset (see
+[Rate limits and fallback nodes](#rate-limits-and-fallback-nodes)) — and the
+indexers that serve transaction history. No update check, no telemetry, no analytics, and **no price service**:
 the portfolio figure in the wallet list is quoted from a swap pool on the chain
 itself, so showing it costs nothing in privacy. It is denominated in USDT
 rather than dollars, and says so, because that is what was actually quoted.
@@ -138,23 +139,33 @@ phrase, or a new thing to back up.
 | Chain | Status | Assets |
 |---|---|---|
 | TRON | working | TRX, USDT (TRC20) |
-| BNB Chain | working | BNB, USDT (BEP20) |
-| Solana | working | SOL, USDT (SPL) |
+| BNB Chain | working | BNB, USDT, USDC (BEP20) |
+| Solana | working | SOL, USDT, USDC (SPL) |
 | Bitcoin | working | BTC |
-| Ethereum | working | ETH, USDT (ERC20) |
-| Polygon | working | POL, USDT (ERC20) |
+| Ethereum | working | ETH, USDT, USDC (ERC20) |
+| Polygon | working | POL, USDT, USDC (ERC20) |
 | Base | working | ETH, USDC (ERC20) |
-| Arbitrum | working | ETH, USDT (ERC20) |
-| Optimism | working | ETH, USDT (ERC20) |
-| Avalanche (AVAX C-Chain) | working | AVAX, USDT (ERC20) |
-| HyperEVM | working | HYPE, USDT (ERC20) |
+| Arbitrum | working | ETH, USDT, USDC (ERC20) |
+| Optimism | working | ETH, USDT, USDC (ERC20) |
+| Avalanche (AVAX C-Chain) | working | AVAX, USDT, USDC (ERC20) |
+| HyperEVM | working | HYPE, USDT, USDC (ERC20) |
 | Mantle | working | MNT, USDC (ERC20) |
 | Linea | working | ETH, USDC (ERC20) |
 | zkSync Era | working | ETH, USDC (ERC20) |
-| Scroll | working | ETH, USDT (ERC20) |
-| Aptos | working | APT, USDT (fungible asset) |
+| Scroll | working | ETH, USDT, USDC (ERC20) |
+| Aptos | working | APT, USDT, USDC (fungible asset) |
 | Sui | working | SUI, USDC (coin objects) |
 | TON | working | GRAM, USDT (jetton) |
+
+USDC is listed beside USDT on every chain where Circle's dollar actually
+circulates — fifteen of the eighteen. Three have none to list: Bitcoin carries
+no tokens, Circle ended support for USDC on TRON in 2024 and exchanges no longer
+accept it there, and TON has only a bridged wrapper that is not Circle's. Each
+USDC contract's name and precision were read back from its own chain, and are
+checked again before every transfer, exactly like USDT's. On BNB Chain it is
+Binance-Peg USDC, with eighteen decimals; on Polygon, Arbitrum and Optimism it
+is Circle's native USDC, not the bridged `USDC.e` that still circulates beside
+it.
 
 The same phrase gives a different address on each — that is correct and
 universal, not a bug. Solana has no agreed derivation path; this wallet uses
@@ -359,9 +370,12 @@ them. One consequence is worth knowing - Sui refunds part of the storage it
 charges, and consolidating coin objects frees storage, so a transfer that
 folds thirty of them together can cost **nothing at all**.
 
-One caution: Sui's own public fullnode has **deprecated** JSON-RPC and answers
-"Method not found" to all of it. The default node here is a different one that
-still serves it.
+Sui's public nodes have all shut off JSON-RPC, so this wallet speaks Sui's
+**GraphQL** instead, at `graphql.mainnet.sui.io`. A node you configure for Sui
+has to be a GraphQL endpoint too. One limit worth knowing: Sui can now hold a
+balance in the address itself rather than in coin objects. That SUI is counted
+in the balance shown here, but a transfer is built from coin objects, so it
+cannot be spent from this wallet yet.
 
 TON derives at `m/44'/607'/0'` and is the one chain here where **the address
 is not derived from the key**. A wallet on TON is a smart contract, and its
@@ -392,6 +406,63 @@ encryption, and the interface are shared and chain-agnostic, and the database
 has carried a `chains` table with SLIP-44 coin types since the first migration.
 The parts of this README about energy, bandwidth and fee estimation are
 TRON-specific; everything else applies to any chain.
+
+---
+
+## Rate limits and fallback nodes
+
+Public nodes ration what they answer, and the wallet list asks every chain
+about every wallet at once. So every request goes through one shared layer:
+
+- **One connection pool, and a queue per host.** Requests to the same server
+  are paced before the server has to say so, and slowed further when it does —
+  a `429`, TronGrid's `403`, or a rate limit hidden inside a JSON-RPC error —
+  then allowed to recover slowly. A `Retry-After` is honoured.
+- **Retries only where they cannot hurt.** A refused or failed read is asked
+  again after a growing pause; a decision the node has made — a reverted call,
+  an invalid address — is not. **A transaction that may already have reached a
+  node is never sent again**, to any node. Only one that certainly never
+  arrived — no connection at all, or a `429` at the door — is retried.
+- **Fallback nodes, only when you have not chosen one.** Leave a chain's node
+  setting empty and the built-in default is asked first; when it refuses,
+  fails, or has more than about a second of queue behind it, the request goes
+  to a built-in public node instead. Those see which addresses you look up,
+  exactly as the default does. Set a node and it is the only one ever
+  contacted for that chain, even while it is down.
+- **Keys never leave the service they belong to.** A TronGrid or toncenter key
+  goes to that service's own host or to the node you configured — never to a
+  fallback.
+
+| Chain | Fallbacks, in order |
+|---|---|
+| TRON | tron-rpc.publicnode.com (node calls only; history stays on TronGrid) |
+| BNB Chain | bsc-dataseed1.binance.org, bsc-dataseed1.defibit.io |
+| Ethereum | eth.drpc.org |
+| Polygon | polygon.drpc.org |
+| Base | mainnet.base.org, base.drpc.org |
+| Arbitrum | arb1.arbitrum.io, arbitrum.drpc.org |
+| Optimism | mainnet.optimism.io, optimism.drpc.org |
+| Avalanche (AVAX C-Chain) | api.avax.network, avalanche.drpc.org |
+| HyperEVM | hyperliquid-rpc.publicnode.com, hyperliquid.drpc.org |
+| Mantle | mantle-rpc.publicnode.com |
+| Linea | linea-rpc.publicnode.com, linea.drpc.org |
+| Scroll | scroll-rpc.publicnode.com, scroll.drpc.org |
+| Bitcoin | mempool.space |
+| Aptos | aptos-rest.publicnode.com, api.mainnet.aptoslabs.com |
+| Solana, TON, Sui, zkSync Era | none: no keyless node passed every call the wallet makes, so these are paced instead |
+
+Each fallback was checked against every call its chain's client makes,
+broadcast included, before it was added.
+
+**TronGrid** answers about three requests a second per IP without a key, and
+suspends an IP that goes past that. A key raises the limit, and **Settings →
+TronGrid API Key takes several, separated by commas**: each has its own
+allowance, requests rotate across them, and a key TronGrid has just suspended
+is skipped until it is reinstated. Keys are free at trongrid.io.
+
+Measured: forty keyless TRON balance reads at once used to come back as three
+answers and thirty-seven refusals. They now all come back, in about three
+seconds.
 
 ---
 
@@ -634,8 +705,8 @@ executable has a remote code path into the machine holding the keys, and no
 amount of signing makes that path smaller than not having it. CI enforces this:
 the build fails if a self-replacement crate reappears in the dependency tree,
 or if the program grows a network destination outside a short list that has
-to be edited deliberately: the three chain nodes, the optional BNB Chain
-history indexer, and explorer links the wallet copies but never fetches.
+to be edited deliberately: the chain nodes and their fallbacks, the history
+indexers, and explorer links the wallet copies but never fetches.
 
 ---
 
@@ -685,6 +756,7 @@ neko-evm      five EVM chains: RLP, EIP-155/1559 signing, ABI, JSON-RPC, rollup 
 neko-solana   Solana: Ed25519, the wire format, token accounts, cluster RPC
 neko-btc      Bitcoin: bech32, segwit v0 signing, coin selection, Esplora
 neko-ton      TON: cells and bags of cells, wallet v4R2, jettons, toncenter
+neko-net      shared HTTP: one pool, per-host pacing, retries, fallback nodes, key rotation
 neko-core     the facade the UI talks to
 neko-i18n     compile-time-checked translation tables
 neko-tui      ratatui interface

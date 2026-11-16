@@ -14,7 +14,9 @@
 pub mod address;
 pub mod bcs;
 pub mod client;
+pub mod endpoints;
 pub mod error;
+mod graphql;
 pub mod history;
 pub mod tx;
 
@@ -25,7 +27,7 @@ pub use error::SuiError;
 pub const SUI_DECIMALS: u8 = 9;
 
 /// Circle's USDC on Sui, and its precision - both read from the chain's own
-/// `suix_getCoinMetadata`.
+/// coin metadata (`coinMetadata` in GraphQL answers `decimals: 6`).
 ///
 /// A *coin type*, not an address: on this chain a token is named by the Move
 /// type its objects hold.
@@ -37,7 +39,9 @@ pub const USDC_SYMBOL: &str = "USDC";
 /// SUI's own coin type, which is how the node is asked for gas coins.
 pub const SUI_TYPE: &str = "0x2::sui::SUI";
 
-pub const DEFAULT_API: &str = "https://sui-rpc.publicnode.com";
+/// Sui's own public GraphQL RPC. Keyless, and the endpoint Sui's documentation
+/// names now that public nodes have turned JSON-RPC off.
+pub const DEFAULT_API: &str = "https://graphql.mainnet.sui.io/graphql";
 pub const EXPLORER_TX: &str = "https://suiscan.xyz/mainnet/tx/";
 
 /// The gas ceiling for a transfer, in MIST.
@@ -94,6 +98,6 @@ mod tests {
     #[test]
     fn the_precisions_are_the_ones_the_chain_reports() {
         assert_eq!(SUI_DECIMALS, 9);
-        assert_eq!(USDC_DECIMALS, 6, "suix_getCoinMetadata answers 6");
+        assert_eq!(USDC_DECIMALS, 6, "coinMetadata answers 6");
     }
 }

@@ -394,7 +394,7 @@ impl Session {
                 ));
                 sign_solana(from, ixs, p, &key)
             }
-            (Asset::SplToken { mint, decimals }, ChainTxParams::Solana(p)) => {
+            (Asset::SplToken { mint, decimals, .. }, ChainTxParams::Solana(p)) => {
                 let from = req.from.as_solana()?;
                 let to = req.to.as_solana()?;
                 let amount = u64::try_from(req.amount.raw)

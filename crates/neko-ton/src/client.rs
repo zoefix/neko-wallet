@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use neko_net::{Reply, Request, Service, Verdict};
 use serde_json::{json, Value};
 
 use crate::address::TonAddress;
@@ -22,9 +23,7 @@ use crate::chain_consts;
 use crate::error::TonError;
 
 pub struct Toncenter {
-    base: String,
-    api_key: Option<String>,
-    http: reqwest::Client,
+    net: Service,
 }
 
 /// What a jetton wallet contract says about itself.
@@ -51,75 +50,53 @@ pub struct WalletState {
 }
 
 impl Toncenter {
+    /// The key goes to the configured server, or to toncenter - never
+    /// anywhere else.
     pub fn new(base: Option<&str>, api_key: Option<String>) -> Self {
         Toncenter {
-            base: base
-                .filter(|u| !u.is_empty())
-                .unwrap_or(chain_consts::DEFAULT_API)
-                .trim_end_matches('/')
-                .to_string(),
-            api_key: api_key.filter(|k| !k.is_empty()),
-            http: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
-                .build()
-                .unwrap_or_default(),
+            net: Service::for_chain(base, chain_consts::DEFAULT_API, crate::endpoints::FALLBACKS)
+                .with_keys("X-API-Key", api_key.as_deref())
+                .classify(rate_limit_code),
         }
     }
 
     pub fn endpoint(&self) -> &str {
-        &self.base
+        self.net.primary()
     }
 
     async fn call(&self, path: &str, body: Option<Value>) -> Result<Value, TonError> {
-        let url = format!("{}{path}", self.base);
-        let mut last = None;
-        for attempt in 0..3u32 {
-            if attempt > 0 {
-                tokio::time::sleep(std::time::Duration::from_secs(1 << (attempt - 1))).await;
-            }
-            let mut req = match &body {
-                Some(b) => self.http.post(&url).json(b),
-                None => self.http.get(&url),
-            };
-            if let Some(k) = &self.api_key {
-                req = req.header("X-API-Key", k);
-            }
-            let resp = match req.send().await {
-                Ok(r) => r,
-                Err(e) => {
-                    last = Some(TonError::Network(e.to_string()));
-                    continue;
-                }
-            };
-            let status = resp.status();
-            let v: Value = match resp.json().await {
-                Ok(v) => v,
-                Err(e) => {
-                    last = Some(TonError::BadReply(e.to_string()));
-                    continue;
-                }
-            };
-            // The public endpoint answers "Ratelimit exceed" constantly, and
-            // that is worth another attempt; anything else it says is a
-            // decision.
-            if v.get("code").and_then(Value::as_i64) == Some(429) || status.as_u16() == 429 {
-                last = Some(TonError::Network("rate limited".into()));
-                continue;
-            }
-            if v.get("ok").and_then(Value::as_bool) != Some(true) {
-                let msg = v
-                    .get("error")
-                    .and_then(Value::as_str)
-                    .or_else(|| v.get("result").and_then(Value::as_str))
-                    .unwrap_or("unknown error");
-                return Err(TonError::Rpc(msg.to_string()));
-            }
-            return v
-                .get("result")
-                .cloned()
-                .ok_or_else(|| TonError::BadReply("reply has no result".into()));
+        let req = match &body {
+            Some(b) => Request::post_json(path, b),
+            None => Request::get(path),
+        };
+        self.request(req).await
+    }
+
+    async fn request(&self, req: Request) -> Result<Value, TonError> {
+        let reply = self
+            .net
+            .send(req)
+            .await
+            .map_err(|e| TonError::Network(e.to_string()))?;
+        // The public endpoint answers "Ratelimit exceed" constantly. The
+        // network layer has already waited that out as far as it will; what
+        // is left is reported as itself.
+        if reply.rate_limited() {
+            return Err(TonError::Network("rate limited".into()));
         }
-        Err(last.unwrap_or_else(|| TonError::Network("no attempt succeeded".into())))
+        let v: Value =
+            serde_json::from_str(&reply.body).map_err(|e| TonError::BadReply(e.to_string()))?;
+        if v.get("ok").and_then(Value::as_bool) != Some(true) {
+            let msg = v
+                .get("error")
+                .and_then(Value::as_str)
+                .or_else(|| v.get("result").and_then(Value::as_str))
+                .unwrap_or("unknown error");
+            return Err(TonError::Rpc(msg.to_string()));
+        }
+        v.get("result")
+            .cloned()
+            .ok_or_else(|| TonError::BadReply("reply has no result".into()))
     }
 
     /// Balance, sequence number and whether the contract exists, in one place.
@@ -354,9 +331,11 @@ impl Toncenter {
         Ok(sum.max(0) as u128)
     }
 
+    /// Never sent twice - see [`neko_net::Policy::Submit`].
     pub async fn send(&self, raw: &[u8]) -> Result<String, TonError> {
+        let body = json!({ "boc": crate::b64::encode(raw) });
         let v = self
-            .call("/sendBoc", Some(json!({ "boc": crate::b64::encode(raw) })))
+            .request(Request::post_json("/sendBoc", &body).submit())
             .await?;
         // The node returns an acknowledgement rather than a hash. The hash is
         // the message's own, and is known before it is sent.
@@ -382,6 +361,15 @@ impl Toncenter {
         )
         .await
     }
+}
+
+/// toncenter mirrors a rate limit into the body as `code: 429`, and that is
+/// what is read: the body says it whatever the status line does.
+fn rate_limit_code(reply: &Reply) -> Option<Verdict> {
+    let v: Value = serde_json::from_str(&reply.body).ok()?;
+    (v.get("code").and_then(Value::as_i64) == Some(429)).then_some(Verdict::RateLimited {
+        retry_after: reply.retry_after(),
+    })
 }
 
 /// One argument to a get-method: a cell, passed as the slice a method expects.

@@ -23,6 +23,7 @@ pub mod cell;
 pub mod chain_consts;
 pub mod client;
 pub mod dict;
+pub mod endpoints;
 pub mod error;
 pub mod history;
 pub mod jetton;

@@ -55,11 +55,10 @@ impl Prices {
     /// quoted against itself - asking a pool what one USDT is worth in USDT
     /// would spend a call to be told "about one, minus the fee".
     ///
-    /// The chain's own stablecoin, whichever it is: seven of them carry USDT
-    /// and Base carries USDC. Comparing against the literal `"USDT"` valued
-    /// every USDC balance at nothing.
+    /// Any of the chain's own stablecoins, USDT or USDC alike. Comparing
+    /// against the literal `"USDT"` once valued every USDC balance at nothing.
     pub fn of(&self, chain: ChainId, symbol: &str) -> Option<i128> {
-        if chain.stable().is_some_and(|a| a.symbol() == symbol) {
+        if chain.stables().iter().any(|a| a.symbol() == symbol) {
             return Some(10i128.pow(PRICE_SCALE as u32));
         }
         if symbol == chain.native_symbol() {
@@ -167,6 +166,28 @@ mod tests {
             None,
             "an unknown token has no price"
         );
+    }
+
+    /// USDC is a unit of account wherever this wallet carries it, and a USDC
+    /// row on a chain that carries none is not quietly priced as one.
+    #[test]
+    fn usdc_is_one_where_the_chain_carries_it() {
+        let p = Prices::default();
+        for c in [
+            ChainId::Bsc,
+            ChainId::Ethereum,
+            ChainId::Solana,
+            ChainId::Aptos,
+            ChainId::Base,
+        ] {
+            assert_eq!(p.of(c, "USDC"), Some(1_000_000), "{c:?}");
+        }
+        assert_eq!(p.of(ChainId::Tron, "USDC"), None);
+        assert_eq!(p.of(ChainId::Ton, "USDC"), None);
+        // Eighteen decimals on BNB Chain, six on Ethereum: the same 5 USDC.
+        let on_bsc = total([(ChainId::Bsc, "USDC", 5 * 10i128.pow(18), 18u8)], &p).unwrap();
+        let on_eth = total([(ChainId::Ethereum, "USDC", 5_000_000i128, 6u8)], &p).unwrap();
+        assert_eq!(on_bsc, on_eth);
     }
 
     /// Precision differs per chain; the same real amount must value the same.

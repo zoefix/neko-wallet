@@ -84,6 +84,7 @@ fn signed_trc20_transfer_matches_the_reference_vector() {
     let asset = Asset::Trc20 {
         contract: neko_hd::Address::parse("TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t").unwrap(),
         decimals: 6,
+        stable: neko_core::Stable::Usdt,
     };
     let req = TransferRequest::parse(
         id,
@@ -165,6 +166,7 @@ fn trc20_requires_a_fee_limit() {
     let asset = Asset::Trc20 {
         contract: neko_hd::Address::parse("TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t").unwrap(),
         decimals: 6,
+        stable: neko_core::Stable::Usdt,
     };
     assert_eq!(
         asset.tron_fee_limit().unwrap(),
@@ -197,6 +199,7 @@ fn calldata_is_produced_only_for_contract_transfers() {
     let asset = Asset::Trc20 {
         contract: neko_hd::Address::parse("TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t").unwrap(),
         decimals: 6,
+        stable: neko_core::Stable::Usdt,
     };
     let trc20 = TransferRequest::parse(1, from, TO, "2.5", asset).unwrap();
     let data = trc20.calldata().unwrap().expect("no calldata");
@@ -445,9 +448,12 @@ fn every_evm_chain_signs_for_itself_and_no_other() {
         }
     }
 
-    // Two per chain, and no two alike: a coin transfer differs from a token
-    // one, and the same transfer on two chains differs by the chain id.
-    assert_eq!(raws.len(), evm_chains.len() * 2);
+    // One per asset, and no two alike: a coin transfer differs from a token
+    // one, USDT from USDC by the contract, and the same transfer on two chains
+    // by the chain id.
+    let expected: usize = evm_chains.iter().map(|c| c.assets().len()).sum();
+    assert_eq!(raws.len(), expected);
+    assert!(expected > evm_chains.len() * 2, "USDC is signed for too");
     for (i, (ca, sa, a)) in raws.iter().enumerate() {
         for (cb, sb, b) in &raws[i + 1..] {
             assert_ne!(

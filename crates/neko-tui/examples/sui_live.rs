@@ -51,7 +51,8 @@ async fn main() {
     )
     .unwrap();
     for asset in ChainId::Sui.assets() {
-        let raw: i128 = if asset.is_native() { 1_000_000 } else { 1_000 };
+        // 0.001 SUI, 0.01 USDC.
+        let raw: i128 = if asset.is_native() { 1_000_000 } else { 10_000 };
         let req = TransferRequest {
             wallet_id: 1,
             from: mine,

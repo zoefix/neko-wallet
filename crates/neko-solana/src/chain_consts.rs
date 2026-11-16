@@ -18,6 +18,10 @@ pub const SOL_DECIMALS: u8 = 9;
 pub const USDT_MINT: &str = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
 pub const USDT_DECIMALS: u8 = 6;
 
+/// Circle's USDC (SPL). Six decimals, read back from the mint itself.
+pub const USDC_MINT: &str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+pub const USDC_DECIMALS: u8 = 6;
+
 /// Programs. These are addresses like any other, and are parsed rather than
 /// stored as bytes so a typo fails a test instead of being re-encoded into a
 /// different program.
@@ -67,6 +71,9 @@ pub const BLOCKHASH_VALIDITY_SECS: u64 = 60;
 pub fn usdt_mint() -> SolanaAddress {
     parse_const(USDT_MINT)
 }
+pub fn usdc_mint() -> SolanaAddress {
+    parse_const(USDC_MINT)
+}
 pub fn system_program() -> SolanaAddress {
     parse_const(SYSTEM_PROGRAM)
 }
@@ -94,6 +101,7 @@ mod tests {
     fn every_constant_address_round_trips() {
         for s in [
             USDT_MINT,
+            USDC_MINT,
             SYSTEM_PROGRAM,
             TOKEN_PROGRAM,
             ASSOCIATED_TOKEN_PROGRAM,
@@ -117,5 +125,7 @@ mod tests {
     #[test]
     fn usdt_has_six_decimals_here() {
         assert_eq!(USDT_DECIMALS, 6);
+        assert_eq!(USDC_DECIMALS, 6, "getTokenSupply answers 6");
+        assert_ne!(usdt_mint(), usdc_mint());
     }
 }

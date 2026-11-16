@@ -15,6 +15,7 @@
 pub mod address;
 pub mod bcs;
 pub mod client;
+pub mod endpoints;
 pub mod error;
 pub mod history;
 pub mod tx;
@@ -43,6 +44,13 @@ pub const USDT_METADATA: &str =
 /// one on the tin.
 pub const USDT_SYMBOL: &str = "USDt";
 
+/// Circle's USDC, a fungible asset like USDT here. `fungible_asset::symbol`
+/// answers `USDC` and `decimals` answers 6.
+pub const USDC_METADATA: &str =
+    "0xbae207659db88bea0cbead6da0ed00aac12edcdda169e591cd41c94180b46f3b";
+pub const USDC_DECIMALS: u8 = 6;
+pub const USDC_SYMBOL: &str = "USDC";
+
 /// APT's own fungible-asset metadata, for the balance view.
 pub const APT_METADATA: &str = "0xa";
 
@@ -68,6 +76,10 @@ pub fn usdt_metadata() -> AptosAddress {
     AptosAddress::parse(USDT_METADATA).expect("a constant address in this file is malformed")
 }
 
+pub fn usdc_metadata() -> AptosAddress {
+    AptosAddress::parse(USDC_METADATA).expect("a constant address in this file is malformed")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -85,5 +97,9 @@ mod tests {
         let m = usdt_metadata();
         assert_eq!(m.to_string(), USDT_METADATA);
         assert_ne!(m, tx::framework());
+        let c = usdc_metadata();
+        assert_eq!(c.to_string(), USDC_METADATA);
+        assert_ne!(c, m);
+        assert_eq!(USDC_DECIMALS, 6);
     }
 }

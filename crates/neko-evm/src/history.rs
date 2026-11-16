@@ -32,9 +32,11 @@
 //! whether this is the right contract; the label is about what to call it.
 
 use neko_hd::EvmAddress;
+use neko_net::{Request, Service};
 use serde_json::{json, Value};
 
 use crate::error::EvmError;
+use crate::EvmToken;
 
 #[allow(dead_code)]
 pub const DEFAULT_HOST: &str = "https://bsc-mainnet.nodereal.io/v1";
@@ -65,8 +67,9 @@ pub struct Bsctrace {
     /// Decides the symbol and the precision of what comes back. USDT is six
     /// decimals on Ethereum and eighteen on BNB Chain.
     chain: crate::EvmChain,
-    url: String,
-    http: reqwest::Client,
+    /// The key is part of the URL here, so the network layer is only told its
+    /// fingerprint - enough to throttle it on its own.
+    net: Service,
 }
 
 impl Bsctrace {
@@ -80,11 +83,9 @@ impl Bsctrace {
     pub fn new(chain: crate::EvmChain, api_key: &str) -> Option<Self> {
         Some(Bsctrace {
             chain,
-            url: format!("{}/{api_key}", chain.history_host?),
-            http: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
-                .build()
-                .unwrap_or_default(),
+            net: Service::new(&format!("{}/{api_key}", chain.history_host?))
+                .keyed_by(api_key)
+                .classify(neko_net::classify::jsonrpc),
         })
     }
 
@@ -94,20 +95,16 @@ impl Bsctrace {
             "method": "nr_getAssetTransfers",
             "params": [params],
         });
-        let resp = self
-            .http
-            .post(&self.url)
-            .json(&body)
-            .send()
+        let reply = self
+            .net
+            .send(Request::post_json("", &body))
             .await
             .map_err(|e| EvmError::Network(e.to_string()))?;
-        if !resp.status().is_success() {
-            return Err(EvmError::Network(format!("HTTP {}", resp.status())));
+        if !reply.is_success() {
+            return Err(EvmError::Network(format!("HTTP {}", reply.status)));
         }
-        let v: Value = resp
-            .json()
-            .await
-            .map_err(|e| EvmError::BadReply(e.to_string()))?;
+        let v: Value =
+            serde_json::from_str(&reply.body).map_err(|e| EvmError::BadReply(e.to_string()))?;
         if let Some(err) = v.get("error") {
             let msg = err
                 .get("message")
@@ -135,7 +132,7 @@ impl Bsctrace {
     pub async fn transfers(
         &self,
         who: EvmAddress,
-        token: EvmAddress,
+        tokens: &[EvmToken],
         limit: usize,
     ) -> Result<Vec<Transfer>, EvmError> {
         let who_s = who.to_string();
@@ -157,7 +154,7 @@ impl Bsctrace {
         let mut errors = Vec::new();
         for (r, outgoing) in [(out_v, true), (in_v, false)] {
             match r {
-                Ok(v) => all.extend(parse_direction(&v, self.chain, token, outgoing)),
+                Ok(v) => all.extend(parse_direction(&v, self.chain, tokens, outgoing)),
                 Err(e) => errors.push(e),
             }
         }
@@ -179,12 +176,12 @@ impl Bsctrace {
 
 /// Read the provider's reply, skipping anything malformed rather than failing
 /// the whole page: one odd row must not hide a history.
-pub fn parse(result: &Value, chain: crate::EvmChain, token: EvmAddress) -> Vec<Transfer> {
+pub fn parse(result: &Value, chain: crate::EvmChain, tokens: &[EvmToken]) -> Vec<Transfer> {
     let Some(rows) = result.get("transfers").and_then(Value::as_array) else {
         return Vec::new();
     };
     rows.iter()
-        .filter_map(|t| parse_one(t, chain, token))
+        .filter_map(|t| parse_one(t, chain, tokens))
         .collect()
 }
 
@@ -218,10 +215,10 @@ pub fn request(direction: &str, address: &str) -> Value {
 pub fn parse_direction(
     result: &Value,
     chain: crate::EvmChain,
-    token: EvmAddress,
+    tokens: &[EvmToken],
     outgoing: bool,
 ) -> Vec<Transfer> {
-    parse(result, chain, token)
+    parse(result, chain, tokens)
         .into_iter()
         .filter(|t| !outgoing || t.amount != 0)
         .collect()
@@ -230,12 +227,12 @@ pub fn parse_direction(
 /// The address a native transfer reports instead of a contract.
 const NO_CONTRACT: &str = "0x0000000000000000000000000000000000000000";
 
-fn parse_one(t: &Value, chain: crate::EvmChain, token: EvmAddress) -> Option<Transfer> {
+fn parse_one(t: &Value, chain: crate::EvmChain, tokens: &[EvmToken]) -> Option<Transfer> {
     let category = t.get("category")?.as_str()?;
-    // The precision comes from the chain, not from a constant: USDT is six
+    // The precision comes from the token, not from a constant: USDT is six
     // decimals on Ethereum and eighteen on BNB Chain. Anything that is not the
-    // native coin or that token is skipped rather than shown with a made-up
-    // scale.
+    // native coin or one of these tokens is skipped rather than shown with a
+    // made-up scale.
     let contract = t
         .get("contractAddress")
         .and_then(Value::as_str)
@@ -247,8 +244,10 @@ fn parse_one(t: &Value, chain: crate::EvmChain, token: EvmAddress) -> Option<Tra
         // rather than from the row. A token can call itself anything, and
         // several in this address's history call themselves USDT in characters
         // that are not the ones in USDT.
-        "20" if contract.eq_ignore_ascii_case(&token.to_string()) => {
-            (chain.stable_label.to_string(), chain.stable_decimals)
+        "20" => {
+            let contract = EvmAddress::parse(contract).ok()?;
+            let known = tokens.iter().find(|k| k.address() == contract)?;
+            (known.label.to_string(), known.decimals)
         }
         _ => return None,
     };
@@ -325,7 +324,7 @@ mod tests {
             "blockTimeStamp": 1620515273,
             "receiptsStatus": 1
         }]});
-        let got = parse(&v, crate::BSC, crate::BSC.stable_address());
+        let got = parse(&v, crate::BSC, &crate::BSC.tokens());
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].symbol, "BNB");
         assert_eq!(got[0].decimals, 18);
@@ -350,7 +349,7 @@ mod tests {
             "blockTimeStamp": 1788469375,
             "receiptsStatus": 1
         }]});
-        let got = parse(&v, crate::BSC, crate::BSC.stable_address());
+        let got = parse(&v, crate::BSC, &crate::BSC.tokens());
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].symbol, "USDT");
         // Eighteen here, six on TRON. The number travels with the transfer.
@@ -370,7 +369,7 @@ mod tests {
             {"category": "external", "from": "0xa", "to": "0xb",
              "value": "0x1", "hash": "0x3", "blockTimeStamp": 5, "receiptsStatus": 0},
         ]});
-        let got = parse(&v, crate::BSC, crate::BSC.stable_address());
+        let got = parse(&v, crate::BSC, &crate::BSC.tokens());
         assert_eq!(got.len(), 1, "a good row was lost among bad ones");
         assert_eq!(got[0].hash, "0x3");
         assert!(!got[0].success, "a failed transfer was shown as successful");
@@ -384,20 +383,15 @@ mod tests {
                 "value": "0x1", "asset": "USDT", "blockTimeStamp": 1
             }]}),
             crate::BSC,
-            crate::BSC.stable_address()
+            &crate::BSC.tokens()
         )
         .is_empty());
 
-        assert!(parse(
-            &serde_json::json!({}),
-            crate::BSC,
-            crate::BSC.stable_address()
-        )
-        .is_empty());
+        assert!(parse(&serde_json::json!({}), crate::BSC, &crate::BSC.tokens()).is_empty());
         assert!(parse(
             &serde_json::json!({"transfers": "nope"}),
             crate::BSC,
-            crate::BSC.stable_address()
+            &crate::BSC.tokens()
         )
         .is_empty());
     }
@@ -409,8 +403,8 @@ mod tests {
 mod filtering {
     use super::*;
 
-    fn usdt() -> EvmAddress {
-        crate::ETHEREUM.stable_address()
+    fn usdt() -> Vec<EvmToken> {
+        crate::ETHEREUM.tokens()
     }
 
     fn row(category: &str, contract: &str, asset: &str, value: &str) -> Value {
@@ -451,7 +445,7 @@ mod filtering {
             "ETH",
             "0x06d492a3e1a134",
         )]});
-        let got = parse(&v, crate::ETHEREUM, usdt());
+        let got = parse(&v, crate::ETHEREUM, &usdt());
         assert_eq!(got.len(), 1, "the coin transfer was dropped");
         assert_eq!(got[0].symbol, "ETH");
         assert_eq!(got[0].decimals, 18);
@@ -477,7 +471,7 @@ mod filtering {
         ] {
             let v = serde_json::json!({"transfers": [row("20", contract, name, "0x47b760")]});
             assert!(
-                parse(&v, crate::ETHEREUM, usdt()).is_empty(),
+                parse(&v, crate::ETHEREUM, &usdt()).is_empty(),
                 "{name:?} from {contract} was accepted as USDT"
             );
         }
@@ -489,7 +483,7 @@ mod filtering {
             "anything at all",
             "0x47b760",
         )]});
-        let got = parse(&v, crate::ETHEREUM, usdt());
+        let got = parse(&v, crate::ETHEREUM, &usdt());
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].symbol, "USDT", "the name comes from us, not the row");
         assert_eq!(got[0].decimals, 6, "six on Ethereum, eighteen on BNB Chain");
@@ -505,7 +499,7 @@ mod filtering {
             "USDT",
             "0x1",
         )]});
-        assert_eq!(parse(&v, crate::ETHEREUM, usdt()).len(), 1);
+        assert_eq!(parse(&v, crate::ETHEREUM, &usdt()).len(), 1);
     }
 }
 
@@ -541,12 +535,12 @@ mod one_row_per_transfer {
             row("external", "0x0000000000000000000000000000000000000000", "ETH", "0x0", MINE, THEM),
             row("20", "0xdAC17F958D2ee523a2206206994597C13D831ec7", "USDT", "0x47b760", MINE, THEM),
         ]});
-        let usdt = crate::ETHEREUM.stable_address();
+        let usdt = crate::ETHEREUM.tokens();
 
         // Unfiltered, both rows are there - which is what was on screen.
-        assert_eq!(parse(&v, crate::ETHEREUM, usdt).len(), 2);
+        assert_eq!(parse(&v, crate::ETHEREUM, &usdt).len(), 2);
 
-        let got = parse_direction(&v, crate::ETHEREUM, usdt, true);
+        let got = parse_direction(&v, crate::ETHEREUM, &usdt, true);
         assert_eq!(got.len(), 1, "the transfer was listed twice");
         assert_eq!(got[0].symbol, "USDT");
         assert_eq!(got[0].amount, 4_700_000);
@@ -559,7 +553,7 @@ mod one_row_per_transfer {
             "external", "0x0000000000000000000000000000000000000000",
             "ETH", "0x06d492a3e1a134", MINE, THEM,
         )]});
-        let got = parse_direction(&v, crate::ETHEREUM, crate::ETHEREUM.stable_address(), true);
+        let got = parse_direction(&v, crate::ETHEREUM, &crate::ETHEREUM.tokens(), true);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].amount, 1_922_576_140_050_740);
     }
@@ -573,7 +567,7 @@ mod one_row_per_transfer {
             "20", "0xdAC17F958D2ee523a2206206994597C13D831ec7",
             "USDT", "0x0", THEM, MINE,
         )]});
-        let got = parse_direction(&v, crate::ETHEREUM, crate::ETHEREUM.stable_address(), false);
+        let got = parse_direction(&v, crate::ETHEREUM, &crate::ETHEREUM.tokens(), false);
         assert_eq!(
             got.len(),
             1,
@@ -625,7 +619,7 @@ mod unit_agreement {
                 "blockTimeStamp": WHEN, "asset": "POL",
             }]}),
             crate::POLYGON,
-            crate::POLYGON.stable_address(),
+            &crate::POLYGON.tokens(),
             false,
         );
 
@@ -675,15 +669,14 @@ mod token_naming {
                 "total": {"decimals": "6", "value": "1"},
                 "token": {"address_hash": contract, "decimals": "6", "symbol": HOSTILE},
             }]}),
-            crate::POLYGON,
-            usdt,
+            &crate::POLYGON.tokens(),
         );
         let etherscan = crate::etherscan::parse_tokens(
             &json!([{
             "hash": "0xa", "from": from, "to": to, "value": "1",
             "tokenSymbol": HOSTILE, "tokenDecimal": "6", "timeStamp": "1782513790",
             }]),
-            crate::POLYGON,
+            crate::POLYGON.tokens()[0],
         );
         let nodereal = parse(
             &json!({"transfers": [{
@@ -692,7 +685,7 @@ mod token_naming {
                 "blockTimeStamp": 1_782_513_790i64, "asset": HOSTILE,
             }]}),
             crate::POLYGON,
-            usdt,
+            &crate::POLYGON.tokens(),
         );
 
         for (name, rows) in [
@@ -709,6 +702,82 @@ mod token_naming {
             assert_ne!(rows[0].symbol, HOSTILE);
             // And the precision is still the token's own, not the label's.
             assert_eq!(rows[0].decimals, 6, "{name}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod two_dollars {
+    use super::*;
+    use serde_json::json;
+
+    /// USDT and USDC on one chain each come through under their own name, on
+    /// every provider's shape, and a third token does not come through at all.
+    #[test]
+    fn usdt_and_usdc_are_told_apart_on_every_provider() {
+        let chain = crate::BSC;
+        let tokens = chain.tokens();
+        let usdt = tokens[0].address().to_string();
+        let usdc = chain.usdc.unwrap().address().to_string();
+        let other = "0x4dC0AC521C1f50c2a65E914E498B19C236969C71";
+        let (from, to) = (
+            "0x1111111111111111111111111111111111111111",
+            "0x2222222222222222222222222222222222222222",
+        );
+
+        let nodereal = parse(
+            &json!({"transfers": ([usdt.as_str(), usdc.as_str(), other].map(|c| json!({
+                "hash": format!("0x{c}"), "from": from, "to": to, "value": "0x1",
+                "category": "20", "contractAddress": c,
+                "blockTimeStamp": 1_782_513_790i64, "asset": "USD",
+            })))}),
+            chain,
+            &tokens,
+        );
+        let blockscout = crate::blockscout::parse_tokens(
+            &json!({"items": ([usdt.as_str(), usdc.as_str(), other].map(|c| json!({
+                "timestamp": "2026-06-26T22:43:10.000000Z",
+                "transaction_hash": format!("0x{c}"),
+                "from": {"hash": from}, "to": {"hash": to},
+                "total": {"decimals": "18", "value": "1"},
+                "token": {"address_hash": c, "decimals": "18", "symbol": "USD"},
+            })))}),
+            &tokens,
+        );
+        // Etherscan is asked once per token, so each reply is parsed against
+        // the token it was asked about - and a row for another is dropped.
+        let etherscan: Vec<Transfer> = tokens
+            .iter()
+            .flat_map(|t| {
+                crate::etherscan::parse_tokens(
+                    &json!([usdt.as_str(), usdc.as_str()].map(|c| json!({
+                        "hash": format!("0x{c}"), "from": from, "to": to, "value": "1",
+                        "tokenSymbol": "USD", "tokenDecimal": "18",
+                        "timeStamp": "1782513790", "contractAddress": c,
+                    }))),
+                    *t,
+                )
+            })
+            .collect();
+
+        for (name, rows) in [
+            ("nodereal", &nodereal),
+            ("blockscout", &blockscout),
+            ("etherscan", &etherscan),
+        ] {
+            let got: Vec<(&str, String)> = rows
+                .iter()
+                .map(|r| (r.symbol.as_str(), r.hash.to_ascii_lowercase()))
+                .collect();
+            assert_eq!(
+                got,
+                [
+                    ("USDT", format!("0x{}", usdt.to_ascii_lowercase())),
+                    ("USDC", format!("0x{}", usdc.to_ascii_lowercase())),
+                ],
+                "{name}"
+            );
+            assert!(rows.iter().all(|r| r.decimals == 18), "{name}");
         }
     }
 }

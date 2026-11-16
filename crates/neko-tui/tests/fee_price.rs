@@ -92,10 +92,14 @@ fn app_at_review(chain: neko_core::ChainId, quote: FeeQuote) -> App {
         1,
         "w".into(),
         neko_core::ChainAddress::parse(chain, mine).unwrap(),
-        // The last asset each chain carries: USDT where there is one, and BTC
-        // on the chain that has only itself.
-        *chain.assets().last().unwrap(),
-        chain.assets().last().unwrap().symbol().to_string(),
+        // The chain's primary stablecoin where it has one - USDT on every
+        // chain these tests use - and BTC on the chain that has only itself.
+        chain.stable().unwrap_or(chain.native()),
+        chain
+            .stable()
+            .unwrap_or(chain.native())
+            .symbol()
+            .to_string(),
     );
     to.chars().for_each(|c| st.to.push(c));
     "1".chars().for_each(|c| st.amount.push(c));

@@ -755,7 +755,7 @@ impl App {
             neko_core::ChainId::Ton => self.ton_api_key.clone(),
             // The Aptos indexer is keyless and rate-limits by IP instead.
             neko_core::ChainId::Aptos => None,
-            // Sui's JSON-RPC needs no key either.
+            // Sui's public GraphQL endpoint needs no key either.
             neko_core::ChainId::Sui => None,
         };
         crate::chain::Client::for_chain_with(chain, url, key, self.etherscan_key.clone())
@@ -1119,6 +1119,16 @@ impl App {
     }
 }
 
+/// The last four characters of a key, enough to tell keys apart and not to
+/// use one. Nothing at all for a key too short to spare them.
+fn key_tail(k: &str) -> String {
+    let n = k.chars().count();
+    if n <= 4 {
+        return String::new();
+    }
+    k.chars().skip(n - 4).collect()
+}
+
 impl App {
     pub fn open_settings(&mut self) {
         self.push(Screen::Settings(SettingsState::new()));
@@ -1155,13 +1165,23 @@ impl App {
                 Some(_) => neko_i18n::tf(neko_i18n::Key::Settings_ApiKeySet, &[("tail", "")]),
                 None => neko_i18n::t(neko_i18n::Key::Settings_TonApiKeyUnset).to_string(),
             },
-            SettingRow::ApiKey => match &self.api_key {
-                // Never render a credential, even one the user typed.
-                Some(k) if k.len() > 4 => neko_i18n::tf(
-                    neko_i18n::Key::Settings_ApiKeySet,
-                    &[("tail", &k[k.len() - 4..])],
+            // Never render a credential, even one the user typed. Several keys
+            // show as a count and the last one's tail.
+            SettingRow::ApiKey => match self.api_key.as_deref().map(neko_net::keys::split) {
+                Some(keys) if keys.len() > 1 => neko_i18n::tf(
+                    neko_i18n::Key::Settings_ApiKeySetMany,
+                    &[
+                        ("n", &keys.len().to_string()),
+                        ("tail", &key_tail(keys[keys.len() - 1])),
+                    ],
                 ),
-                Some(_) => neko_i18n::tf(neko_i18n::Key::Settings_ApiKeySet, &[("tail", "")]),
+                Some(keys) => neko_i18n::tf(
+                    neko_i18n::Key::Settings_ApiKeySet,
+                    &[(
+                        "tail",
+                        &keys.first().map(|k| key_tail(k)).unwrap_or_default(),
+                    )],
+                ),
                 None => neko_i18n::t(neko_i18n::Key::Settings_ApiKeyUnset).to_string(),
             },
             SettingRow::NodeUrl => self

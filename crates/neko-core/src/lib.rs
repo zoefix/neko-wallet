@@ -10,7 +10,7 @@ pub mod value;
 pub mod wallets;
 
 pub use amount::Amount;
-pub use chain::{Asset, ChainAddress, ChainId, CHAINS};
+pub use chain::{Asset, ChainAddress, ChainId, Stable, CHAINS};
 pub use error::CoreError;
 pub use session::{Session, VaultFile};
 pub use transfer::{

@@ -22,10 +22,12 @@
 //! invented.
 
 use neko_hd::EvmAddress;
+use neko_net::{Reply, Request, Service, Verdict};
 use serde_json::Value;
 
 use crate::error::EvmError;
 use crate::history::Transfer;
+use crate::EvmToken;
 
 impl crate::EvmChain {
     /// The Blockscout instance for this chain, when there is one.
@@ -36,8 +38,15 @@ impl crate::EvmChain {
 
 pub struct Blockscout {
     chain: crate::EvmChain,
-    base: String,
-    http: reqwest::Client,
+    net: Service,
+}
+
+/// A gateway in front of a busy instance answers with an HTML error page and
+/// a 200 often enough to matter. That is the instance being unavailable, not
+/// an answer, and it is worth another attempt.
+fn not_json_is_unavailable(reply: &Reply) -> Option<Verdict> {
+    (reply.is_success() && serde_json::from_str::<serde::de::IgnoredAny>(&reply.body).is_err())
+        .then_some(Verdict::Unavailable)
 }
 
 impl Blockscout {
@@ -46,59 +55,36 @@ impl Blockscout {
     pub fn new(chain: crate::EvmChain, base: Option<&str>) -> Option<Self> {
         Some(Blockscout {
             chain,
-            base: base
-                .filter(|u| !u.is_empty())
-                .or(chain.blockscout)?
-                .trim_end_matches('/')
-                .to_string(),
-            // Longer than the RPC clients': this is an index answering a
-            // question about an address's whole past, not a node reading a
-            // balance, and it takes seconds rather than milliseconds.
-            http: reqwest::Client::builder()
+            net: Service::new(base.filter(|u| !u.is_empty()).or(chain.blockscout)?)
+                // Longer than the RPC clients': this is an index answering a
+                // question about an address's whole past, not a node reading
+                // a balance, and it takes seconds rather than milliseconds.
                 .timeout(std::time::Duration::from_secs(60))
-                .build()
-                .unwrap_or_default(),
+                .classify(not_json_is_unavailable),
         })
     }
 
     pub fn endpoint(&self) -> &str {
-        &self.base
+        self.net.primary()
     }
 
     /// One request, retried: a public instance times out under load often
     /// enough that a single attempt turns a working history screen into an
     /// intermittent one.
     async fn get(&self, path: &str) -> Result<Value, EvmError> {
-        let url = format!("{}/api/v2/{path}", self.base);
-        let mut last = None;
-        for attempt in 0..3u32 {
-            if attempt > 0 {
-                tokio::time::sleep(std::time::Duration::from_secs(1 << (attempt - 1))).await;
-            }
-            let resp = match self.http.get(&url).send().await {
-                Ok(r) => r,
-                Err(e) => {
-                    last = Some(EvmError::Network(e.to_string()));
-                    continue;
-                }
-            };
-            let status = resp.status();
-            if !status.is_success() {
-                // A 4xx is a decision and will be the same next time; a 5xx or
-                // a gateway timeout is worth another attempt.
-                let err = EvmError::Rpc(format!("{} answered {status}", self.base));
-                if status.is_client_error() {
-                    return Err(err);
-                }
-                last = Some(err);
-                continue;
-            }
-            match resp.json().await {
-                Ok(v) => return Ok(v),
-                Err(e) => last = Some(EvmError::BadReply(e.to_string())),
-            }
+        let reply = self
+            .net
+            .send(Request::get(format!("/api/v2/{path}")))
+            .await
+            .map_err(|e| EvmError::Network(e.to_string()))?;
+        if !reply.is_success() {
+            return Err(EvmError::Rpc(format!(
+                "{} answered HTTP {}",
+                self.endpoint(),
+                reply.status
+            )));
         }
-        Err(last.unwrap_or_else(|| EvmError::Network("no attempt succeeded".into())))
+        serde_json::from_str(&reply.body).map_err(|e| EvmError::BadReply(e.to_string()))
     }
 
     /// Coin and token movements for one address, newest first.
@@ -109,31 +95,29 @@ impl Blockscout {
     pub async fn transfers(
         &self,
         who: EvmAddress,
-        token: EvmAddress,
+        tokens: &[EvmToken],
         limit: usize,
     ) -> Result<Vec<Transfer>, EvmError> {
         let a = who.to_string();
         let coin_path = format!("addresses/{a}/transactions");
         let token_path = format!("addresses/{a}/token-transfers?type=ERC-20");
-        let (coins, tokens) = tokio::join!(self.get(&coin_path), self.get(&token_path));
+        let (coins, moved) = tokio::join!(self.get(&coin_path), self.get(&token_path));
 
         let mut out = Vec::new();
+        // Kept as it came rather than re-wrapped: wrapping the text of an
+        // error in another of the same kind printed its prefix twice.
         let mut first_error = None;
-        match &coins {
-            Ok(v) => out.extend(parse_coins(v, self.chain)),
-            Err(e) => first_error = Some(e.to_string()),
+        match coins {
+            Ok(v) => out.extend(parse_coins(&v, self.chain)),
+            Err(e) => first_error = Some(e),
         }
-        match &tokens {
-            Ok(v) => out.extend(parse_tokens(v, self.chain, token)),
-            Err(e) => {
-                if out.is_empty() {
-                    return Err(EvmError::Rpc(first_error.unwrap_or_else(|| e.to_string())));
-                }
-            }
+        match moved {
+            Ok(v) => out.extend(parse_tokens(&v, tokens)),
+            Err(e) => first_error = first_error.or(Some(e)),
         }
         if out.is_empty() {
             if let Some(e) = first_error {
-                return Err(EvmError::Rpc(e));
+                return Err(e);
             }
         }
 
@@ -177,22 +161,20 @@ pub fn parse_coins(body: &Value, chain: crate::EvmChain) -> Vec<Transfer> {
         .collect()
 }
 
-/// Token movements, out of `/token-transfers`, keeping only the one token this
+/// Token movements, out of `/token-transfers`, keeping only the tokens this
 /// wallet knows about.
 ///
 /// `decimals` arrives as a **string**, in both the amount and the token. Read
 /// as a number it is a parse failure and the row disappears; assumed to be 18
 /// it is a factor of a million million on a six-decimal token.
-pub fn parse_tokens(body: &Value, chain: crate::EvmChain, token: EvmAddress) -> Vec<Transfer> {
-    let wanted = token.to_string().to_ascii_lowercase();
+pub fn parse_tokens(body: &Value, tokens: &[EvmToken]) -> Vec<Transfer> {
     items(body)
         .iter()
         .filter_map(|t| {
             let tok = t.get("token")?;
             let contract = tok.get("address_hash").or_else(|| tok.get("address"))?;
-            if !contract.as_str()?.eq_ignore_ascii_case(&wanted) {
-                return None;
-            }
+            let contract = EvmAddress::parse(contract.as_str()?).ok()?;
+            let known = tokens.iter().find(|k| k.address() == contract)?;
             let total = t.get("total")?;
             Some(Transfer {
                 hash: t
@@ -203,14 +185,14 @@ pub fn parse_tokens(body: &Value, chain: crate::EvmChain, token: EvmAddress) -> 
                 from: hash_of(t.get("from"))?,
                 to: hash_of(t.get("to"))?,
                 amount: big_int(total.get("value")?)?,
-                // The chain's own label, not the one in the reply.
+                // This wallet's own label, not the one in the reply.
                 //
                 // The row is already matched on the contract, so the name it
                 // carries is the real token's - but rendering a string a
                 // server sent is the habit this codebase does not have, and
                 // the assets screen has to agree. It showed USDT0 here and
                 // USDT there, for one balance.
-                symbol: chain.stable_label.to_string(),
+                symbol: known.label.to_string(),
                 decimals: num(total.get("decimals").or_else(|| tok.get("decimals"))?)? as u8,
                 // Milliseconds: what `Transfer` carries, not what the reply
                 // states.
@@ -358,7 +340,6 @@ mod tests {
     /// states rather than the one the chain's native coin happens to use.
     #[test]
     fn only_the_wanted_token_comes_through_and_keeps_its_precision() {
-        let usdt = crate::POLYGON.stable_address();
         let body = json!({"items": [
             {
                 "timestamp": "2026-06-27T07:59:25.000000Z",
@@ -381,7 +362,7 @@ mod tests {
                           "decimals": "6", "symbol": "USDT0"},
             },
         ]});
-        let rows = parse_tokens(&body, crate::POLYGON, usdt);
+        let rows = parse_tokens(&body, &[crate::POLYGON.tokens()[0]]);
         assert_eq!(rows.len(), 1, "another token came through: {rows:?}");
         assert_eq!(rows[0].amount, 2_700_000);
         assert_eq!(rows[0].decimals, 6, "read from the reply, not assumed");
@@ -401,7 +382,7 @@ mod tests {
     fn an_empty_reply_is_an_empty_history() {
         let empty = json!({"items": []});
         assert!(parse_coins(&empty, crate::POLYGON).is_empty());
-        assert!(parse_tokens(&empty, crate::POLYGON, crate::POLYGON.stable_address()).is_empty());
+        assert!(parse_tokens(&empty, &crate::POLYGON.tokens()).is_empty());
         assert!(parse_coins(&json!({}), crate::POLYGON).is_empty());
     }
 

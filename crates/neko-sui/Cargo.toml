@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 neko-hd = { path = "../neko-hd" }
 blake2 = "0.10"
-reqwest.workspace = true
+neko-net = { path = "../neko-net" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

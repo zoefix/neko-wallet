@@ -11,6 +11,7 @@
 //! cached.
 
 use neko_hd::SolanaAddress;
+use neko_net::{Request, Service};
 use serde_json::{json, Value};
 
 use crate::chain_consts;
@@ -21,8 +22,7 @@ use crate::error::SolanaError;
 pub const TOKEN_ACCOUNT_BYTES: usize = 165;
 
 pub struct Rpc {
-    url: String,
-    http: reqwest::Client,
+    net: Service,
 }
 
 /// A blockhash, with the block height past which it is worthless.
@@ -41,65 +41,48 @@ pub struct TokenBalance {
 }
 
 impl Rpc {
+    /// A configured `url` is the only cluster endpoint asked. Without one,
+    /// the public cluster is asked first and [`crate::endpoints`] stand
+    /// behind it.
     pub fn new(url: Option<&str>) -> Self {
         Rpc {
-            url: url
-                .filter(|u| !u.is_empty())
-                .unwrap_or(chain_consts::DEFAULT_RPC)
-                .to_string(),
-            http: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
-                .build()
-                .unwrap_or_default(),
+            net: Service::for_chain(url, chain_consts::DEFAULT_RPC, crate::endpoints::FALLBACKS)
+                .classify(neko_net::classify::jsonrpc),
         }
     }
 
-    /// POST a body and hand back the parsed JSON, retrying what is worth
-    /// retrying.
+    /// Send a body and hand back the parsed JSON.
     ///
     /// Shared by the single and batched calls. It was not, once, and history -
     /// the only batched caller - failed outright on the 429 that the public
-    /// cluster returns as a matter of course.
-    async fn post(&self, body: &Value) -> Result<Value, SolanaError> {
-        let mut last = None;
-        for attempt in 0..3u32 {
-            if attempt > 0 {
-                tokio::time::sleep(std::time::Duration::from_secs(1 << (attempt - 1))).await;
-            }
-            let resp = match self.http.post(&self.url).json(body).send().await {
-                Ok(r) => r,
-                Err(e) => {
-                    last = Some(SolanaError::Network(e.to_string()));
-                    continue;
-                }
-            };
-            // 429 is the public endpoint's normal state under load, and it is
-            // worth another attempt; the other 4xx are decisions.
-            if resp.status().is_server_error() || resp.status().as_u16() == 429 {
-                last = Some(SolanaError::Network(format!("HTTP {}", resp.status())));
-                continue;
-            }
-            if !resp.status().is_success() {
-                return Err(SolanaError::Network(format!("HTTP {}", resp.status())));
-            }
-            return resp
-                .json()
-                .await
-                .map_err(|e| SolanaError::BadReply(e.to_string()));
+    /// cluster returns as a matter of course. 429, 5xx and transport failures
+    /// are retried by the network layer; the other 4xx are decisions.
+    async fn post(&self, req: Request) -> Result<Value, SolanaError> {
+        let reply = self
+            .net
+            .send(req)
+            .await
+            .map_err(|e| SolanaError::Network(e.to_string()))?;
+        if !reply.is_success() {
+            return Err(SolanaError::Network(format!("HTTP {}", reply.status)));
         }
-        Err(last.unwrap_or_else(|| SolanaError::Network("no attempt succeeded".into())))
+        serde_json::from_str(&reply.body).map_err(|e| SolanaError::BadReply(e.to_string()))
     }
 
     /// Which cluster this will talk to. Exposed so a test can prove a
     /// configured URL actually reaches the network layer rather than being
     /// stored and then ignored.
     pub fn url(&self) -> &str {
-        &self.url
+        self.net.primary()
     }
 
     async fn call(&self, method: &str, params: Value) -> Result<Value, SolanaError> {
         let body = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
-        let v = self.post(&body).await?;
+        self.result(Request::post_json("", &body)).await
+    }
+
+    async fn result(&self, req: Request) -> Result<Value, SolanaError> {
+        let v = self.post(req).await?;
         if let Some(err) = v.get("error") {
             // The cluster decided. Trying again changes nothing.
             let msg = err
@@ -130,7 +113,9 @@ impl Rpc {
     /// somebody else's signature.
     pub(crate) async fn call_batch(&self, batch: Vec<Value>) -> Result<Vec<Value>, SolanaError> {
         let n = batch.len();
-        let v = self.post(&Value::Array(batch)).await?;
+        let v = self
+            .post(Request::post_json("", &Value::Array(batch)))
+            .await?;
         let arr = v
             .as_array()
             .ok_or_else(|| SolanaError::BadReply("a batch did not return an array".into()))?;
@@ -357,14 +342,17 @@ impl Rpc {
     }
 
     /// Broadcast. Returns the signature, which is also the transaction id.
+    ///
+    /// Never sent twice - see [`neko_net::Policy::Submit`]. The cluster's own
+    /// `maxRetries` is what keeps re-forwarding it to leaders.
     pub async fn send(&self, raw: &[u8]) -> Result<String, SolanaError> {
         let encoded = base64(raw);
-        let v = self
-            .call(
-                "sendTransaction",
-                json!([encoded, {"encoding": "base64", "preflightCommitment": "confirmed", "maxRetries": 3}]),
-            )
-            .await?;
+        let body = json!({
+            "jsonrpc": "2.0", "id": 1,
+            "method": "sendTransaction",
+            "params": [encoded, {"encoding": "base64", "preflightCommitment": "confirmed", "maxRetries": 3}],
+        });
+        let v = self.result(Request::post_json("", &body).submit()).await?;
         v.as_str()
             .map(str::to_string)
             .ok_or_else(|| SolanaError::BadReply("sendTransaction returned no signature".into()))

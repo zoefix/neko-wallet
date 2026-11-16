@@ -283,3 +283,64 @@ fn two_wallets_may_share_an_address() {
         Some((222, 6))
     );
 }
+
+/// Two dollars on one chain are two rows, each with its own contract - not one
+/// overwriting the other, and not a token stored as though it were the coin.
+#[test]
+fn usdt_and_usdc_on_one_chain_are_cached_apart() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = session(dir.path());
+    let id = s
+        .create_wallet(
+            "ledger",
+            NewWalletSpec::ImportMnemonic {
+                phrase: LEDGER_PHRASE,
+                passphrase: None,
+            },
+        )
+        .unwrap();
+
+    s.cache_assets(
+        id,
+        ChainId::Ethereum,
+        &[
+            ("ETH".into(), 18, 5 * 10i128.pow(17)),
+            ("USDT".into(), 6, 12_000_000),
+            ("USDC".into(), 6, 34_500_000),
+        ],
+    )
+    .unwrap();
+    let cached = s.cached_assets(id, ChainId::Ethereum).unwrap();
+    let rows: Vec<(&str, i128)> = cached
+        .rows
+        .iter()
+        .map(|r| (r.symbol.as_str(), r.amount))
+        .collect();
+    assert_eq!(rows.len(), 3, "{rows:?}");
+    assert!(rows.contains(&("USDT", 12_000_000)));
+    assert!(rows.contains(&("USDC", 34_500_000)));
+
+    // Each token row carries the contract the chain's own list names.
+    let conn = s.conn().unwrap();
+    for asset in ChainId::Ethereum.stables() {
+        let contract: Option<Vec<u8>> = conn
+            .query_row(
+                "SELECT contract FROM assets WHERE chain_id = ?1 AND symbol = ?2",
+                rusqlite::params![
+                    neko_store::repo::addresses::ETHEREUM_CHAIN_ID,
+                    asset.symbol()
+                ],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(contract, asset.contract_bytes(), "{}", asset.symbol());
+    }
+    let native: Option<Vec<u8>> = conn
+        .query_row(
+            "SELECT contract FROM assets WHERE chain_id = ?1 AND symbol = 'ETH'",
+            [neko_store::repo::addresses::ETHEREUM_CHAIN_ID],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(native, None, "the coin has no contract");
+}
